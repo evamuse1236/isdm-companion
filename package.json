@@ -1,0 +1,15 @@
+{
+  "name": "isdm-companion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A fast local dashboard for the ISDM LMS: one-tap attendance marking and a clean view of your schedule and rooms.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node --env-file=.env src/server.js",
+    "setup": "node tools/setup.js",
+    "test": "node tests/selftest.js && node tests/marktest.js"
+  }
+}
