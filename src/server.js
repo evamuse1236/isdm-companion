@@ -5,6 +5,7 @@
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { LmsClient, LmsError } from './lms.js';
@@ -232,6 +233,33 @@ function scheduleShutdown() {
   return when;
 }
 
+/** Open the dashboard in the default browser. Kept here rather than in the .cmd launcher,
+ *  because batch scripts are a fragile place to do anything conditional. */
+function openBrowser() {
+  const url = `http://localhost:${PORT}`;
+  try {
+    if (process.platform === 'win32') {
+      spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    } else {
+      spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
+    }
+  } catch (err) {
+    log.warn('boot', `could not open a browser: ${err.message}`);
+  }
+}
+
+// If the port is taken, another copy is already running: show that one instead of failing.
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    log.info('boot', `port ${PORT} is already in use - opening the copy that is already running`);
+    console.log(`\n  Already running. Opening http://localhost:${PORT}\n`);
+    if (process.env.OPEN_BROWSER === '1') openBrowser();
+    process.exit(0);
+  }
+  log.error('boot', `server error: ${err.message}`);
+  process.exit(1);
+});
+
 process.on('SIGINT', () => { log.info('exit', 'stopped by Ctrl+C'); process.exit(0); });
 process.on('uncaughtException', (err) => { log.error('crash', err.stack || err.message); process.exit(1); });
 process.on('unhandledRejection', (err) => { log.error('crash', String(err && err.stack || err)); });
@@ -251,6 +279,7 @@ server.listen(PORT, '127.0.0.1', async () => {
     ? `auto-mark ARMED${AUTO_MARK_HOURS ? ` for ${AUTO_MARK_HOURS}h` : ' for as long as the app is open'}`
     : 'auto-mark off - you will be asked to tap Mark');
   scheduleShutdown();
+  if (process.env.OPEN_BROWSER === '1') openBrowser();
 
   watch();
   setInterval(watch, 30_000);

@@ -1,13 +1,24 @@
 @echo off
+title ISDM Companion
 cd /d "%~dp0"
 
 if not exist ".env" (
-  copy ".env.example" ".env" >nul
   echo.
-  echo   Created .env - add your LMS email and password, save, then run start.cmd again.
+  echo   First run - setting you up.
   echo.
-  notepad ".env"
-  exit /b 1
+  call "%~dp0setup.cmd"
+  exit /b
 )
 
+echo.
+echo   Starting ISDM Companion...
+echo   Dashboard: http://localhost:4321
+echo   Keep this window open. Close it or press Ctrl+C to stop.
+echo.
+
+set OPEN_BROWSER=1
 node --env-file=.env src/server.js
+
+echo.
+echo   Server stopped.
+pause

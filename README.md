@@ -164,7 +164,14 @@ Set `COHORTS` explicitly in `.env`, e.g. `COHORTS=Section A,Group 1`.
 **No desktop toasts** — check Windows notification settings, or set `NOTIFY=0` and rely on the
 browser alerts instead.
 
-**Port already in use** — something else is on 4321. Change `PORT` in `.env`.
+**Port already in use** — if it's another copy of this app, the launcher notices and just opens
+the dashboard that's already running. If it's something else, change `PORT` in `.env`.
+
+**The launcher flashes and closes, or says a `.cmd` file "is not recognized"** — the batch
+files need Windows CRLF line endings, and some machines set
+`NoDefaultCurrentDirectoryInExePath`, which stops `cmd` finding a script by bare name. Both are
+handled here (see `.gitattributes` and the full paths in `start.cmd`), but if you edit the
+launchers in an editor that saves Unix line endings you will reintroduce it.
 
 ## Layout
 

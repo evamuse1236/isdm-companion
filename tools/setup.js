@@ -68,39 +68,16 @@ async function askHidden(question) {
 
 const closePrompts = () => { if (rl) rl.close(); };
 
+// The Desktop shortcut just calls start.cmd, so there is only one launcher to maintain.
+// Two things are load-bearing here:
+//   - CRLF line endings; cmd.exe mis-parses batch files that only have LF.
+//   - The full path to start.cmd. Some machines set NoDefaultCurrentDirectoryInExePath,
+//     which stops cmd searching the working directory, so a bare name is not found.
 function desktopLauncher(root) {
   return [
     '@echo off',
     'title ISDM Companion',
-    `cd /d "${root}"`,
-    '',
-    'if not exist ".env" (',
-    '  echo   Missing .env - run setup.cmd in the project folder first.',
-    '  pause',
-    '  exit /b 1',
-    ')',
-    '',
-    'rem If it is already running, just open the dashboard instead of starting a second copy.',
-    'netstat -ano | findstr ":4321" | findstr "LISTENING" >nul 2>&1',
-    'if %errorlevel%==0 (',
-    '  echo   Already running - opening the dashboard.',
-    '  start "" http://localhost:4321',
-    '  exit /b 0',
-    ')',
-    '',
-    'echo.',
-    'echo   Starting ISDM Companion...',
-    'echo   Dashboard: http://localhost:4321',
-    'echo   Keep this window open. Close it or press Ctrl+C to stop.',
-    'echo.',
-    '',
-    'start "" /min powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep -Seconds 3; Start-Process \'http://localhost:4321\'"',
-    '',
-    'node --env-file=.env src/server.js',
-    '',
-    'echo.',
-    'echo   Server stopped.',
-    'pause',
+    `call "${path.join(root, 'start.cmd')}"`,
     '',
   ].join('\r\n');
 }
