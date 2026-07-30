@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseLabelTable, parseForms, parseAttrs } from '../src/html.js';
 import { Logger } from '../src/log.js';
+import { withRetry } from '../src/retry.js';
 import { buildSessions, detectCohorts, parseTitle, sessionState, parseLmsTime } from '../src/schedule.js';
 import { AutoMarker, msUntilTimeOfDay } from '../src/automark.js';
 import { parseRoomFloors, floorFor, floorLabel } from '../src/rooms.js';
@@ -240,6 +241,49 @@ test('the log prunes files older than the retention window', () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// withRetry is async, so these run outside the sync `test` helper.
+async function asyncTest(name, fn) {
+  try { await fn(); passed++; console.log(`  ok   ${name}`); }
+  catch (err) { failed++; console.error(`  FAIL ${name}\n       ${err.message}`); }
+}
+
+await asyncTest('a transient failure right after wake is retried, not left for the next tick', async () => {
+  let calls = 0;
+  const waits = [];
+  const result = await withRetry(async () => {
+    calls++;
+    // Mimics fetch failing until the network comes back after resume.
+    if (calls < 3) throw new Error('fetch failed');
+    return 'day data';
+  }, { attempts: 5, delayMs: 4000, wait: async (ms) => { waits.push(ms); } });
+
+  assert.equal(result, 'day data');
+  assert.equal(calls, 3, 'should keep trying until it works');
+  assert.deepEqual(waits, [4000, 4000], 'should wait between attempts, not spin');
+});
+
+await asyncTest('retries give up and rethrow the last error', async () => {
+  let calls = 0;
+  const seen = [];
+  await assert.rejects(
+    () => withRetry(async () => { calls++; throw new Error('fetch failed'); },
+      { attempts: 3, wait: async () => {}, onRetry: (err, n) => seen.push(n) }),
+    /fetch failed/,
+  );
+  assert.equal(calls, 3, 'exactly the requested number of attempts');
+  assert.deepEqual(seen, [1, 2], 'onRetry fires between attempts only');
+});
+
+await asyncTest('a successful first call does not retry or wait', async () => {
+  let calls = 0;
+  let waited = false;
+  const out = await withRetry(async () => { calls++; return 'ok'; },
+    { attempts: 5, wait: async () => { waited = true; } });
+  assert.equal(out, 'ok');
+  assert.equal(calls, 1);
+  assert.equal(waited, false);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
