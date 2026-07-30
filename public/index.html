@@ -18,6 +18,7 @@
   <nav class="tabs" role="tablist">
     <button class="tab is-active" data-view="today" role="tab">Today</button>
     <button class="tab" data-view="week" role="tab">Week</button>
+    <button class="tab" data-view="log" role="tab">Log</button>
   </nav>
 </header>
 
@@ -55,6 +56,21 @@
       <button class="daynav-btn" id="next-week" title="Next week">›</button>
     </div>
     <div class="week" id="week"></div>
+  </section>
+
+  <section id="view-log" class="view is-hidden">
+    <div class="daynav">
+      <h2 class="daynav-label">Activity log</h2>
+      <select class="logpick" id="log-date"></select>
+      <button class="daynav-today" id="log-refresh">Refresh</button>
+    </div>
+    <div class="logfilters" id="log-filters">
+      <button class="chip is-active" data-level="all">All</button>
+      <button class="chip" data-level="problems">Problems only</button>
+      <button class="chip" data-level="auto">Auto-mark</button>
+      <button class="chip" data-level="mark">Marks</button>
+    </div>
+    <div class="logbox" id="logbox"></div>
   </section>
 </main>
 

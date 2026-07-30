@@ -1,5 +1,6 @@
-// Local dashboard server. Serves the UI from /public and a small JSON API,
-// and runs a background watcher that toasts you when a class opens for marking.
+// Local dashboard server. Serves the UI from /public and a small JSON API, runs a background
+// watcher that marks (or nudges you about) classes as they open, and shuts itself down at the
+// end of the teaching day.
 
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -9,17 +10,29 @@ import { fileURLToPath } from 'node:url';
 import { LmsClient, LmsError } from './lms.js';
 import { Service } from './service.js';
 import { toast } from './notify.js';
-import { AutoMarker } from './automark.js';
+import { AutoMarker, msUntilTimeOfDay } from './automark.js';
+import { Logger } from './log.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PUBLIC_DIR = path.join(HERE, '..', 'public');
+const ROOT = path.join(HERE, '..');
+const PUBLIC_DIR = path.join(ROOT, 'public');
 const PORT = Number(process.env.PORT || 4321);
 const NOTIFY = process.env.NOTIFY !== '0';
 const LATE_AFTER_MINUTES = Number(process.env.LATE_AFTER_MINUTES || 10);
-const AUTO_MARK_HOURS = Number(process.env.AUTO_MARK_HOURS || 3);
+const AUTO_MARK_HOURS = Number(process.env.AUTO_MARK_HOURS || 0);
+const SHUTDOWN_AT = (process.env.SHUTDOWN_AT || '').trim();
+
+const log = new Logger({
+  dir: path.join(ROOT, 'logs'),
+  level: process.env.LOG_LEVEL || 'info',
+});
 
 const client = new LmsClient({ email: process.env.LMS_EMAIL, password: process.env.LMS_PASSWORD });
-const service = new Service(client, { lateAfterMinutes: LATE_AFTER_MINUTES, cohortOverride: process.env.COHORTS });
+const service = new Service(client, {
+  lateAfterMinutes: LATE_AFTER_MINUTES,
+  cohortOverride: process.env.COHORTS,
+  roomFloors: process.env.ROOM_FLOORS,
+});
 const autoMarker = new AutoMarker({
   enabled: process.env.AUTO_MARK === '1',
   windowMs: AUTO_MARK_HOURS * 3_600_000,
@@ -28,9 +41,8 @@ const autoMarker = new AutoMarker({
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
 
 function sendJson(res, status, payload) {
-  const body = JSON.stringify(payload);
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(body);
+  res.end(JSON.stringify(payload));
 }
 
 async function readBody(req) {
@@ -66,20 +78,29 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/mark' && req.method === 'POST') {
       const { nid } = await readBody(req);
       if (!nid || !/^\d+$/.test(String(nid))) return sendJson(res, 400, { error: 'A numeric session id is required.' });
+      log.info('mark', `manual mark requested for ${nid}`);
       const detail = await service.mark(String(nid));
       if (!detail.marked) {
+        log.warn('mark', `${nid}: LMS accepted the request but still reports unmarked`);
         return sendJson(res, 409, { error: 'The LMS accepted the request but still shows you as unmarked. Its marking window may have closed.', detail });
       }
+      log.info('mark', `marked ${detail.title || nid} - status ${detail.status}`);
       return sendJson(res, 200, { ok: true, detail });
     }
     if (url.pathname === '/api/automark') {
       if (req.method === 'POST') {
         const { on } = await readBody(req);
-        // Re-arming is explicit: each POST restarts the window from now.
         on ? autoMarker.arm() : autoMarker.disarm();
-        console.log(`[auto] ${on ? `armed for ${AUTO_MARK_HOURS}h` : 'disarmed'}`);
+        log.info('auto', on
+          ? `armed from the dashboard${AUTO_MARK_HOURS ? ` for ${AUTO_MARK_HOURS}h` : ' for as long as the app is open'}`
+          : 'disarmed from the dashboard');
       }
-      return sendJson(res, 200, autoMarker.status());
+      return sendJson(res, 200, { ...autoMarker.status(), shutdownAt: SHUTDOWN_AT || null });
+    }
+    if (url.pathname === '/api/log') {
+      const days = log.days();
+      const date = url.searchParams.get('date') || days[0] || null;
+      return sendJson(res, 200, { date, days, entries: date ? log.read(date) : [] });
     }
     if (url.pathname === '/api/whoami') {
       if (!client.uid) await client.login();
@@ -96,59 +117,69 @@ const server = http.createServer(async (req, res) => {
     return await serveStatic(res, url.pathname);
   } catch (err) {
     const status = err instanceof LmsError ? 502 : 500;
-    console.error(`[api] ${url.pathname}:`, err.message);
+    log.error('api', `${url.pathname}: ${err.message}`);
     return sendJson(res, status, { error: err.message });
   }
 });
 
 // ---------------------------------------------------------------------------
-// Background watcher: notice the moment a class becomes markable, and — when
-// auto-marking is armed — mark it without waiting for a tap.
+// Background watcher
 // ---------------------------------------------------------------------------
 
 const notified = new Map(); // nid -> {opened, nudged, autoTries}
 let watcherDay = null;
-let expiryAnnounced = false;
+let lastAutoReason = null;
 
 async function watch() {
   try {
     const today = await service.day();
-    if (watcherDay !== today.date) { notified.clear(); watcherDay = today.date; }
-
-    // Say so once when an arming lapses, so a quiet app is never mistaken for an armed one.
-    if (autoMarker.isExpired() && !expiryAnnounced) {
-      expiryAnnounced = true;
-      console.log('[auto] arming window expired — no longer marking automatically');
-      if (NOTIFY) toast('Auto-mark switched off', `The ${AUTO_MARK_HOURS}h window ended. Re-arm it at http://localhost:${PORT}`);
+    if (watcherDay !== today.date) {
+      notified.clear();
+      watcherDay = today.date;
+      log.info('watch', `tracking ${today.date}: ${today.sessions.length} session(s), ${today.sessions.filter((s) => s.nid).length} markable`);
     }
-    if (autoMarker.isActive()) expiryAnnounced = false;
+
+    // Record the moment auto-marking stops being effective, whatever the cause.
+    const reason = autoMarker.reason();
+    if (reason !== lastAutoReason) {
+      if (lastAutoReason === 'active' && reason !== 'active') {
+        log.warn('auto', `no longer marking automatically (${reason})`);
+        if (NOTIFY) toast('Auto-mark switched off', `Reason: ${reason}. Re-arm at http://localhost:${PORT}`);
+      }
+      lastAutoReason = reason;
+    }
 
     for (const session of today.sessions) {
       if (!session.nid) continue;
       const stage = notified.get(session.nid) || { opened: false, nudged: false, autoTries: 0 };
 
-      if (session.marked) { notified.set(session.nid, { ...stage, opened: true, nudged: true }); continue; }
+      if (session.marked) {
+        if (!stage.opened) log.debug('watch', `${session.name} already marked (${session.status})`);
+        notified.set(session.nid, { ...stage, opened: true, nudged: true });
+        continue;
+      }
 
-      const where = session.room ? ` in ${session.room}` : '';
+      const where = session.room ? ` in ${session.room}${session.floorLabel ? `, ${session.floorLabel}` : ''}` : '';
       const at = new Date(session.startMs).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
 
       // --- auto-mark ---------------------------------------------------
       if (session.state === 'open' && autoMarker.isActive() && stage.autoTries < 3) {
         stage.autoTries++;
         notified.set(session.nid, stage);
+        log.info('auto', `${session.name} is open - marking (attempt ${stage.autoTries})`);
         try {
           const detail = await service.mark(session.nid);
           if (detail.marked) {
             stage.opened = true;
             stage.nudged = true;
-            console.log(`[auto] marked ${session.name} (${session.nid})`);
-            if (NOTIFY) toast(`Marked present: ${session.name}`, `${at}${where} — marked automatically.`);
+            log.info('auto', `marked ${session.name} (${session.nid}) - status ${detail.status}`);
+            if (NOTIFY) toast(`Marked present: ${session.name}`, `${at}${where} - marked automatically.`);
             notified.set(session.nid, stage);
             continue;
           }
-          console.warn(`[auto] ${session.name}: LMS still shows unmarked after marking`);
+          log.warn('auto', `${session.name}: LMS still reports unmarked after marking`);
         } catch (err) {
-          console.warn(`[auto] ${session.name}: ${err.message}`);
+          log.error('auto', `${session.name}: ${err.message}`);
           if (stage.autoTries >= 3 && NOTIFY) {
             toast(`Could not auto-mark: ${session.name}`, 'Open the dashboard and mark it yourself.');
           }
@@ -158,41 +189,69 @@ async function watch() {
       }
 
       // --- otherwise, just nudge ---------------------------------------
-      if (!NOTIFY) { notified.set(session.nid, stage); continue; }
-
       if (session.state === 'open' && !stage.opened) {
-        toast(`Mark attendance: ${session.name}`, `${at}${where} — open http://localhost:${PORT} and tap Mark.`);
+        log.info('watch', `${session.name} is open for marking${autoMarker.isActive() ? '' : ' (auto-mark off)'}`);
+        if (NOTIFY) toast(`Mark attendance: ${session.name}`, `${at}${where} - open http://localhost:${PORT} and tap Mark.`);
         stage.opened = true;
       }
 
-      // A second nudge with a couple of minutes to spare before the late cutoff.
       const minutesIn = (Date.now() - session.startMs) / 60_000;
       if (session.state === 'open' && stage.opened && !stage.nudged
           && minutesIn >= LATE_AFTER_MINUTES - 3 && minutesIn < LATE_AFTER_MINUTES) {
         const left = Math.max(1, Math.round(LATE_AFTER_MINUTES - minutesIn));
-        toast(`Still unmarked: ${session.name}`, `About ${left} min before you are counted late.`);
+        log.warn('watch', `${session.name} still unmarked, ~${left} min before late`);
+        if (NOTIFY) toast(`Still unmarked: ${session.name}`, `About ${left} min before you are counted late.`);
         stage.nudged = true;
       }
       notified.set(session.nid, stage);
     }
   } catch (err) {
-    console.warn('[watch]', err.message);
+    log.error('watch', err.message);
   }
 }
 
+// ---------------------------------------------------------------------------
+// Daily shutdown
+// ---------------------------------------------------------------------------
+
+function scheduleShutdown() {
+  const ms = msUntilTimeOfDay(SHUTDOWN_AT);
+  if (ms === null) {
+    if (SHUTDOWN_AT) log.warn('boot', `SHUTDOWN_AT="${SHUTDOWN_AT}" is not HH:MM - ignoring`);
+    return;
+  }
+  const when = new Date(Date.now() + ms);
+  log.info('boot', `will shut down at ${SHUTDOWN_AT} (in ${Math.round(ms / 60000)} min)`);
+  setTimeout(() => {
+    log.info('exit', `shutting down at ${SHUTDOWN_AT} as configured`);
+    if (NOTIFY) toast('ISDM Companion stopped', `Daily shutdown at ${SHUTDOWN_AT}. Start it again tomorrow.`);
+    server.close(() => process.exit(0));
+    // Don't hang on a stuck connection.
+    setTimeout(() => process.exit(0), 3000).unref();
+  }, ms).unref?.();
+  return when;
+}
+
+process.on('SIGINT', () => { log.info('exit', 'stopped by Ctrl+C'); process.exit(0); });
+process.on('uncaughtException', (err) => { log.error('crash', err.stack || err.message); process.exit(1); });
+process.on('unhandledRejection', (err) => { log.error('crash', String(err && err.stack || err)); });
+
 server.listen(PORT, '127.0.0.1', async () => {
   console.log(`\n  ISDM Companion  ->  http://localhost:${PORT}\n`);
+  log.info('boot', `server listening on ${PORT}`);
   try {
     const who = await client.login();
     const cohorts = await service.cohorts();
     const tags = [...cohorts.sections].map((s) => `Section ${s}`).concat([...cohorts.groups].map((g) => `Group ${g}`));
-    console.log(`  Signed in as uid ${who.uid}${tags.length ? ` (${tags.join(', ')})` : ''}`);
-    console.log(autoMarker.isActive()
-      ? `  Auto-mark ARMED for ${AUTO_MARK_HOURS}h — classes will be marked without asking`
-      : '  Auto-mark off — you will be asked to tap Mark');
+    log.info('boot', `signed in as uid ${who.uid}${tags.length ? ` (${tags.join(', ')})` : ''}`);
   } catch (err) {
-    console.error(`  Sign-in failed: ${err.message}`);
+    log.error('boot', `sign-in failed: ${err.message}`);
   }
+  log.info('boot', autoMarker.isActive()
+    ? `auto-mark ARMED${AUTO_MARK_HOURS ? ` for ${AUTO_MARK_HOURS}h` : ' for as long as the app is open'}`
+    : 'auto-mark off - you will be asked to tap Mark');
+  scheduleShutdown();
+
   watch();
   setInterval(watch, 30_000);
 });

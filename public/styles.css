@@ -202,6 +202,7 @@ body {
 .fact-k { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 3px; }
 .fact-v { font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
 .fact--room .fact-v { color: var(--accent-ink); font-size: 22px; }
+.fact-floor { font-size: 14px; font-weight: 600; color: var(--ink-soft); margin-left: 4px; }
 .fact-v.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
 /* ---------- the button ---------- */
@@ -337,6 +338,57 @@ body {
 .witem-name { font-weight: 570; }
 .witem-room { font-size: 12px; color: var(--cool); font-weight: 600; }
 .wday-none { font-size: 13px; color: var(--ink-faint); font-style: italic; }
+
+/* ---------- activity log ---------- */
+
+.logpick {
+  font: inherit; font-size: 12.5px; color: var(--ink);
+  background: var(--bg-raise); border: 1px solid var(--line);
+  border-radius: 9px; padding: 6px 10px; cursor: pointer;
+}
+
+.logfilters { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 12px; }
+
+.chip {
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  background: var(--bg-raise); border: 1px solid var(--line); color: var(--ink-soft);
+  padding: 6px 13px; border-radius: 999px;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.chip:hover { color: var(--ink); }
+.chip.is-active { background: var(--bg-raise-2); color: var(--ink); border-color: var(--ink-faint); }
+
+.logbox {
+  background: var(--bg-raise); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 6px 0;
+  max-height: 62vh; overflow: auto;
+}
+
+.logrow {
+  display: grid; grid-template-columns: 74px 62px 84px 1fr;
+  gap: 10px; align-items: baseline;
+  padding: 6px 16px;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.logrow:first-child { border-top: 0; }
+.logrow-time { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.logrow-level { font-weight: 700; font-size: 11px; letter-spacing: .05em; }
+.logrow-scope { color: var(--cool); }
+.logrow-msg { color: var(--ink); word-break: break-word; }
+
+.logrow--info  .logrow-level { color: var(--ink-faint); }
+.logrow--debug .logrow-level { color: var(--ink-faint); }
+.logrow--warn  .logrow-level { color: var(--accent-ink); }
+.logrow--error .logrow-level { color: var(--warn); }
+.logrow--warn  { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.logrow--error { background: color-mix(in srgb, var(--warn) 8%, transparent); }
+
+@media (max-width: 620px) {
+  .logrow { grid-template-columns: 66px 1fr; }
+  .logrow-scope { grid-column: 2; }
+  .logrow-msg { grid-column: 1 / -1; }
+}
 
 /* ---------- footer + toasts ---------- */
 

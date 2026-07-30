@@ -96,7 +96,8 @@ function renderHero(day) {
   }
 
   const facts = [
-    focus.room ? `<div class="fact fact--room"><div class="fact-k">Room</div><div class="fact-v">${escapeHtml(focus.room)}</div></div>` : '',
+    focus.room ? `<div class="fact fact--room"><div class="fact-k">Room</div><div class="fact-v">${escapeHtml(focus.room)}${
+      focus.floorLabel ? ` <span class="fact-floor">${escapeHtml(focus.floorLabel)}</span>` : ''}</div></div>` : '',
     `<div class="fact"><div class="fact-k">Time</div><div class="fact-v mono">${clock(focus.start)}–${focus.end ? clock(focus.end) : ''}</div></div>`,
     focus.trainer ? `<div class="fact"><div class="fact-k">Trainer</div><div class="fact-v">${escapeHtml(focus.trainer)}</div></div>` : '',
   ].join('');
@@ -162,7 +163,7 @@ function renderTimeline(day) {
   list.innerHTML = day.sessions.map((s) => {
     const [pillClass, pillText] = STATE_PILL[s.state] || ['', ''];
     const meta = [
-      s.room ? `<span class="row-room">${escapeHtml(s.room)}</span>` : '',
+      s.room ? `<span class="row-room">${escapeHtml(s.room)}${s.floor !== null && s.floor !== undefined ? ` · Fl ${s.floor}` : ''}</span>` : '',
       s.trainer ? `<span>${escapeHtml(s.trainer)}</span>` : '',
       s.session ? `<span>Session ${s.session}</span>` : '',
     ].filter(Boolean).join('');
@@ -198,7 +199,7 @@ function renderWeek(week) {
       ? d.sessions.map((s) => `<div class="witem">
           <span class="witem-time">${clock(s.start)}–${s.end ? clock(s.end) : ''}</span>
           <span class="witem-name">${escapeHtml(s.name)}${s.session ? ` <span style="color:var(--ink-faint);font-weight:400">· S${s.session}</span>` : ''}</span>
-          <span class="witem-room">${escapeHtml(s.room || '')}</span>
+          <span class="witem-room">${escapeHtml(s.room || '')}${s.floor !== null && s.floor !== undefined ? ` · Fl ${s.floor}` : ''}</span>
         </div>`).join('')
       : '<div class="wday-none">No classes</div>';
 
@@ -280,19 +281,27 @@ function describeRemaining(ms) {
   return `${h}h ${mins % 60}m`;
 }
 
+const AUTO_STOPPED = {
+  'window-elapsed': 'The arming window ran out. Switch it back on if you are still in class.',
+  'new-day': 'It was armed yesterday. Switch it on again for today.',
+};
+
 function renderAuto(status) {
   const bar = $('#autobar');
-  const toggle = $('#auto-toggle');
-  toggle.checked = status.active;
+  $('#auto-toggle').checked = status.active;
   bar.classList.toggle('autobar--on', status.active);
 
   if (status.active) {
-    const until = new Date(status.expiresAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
     $('#auto-title').textContent = 'Auto-mark is on';
-    $('#auto-sub').textContent = `Classes will be marked without asking, until ${until} (${describeRemaining(status.msRemaining)} left).`;
+    const until = status.expiresAt
+      ? `until ${new Date(status.expiresAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })} (${describeRemaining(status.msRemaining)} left)`
+      : status.shutdownAt
+        ? `for as long as the app is open — it shuts down at ${status.shutdownAt}`
+        : 'for as long as the app is open';
+    $('#auto-sub').textContent = `Classes will be marked without asking, ${until}.`;
   } else if (status.expired) {
-    $('#auto-title').textContent = 'Auto-mark expired';
-    $('#auto-sub').textContent = `The ${status.windowHours}h window ran out. Switch it back on if you're still in class.`;
+    $('#auto-title').textContent = 'Auto-mark stopped';
+    $('#auto-sub').textContent = AUTO_STOPPED[status.reason] || 'It is no longer marking automatically.';
   } else {
     $('#auto-title').textContent = 'Auto-mark off';
     $('#auto-sub').textContent = "You'll be asked to tap Mark.";
@@ -309,13 +318,66 @@ $('#auto-toggle').addEventListener('change', async (event) => {
     const status = await api('/api/automark', { method: 'POST', body: JSON.stringify({ on }) });
     renderAuto(status);
     toast(on
-      ? `Auto-mark on for ${status.windowHours}h — classes will be marked without asking.`
+      ? 'Auto-mark on — classes will be marked without asking.'
       : 'Auto-mark off.', on ? 'good' : '');
     if (on) load({ silent: true });
   } catch (err) {
     toast(err.message, 'bad');
     event.target.checked = !on;
   }
+});
+
+// ---------------------------------------------------------------- activity log
+
+let logFilter = 'all';
+let logEntries = [];
+
+const LOG_FILTERS = {
+  all: () => true,
+  problems: (e) => e.level === 'warn' || e.level === 'error',
+  auto: (e) => e.scope === 'auto',
+  mark: (e) => e.scope === 'mark' || e.scope === 'auto',
+};
+
+function renderLog() {
+  const box = $('#logbox');
+  const rows = logEntries.filter(LOG_FILTERS[logFilter] || LOG_FILTERS.all);
+  if (!rows.length) {
+    box.innerHTML = '<div class="empty" style="border:0">Nothing logged for this filter.</div>';
+    return;
+  }
+  box.innerHTML = rows.map((e) => `<div class="logrow logrow--${escapeHtml(e.level)}">
+    <span class="logrow-time">${escapeHtml(e.time)}</span>
+    <span class="logrow-level">${escapeHtml(e.level.toUpperCase())}</span>
+    <span class="logrow-scope">${escapeHtml(e.scope)}</span>
+    <span class="logrow-msg">${escapeHtml(e.message)}</span>
+  </div>`).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+async function loadLog(date) {
+  try {
+    const query = date ? `?date=${date}` : '';
+    const data = await api(`/api/log${query}`);
+    logEntries = data.entries;
+    const picker = $('#log-date');
+    if (picker.options.length !== data.days.length || picker.value !== data.date) {
+      picker.innerHTML = data.days.map((d) => `<option value="${d}"${d === data.date ? ' selected' : ''}>${d}</option>`).join('');
+    }
+    renderLog();
+  } catch (err) {
+    $('#logbox').innerHTML = `<div class="empty" style="border:0">Could not read the log: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+$('#log-date').addEventListener('change', (e) => loadLog(e.target.value));
+$('#log-refresh').addEventListener('click', () => loadLog($('#log-date').value));
+document.querySelectorAll('#log-filters .chip').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('#log-filters .chip').forEach((c) => c.classList.toggle('is-active', c === chip));
+    logFilter = chip.dataset.level;
+    renderLog();
+  });
 });
 
 // ---------------------------------------------------------------- loading
@@ -335,6 +397,8 @@ async function load({ silent = false } = {}) {
       renderTimeline(day);
       notifyIfNewlyOpen(day);
       loadAuto();
+    } else if (state.view === 'log') {
+      await loadLog($('#log-date').value || null);
     } else {
       const query = state.weekStart ? `?start=${state.weekStart}` : '';
       const week = await api(`/api/week${query}`);
@@ -356,8 +420,9 @@ document.querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('is-active', t === tab));
     state.view = tab.dataset.view;
-    $('#view-today').classList.toggle('is-hidden', state.view !== 'today');
-    $('#view-week').classList.toggle('is-hidden', state.view !== 'week');
+    for (const view of ['today', 'week', 'log']) {
+      $(`#view-${view}`).classList.toggle('is-hidden', state.view !== view);
+    }
     load();
   });
 });

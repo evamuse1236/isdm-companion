@@ -5,6 +5,7 @@
 import {
   buildSessions, detectCohorts, parseCohortOverride, sessionState, ymd, addDays,
 } from './schedule.js';
+import { parseRoomFloors, floorFor, floorLabel } from './rooms.js';
 
 const MINUTE = 60_000;
 
@@ -22,10 +23,11 @@ async function pooled(items, limit, worker) {
 }
 
 export class Service {
-  constructor(client, { lateAfterMinutes = 10, cohortOverride = '' } = {}) {
+  constructor(client, { lateAfterMinutes = 10, cohortOverride = '', roomFloors = '' } = {}) {
     this.client = client;
     this.lateAfterMinutes = lateAfterMinutes;
     this.cohortOverride = parseCohortOverride(cohortOverride);
+    this.roomFloors = parseRoomFloors(roomFloors);
     this.calendarCache = new Map();
     this.detailCache = new Map();
     this.markCache = null;
@@ -117,6 +119,8 @@ export class Service {
     for (const row of rows) {
       row.state = sessionState(row, now);
       row.lateAfter = row.nid ? new Date(row.startMs + this.lateAfterMinutes * MINUTE).toISOString() : null;
+      row.floor = floorFor(row.room, this.roomFloors);
+      row.floorLabel = floorLabel(row.room, this.roomFloors);
       delete row.key;
       delete row.mine;
     }
