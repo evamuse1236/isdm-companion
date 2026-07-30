@@ -100,6 +100,17 @@ export class LmsClient {
     return /name="form_id"[^>]*value="user_login/i.test(page.text) || /\/user\/login/.test(page.url);
   }
 
+  /**
+   * Throw away the session so the next request logs in afresh.
+   * Used after the laptop wakes: the cookie may have lapsed and the kept-alive sockets are
+   * dead, and it is cheaper to start clean than to work out which.
+   */
+  reset() {
+    this.jar.clear();
+    this.uid = null;
+    this.loginPromise = null;
+  }
+
   async login() {
     // Collapse concurrent callers onto a single in-flight login.
     if (this.loginPromise) return this.loginPromise;

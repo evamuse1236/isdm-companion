@@ -10,6 +10,6 @@
   "scripts": {
     "start": "node --env-file=.env src/server.js",
     "setup": "node tools/setup.js",
-    "test": "node tests/selftest.js && node tests/marktest.js"
+    "test": "node tests/selftest.js && node tests/marktest.js && node tests/resumetest.js"
   }
 }

@@ -67,6 +67,14 @@ export class Service {
     this.markCache = null;
   }
 
+  /** Drop everything cached. Used after a resume, when any of it could be stale. */
+  resetCaches() {
+    this.calendarCache.clear();
+    this.detailCache.clear();
+    this.markCache = null;
+    this.cohortCache = null;
+  }
+
   async markability(maxAge = 20_000) {
     if (this.markCache && Date.now() - this.markCache.ts < maxAge) return this.markCache.data;
     const data = await this.client.markability();

@@ -13,7 +13,6 @@ import { Service } from './service.js';
 import { toast } from './notify.js';
 import { AutoMarker, msUntilTimeOfDay } from './automark.js';
 import { Logger } from './log.js';
-import { keepAwake, releaseAwake } from './keepawake.js';
 import { withRetry } from './retry.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -146,17 +145,26 @@ const dayWithRetry = (attempts) => withRetry(() => service.day(), {
 });
 
 async function watch() {
-  // A gap far longer than the tick interval means the process was suspended - the laptop
-  // slept. Say so plainly in the log, and try harder to get back on the network.
+  // A gap far longer than the tick interval means the process was frozen - the laptop went
+  // into standby. Windows also cuts networking there, so the session and every cached read
+  // are suspect. Rather than work out what survived, start the LMS side over from scratch.
   const gap = Date.now() - lastTickAt;
   lastTickAt = Date.now();
   const resumed = gap > TICK_MS * 3;
   if (resumed) {
-    log.warn('watch', `resumed after ${Math.round(gap / 60000)} min suspended (laptop asleep?) - catching up`);
+    log.warn('watch', `resumed after ${Math.round(gap / 60000)} min asleep - restarting the LMS session`);
+    client.reset();
+    service.resetCaches();
+    notified.clear(); // re-evaluate every session against what the LMS says now
   }
 
   try {
-    const today = await dayWithRetry(resumed ? 5 : 2);
+    // Networking takes a few seconds to come back after a wake, so be patient on resume.
+    const today = await dayWithRetry(resumed ? 8 : 2);
+    if (resumed) {
+      const open = today.sessions.filter((s) => s.state === 'open').length;
+      log.info('watch', `back online - ${today.sessions.filter((s) => s.nid && !s.marked).length} unmarked, ${open} open right now`);
+    }
     lastTickAt = Date.now(); // retries can take a while; don't count them as a new gap
     if (watcherDay !== today.date) {
       notified.clear();
@@ -250,7 +258,6 @@ function scheduleShutdown() {
   setTimeout(() => {
     log.info('exit', `shutting down at ${SHUTDOWN_AT} as configured`);
     if (NOTIFY) toast('ISDM Companion stopped', `Daily shutdown at ${SHUTDOWN_AT}. Start it again tomorrow.`);
-    releaseAwake();
     server.close(() => process.exit(0));
     // Don't hang on a stuck connection.
     setTimeout(() => process.exit(0), 3000).unref();
@@ -285,9 +292,8 @@ server.on('error', (err) => {
   process.exit(1);
 });
 
-process.on('SIGINT', () => { log.info('exit', 'stopped by Ctrl+C'); releaseAwake(); process.exit(0); });
-process.on('exit', releaseAwake);
-process.on('uncaughtException', (err) => { log.error('crash', err.stack || err.message); releaseAwake(); process.exit(1); });
+process.on('SIGINT', () => { log.info('exit', 'stopped by Ctrl+C'); process.exit(0); });
+process.on('uncaughtException', (err) => { log.error('crash', err.stack || err.message); process.exit(1); });
 process.on('unhandledRejection', (err) => { log.error('crash', String(err && err.stack || err)); });
 
 server.listen(PORT, '127.0.0.1', async () => {
@@ -305,15 +311,6 @@ server.listen(PORT, '127.0.0.1', async () => {
     ? `auto-mark ARMED${AUTO_MARK_HOURS ? ` for ${AUTO_MARK_HOURS}h` : ' for as long as the app is open'}`
     : 'auto-mark off - you will be asked to tap Mark');
   scheduleShutdown();
-
-  if (process.env.KEEP_AWAKE === '1') {
-    log.info('awake', keepAwake(log)
-      ? 'holding the system awake - idle sleep is blocked while this runs (closing the lid still sleeps)'
-      : 'could not hold the system awake');
-  } else if (autoMarker.isActive()) {
-    log.warn('awake', 'KEEP_AWAKE is off - if the laptop sleeps through a class start, it cannot be marked');
-  }
-
   if (process.env.OPEN_BROWSER === '1') openBrowser();
 
   watch();

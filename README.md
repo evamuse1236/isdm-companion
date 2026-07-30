@@ -51,7 +51,6 @@ Edit `.env` to change any of these.
 | `AUTO_MARK` | `0` | Mark classes automatically — see below |
 | `AUTO_MARK_HOURS` | `0` | Extra expiry on an arming; `0` = while the app is open |
 | `SHUTDOWN_AT` | `18:00` | Stop the server at this time daily; blank = never |
-| `KEEP_AWAKE` | `0` | Block idle sleep while running — see below |
 | `ROOM_FLOORS` | `Sahyog:3,Majlis:6` | Which floor each room is on |
 | `LOG_LEVEL` | `info` | `debug` for much more detail |
 | `COHORTS` | auto | Override cohort detection, e.g. `Section A,Group 1` |
@@ -85,9 +84,9 @@ every class day whether you turn up or not.
 If you'd rather stay in control, leave `AUTO_MARK=0`: you still get the alert and the one-tap
 button, which is most of the convenience with none of the problem.
 
-## Sleep is the thing that actually breaks auto-marking
+## Waking from standby
 
-Windows 11 uses Modern Standby, and it cuts networking when it suspends:
+Windows 11 uses Modern Standby, and it cuts networking when the machine suspends:
 
 ```
 10:52:53  The system is entering Modern Standby
@@ -95,21 +94,25 @@ Windows 11 uses Modern Standby, and it cuts networking when it suspends:
 11:36:33  The system is exiting Modern Standby
 ```
 
-A class that opens during that window is simply missed — the app is frozen and offline, so
-there is nothing clever it can do after the fact. This is the single most likely reason for
-auto-marking to "not work".
+While that is happening the app is frozen and offline. When it comes back, the session cookie
+may have lapsed and every kept-alive socket is dead, which shows up as a bare `fetch failed`.
 
-Two things help:
+Rather than work out what survived, the app starts the LMS side over. On spotting a gap much
+longer than its 30-second check, it logs the wake, throws away the session and every cached
+read, logs back in, and re-checks the day from scratch — retrying while the network comes back
+up. Anything open for marking right then is picked up immediately:
 
-- **`KEEP_AWAKE=1`** holds `ES_SYSTEM_REQUIRED` for as long as the app runs, so the machine
-  will not drop into standby while idle. It does **not** override closing the lid or choosing
-  Sleep yourself, and it does use more battery.
-- **Recovery on resume.** When the app notices a long gap between checks it logs
-  `resumed after N min suspended` and retries the LMS a few times instead of waiting for the
-  next tick — networking usually takes a few seconds to come back after a wake.
+```
+11:36:33  WARN  [watch]  resumed after 44 min asleep - restarting the LMS session
+11:36:41  INFO  [watch]  back online - 3 unmarked, 1 open right now
+11:36:41  INFO  [auto]   Excel is open - marking (attempt 1)
+11:36:42  INFO  [auto]   marked Excel (1285329) - status Present
+```
 
-If you close the lid between classes, leave `AUTO_MARK=0` and use the one-tap button. No
-setting can mark attendance on a laptop that is asleep.
+**The limit is unavoidable:** if the laptop stays asleep through the whole marking window,
+waking afterwards is too late. Recovery only helps if you open the lid while the window is
+still open. If you routinely shut the lid between classes, leave `AUTO_MARK=0` and use the
+one-tap button instead.
 
 ## Rooms and floors
 
@@ -171,10 +174,10 @@ to your section and group, learned from the attendance sessions the LMS shows on
 npm test
 ```
 
-Twenty-nine checks over real captured LMS responses and a local stub — title parsing, cohort
+Thirty-five checks over real captured LMS responses and a local stub — title parsing, cohort
 filtering, event merging, the detail and attendance-list HTML, the login form, room floors,
-the auto-mark guards, the daily shutdown time, the log, the post-wake retry, and the exact
-shape of the mark request. No credentials, no calls to the real LMS.
+the auto-mark guards, the daily shutdown time, the log, the post-wake retry, recovery from
+standby, and the exact shape of the mark request. No credentials, no calls to the real LMS.
 
 ## Troubleshooting
 
@@ -209,8 +212,7 @@ src/service.js    caching layer
 src/automark.js   auto-mark guards and the daily shutdown time
 src/rooms.js      room -> floor lookup
 src/log.js        daily activity log
-src/keepawake.js  blocks idle sleep while running
-src/retry.js      retry for transient failures after a wake
+src/retry.js      retry while the network comes back after a wake
 src/server.js     local HTTP server + background watcher
 public/           the dashboard (no build step, no framework)
 tools/setup.js    first-run setup
