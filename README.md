@@ -33,6 +33,18 @@ npm start
 
 and open **http://localhost:4321**.
 
+## Android app
+
+The native Android client lives in [`android/`](android/README.md). It keeps the Windows app
+unchanged and talks directly to the same LMS endpoints from the phone. The current build has
+secure on-device login, today's schedule and rooms, one-tap marking, notify-only class-day
+monitoring, and separately armed daily auto-marking.
+
+Auto-marking follows the same rule as the desktop app: arm it only while you are physically
+attending that day's classes. Monitoring is visible through a persistent Android notification,
+stops at 18:00 or day rollover, and is never restored automatically after a reboot or process
+restart.
+
 Your details go into a `.env` file next to the app. It is gitignored, never uploaded, and you
 can delete it at any time to wipe your credentials.
 
