@@ -37,13 +37,16 @@ class CompanionApplication : Application() {
     lateinit var autoAttendanceScheduler: AutoAttendanceScheduler
         private set
 
+    lateinit var localStore: CompanionLocalStore
+        private set
+
     override fun onCreate() {
         super.onCreate()
         diagnostics = AndroidDiagnosticsLogger(this)
         credentialStore = SecureCredentialStore(this)
         autoAttendanceStore = AutoAttendanceStore(this)
         autoAttendanceScheduler = AutoAttendanceScheduler(this, autoAttendanceStore)
-        val localStore = CompanionLocalStore(this)
+        localStore = CompanionLocalStore(this)
         lmsAdapter = RealLmsAdapter()
         val locationGate = AndroidAttendanceLocationGatePort(
             evidenceProvider = AndroidLocationEvidenceProvider(this),

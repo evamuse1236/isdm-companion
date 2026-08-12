@@ -62,7 +62,8 @@ class MonitoringService : Service() {
         app.diagnostics.log("monitor_service_started", mapOf("source" to if (autoArm) "alarm" else "user"))
         if (autoArm) {
             val stopAt = intent.getLongExtra(EXTRA_STOP_AT, 0L)
-            scope.launch { armFromAlarm(stopAt) }
+            val sessionIds = intent.getStringArrayListExtra(EXTRA_SESSION_IDS).orEmpty().toSet()
+            scope.launch { armFromAlarm(stopAt, sessionIds) }
         } else {
             startMonitorLoop()
         }
@@ -86,7 +87,7 @@ class MonitoringService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private suspend fun armFromAlarm(stopAtMillis: Long) {
+    private suspend fun armFromAlarm(stopAtMillis: Long, sessionIds: Set<String>) {
         val credentials = app.credentialStore.load()
         if (credentials == null) {
             app.diagnostics.log("auto_attendance_skipped", mapOf("reason" to "credentials_missing"))
@@ -106,11 +107,28 @@ class MonitoringService : Service() {
             ?.let(Instant::ofEpochMilli)
             ?.atZone(LMS_ZONE)
             ?.toLocalTime()
-        val result = engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK, stopTime))
-        if (result !is CommandResult.Completed) {
-            app.diagnostics.log("auto_attendance_skipped", mapOf("reason" to "arm_rejected"))
+        val liveSessionIds = engine.state.value.sessions
+            .filterNot { it.marked }
+            .mapNotNullTo(mutableSetOf()) { it.nid }
+        val targetSessionIds = sessionIds.intersect(liveSessionIds)
+        if (targetSessionIds.isEmpty()) {
+            app.diagnostics.log("auto_attendance_skipped", mapOf("reason" to "targets_missing"))
             stopMonitoring()
             return
+        }
+        for (sessionId in targetSessionIds) {
+            val result = engine.dispatch(
+                Command.ArmMonitoring(
+                    mode = MonitoringMode.AUTO_MARK,
+                    stopAt = stopTime,
+                    targetSessionId = sessionId,
+                ),
+            )
+            if (result !is CommandResult.Completed) {
+                app.diagnostics.log("auto_attendance_skipped", mapOf("reason" to "arm_rejected"))
+                stopMonitoring()
+                return
+            }
         }
         if (!startForegroundSafely(monitorNotification())) {
             stopMonitoring()

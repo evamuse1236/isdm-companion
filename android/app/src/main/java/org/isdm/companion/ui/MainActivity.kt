@@ -96,7 +96,11 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import org.isdm.companion.CompanionApplication
 import org.isdm.companion.R
 import org.isdm.companion.engine.CompanionState
@@ -186,7 +190,10 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
         val autoAttendanceEnabled = (application as CompanionApplication).autoAttendanceStore.isEnabled()
         if (savedInstanceState == null && autoAttendanceEnabled && pendingMarkSessionId == null) {
-            requestAutoAttendance(true)
+            lifecycleScope.launch {
+                viewModel.initializing.filter { !it }.first()
+                if (pendingMarkSessionId == null) requestAutoAttendance(true)
+            }
         }
     }
 

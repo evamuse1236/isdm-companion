@@ -1,5 +1,6 @@
 package org.isdm.companion.engine
 
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -19,6 +20,9 @@ typealias Session = CompanionSession
 
 /** The LMS timestamps are wall-clock IST; this is deliberately not the device default. */
 val LMS_ZONE = DOMAIN_LMS_ZONE
+
+val AUTO_ATTENDANCE_LEAD: Duration = Duration.ofMinutes(10)
+val AUTO_ATTENDANCE_GRACE: Duration = Duration.ofMinutes(15)
 
 data class Credentials(val email: String, val password: String)
 
@@ -211,6 +215,7 @@ data class MonitoringStatus(
     val stopAt: Instant? = null,
     val reason: MonitoringStopReason? = null,
     val autoAttempts: Map<String, Int> = emptyMap(),
+    val targetSessionIds: Set<String> = emptySet(),
 )
 
 data class SyncStatus(
@@ -283,6 +288,8 @@ sealed interface Command {
         val mode: MonitoringMode = MonitoringMode.NOTIFY_ONLY,
         /** Local IST stop time. Null means no configured clock stop; day rollover still applies. */
         val stopAt: LocalTime? = LocalTime.of(18, 0),
+        /** Attendance Session selected by an exact alarm; null retains unscoped manual monitoring. */
+        val targetSessionId: String? = null,
     ) : Command
     data object DisarmMonitoring : Command
     /** Android stopped the foreground monitor after its platform time quota. */

@@ -52,6 +52,8 @@ class CompanionEngine(
     private var authenticated = false
     private val openNotified = mutableSetOf<String>()
     private val autoAttempts = mutableMapOf<String, Int>()
+    private val autoFailureNotified = mutableSetOf<String>()
+    private val autoTargetSessionIds = mutableSetOf<String>()
     private val successfulMarks = mutableSetOf<String>()
     private val marking = mutableSetOf<String>()
     private var dayCache: DayCache? = null
@@ -126,6 +128,8 @@ class CompanionEngine(
         gateway.resetSession()
         openNotified.clear()
         autoAttempts.clear()
+        autoFailureNotified.clear()
+        autoTargetSessionIds.clear()
         successfulMarks.clear()
         clearCaches()
         _state.value = stateNow().copy(
@@ -193,12 +197,14 @@ class CompanionEngine(
             } else emptyMap()
             val details = loadDetails(drafts, now)
             val assembled = assembleSessions(drafts, details, markMap, now)
+            val scheduleSessions = replaceScheduleDate(_state.value.scheduleSessions, today, assembled)
 
             _state.value = stateNow().copy(
                 today = today,
                 credentialsConfigured = true,
                 identity = identity,
                 sessions = assembled,
+                scheduleSessions = scheduleSessions,
                 sync = SyncStatus(inProgress = false, lastSuccess = now, error = markabilityError),
                 error = markabilityError,
             )
@@ -247,12 +253,18 @@ class CompanionEngine(
             val drafts = buildSessions(events, cohorts)
             val details = loadDetails(drafts, now)
             val assembled = assembleSessions(drafts, details, emptyMap(), now)
+            val scheduleSessions = if (_state.value.sync.lastSuccess != null) {
+                replaceScheduleDate(assembled, start, _state.value.sessions)
+            } else {
+                assembled
+            }
             _state.value = stateNow().copy(
                 scheduleStart = start,
                 scheduleEndExclusive = end,
-                scheduleSessions = assembled,
+                scheduleSessions = scheduleSessions,
                 scheduleSync = SyncStatus(lastSuccess = now),
             )
+            // Cache only listing state; live markability is transient and must be revalidated.
             cacheStore.saveSchedule(CachedSchedule(start, end, assembled, now))
             CommandResult.Completed(_state.value)
         } catch (error: CancellationException) {
@@ -472,20 +484,39 @@ class CompanionEngine(
         val status = currentMonitor()
         if (!status.active) return
         for (session in _state.value.sessions) {
-            if (session.nid == null || session.marked || session.state != SessionState.OPEN) continue
+            if (session.nid == null || session.marked) continue
             val nid = session.nid
             if (status.mode == MonitoringMode.AUTO_MARK) {
+                if (status.targetSessionIds.isNotEmpty() && nid !in status.targetSessionIds) continue
+                val now = clock.now()
+                if (now.isBefore(session.start.minus(AUTO_ATTENDANCE_LEAD)) ||
+                    !now.isBefore(session.end.plus(AUTO_ATTENDANCE_GRACE))
+                ) continue
                 val attempts = autoAttempts[nid] ?: 0
                 if (attempts < MAX_AUTO_ATTEMPTS && nid !in successfulMarks) {
-                    autoAttempts[nid] = attempts + 1
-                    mark(nid, automatic = true)
+                    val result = mark(nid, automatic = true)
+                    if (result is CommandResult.Marked) {
+                        if (!currentMonitor().active) return
+                        continue
+                    }
+                    if (result is CommandResult.Rejected && result.error is EngineError.MarkRejected) {
+                        autoAttempts[nid] = attempts + 1
+                    }
                     continue
                 }
             }
+            if (session.state != SessionState.OPEN) continue
             if (openNotified.add(nid)) safeNotify(NotificationEvent.ClassOpen(session))
         }
         publishMonitorAttempts()
     }
+
+    private fun replaceScheduleDate(
+        schedule: List<CompanionSession>,
+        date: LocalDate,
+        replacement: List<CompanionSession>,
+    ): List<CompanionSession> = (schedule.filter { it.start.atZone(LMS_ZONE).toLocalDate() != date } + replacement)
+        .sortedWith(compareBy<CompanionSession> { it.start }.thenBy { it.name })
 
     private suspend fun armMonitoring(command: Command.ArmMonitoring): CommandResult {
         if (credentials == null) return reject(EngineError.CredentialsMissing)
@@ -496,8 +527,32 @@ class CompanionEngine(
             return reject(EngineError.InvalidCommand("Monitoring stop time must be later today."))
         }
 
+        val targetSessionId = command.targetSessionId
+        if (targetSessionId != null && _state.value.sessions.none { it.nid == targetSessionId }) {
+            return reject(EngineError.InvalidCommand("Unknown attendance session: $targetSessionId"))
+        }
+        val existing = currentMonitor()
+        if (existing.active && existing.mode == MonitoringMode.AUTO_MARK &&
+            command.mode == MonitoringMode.AUTO_MARK && targetSessionId != null
+        ) {
+            autoTargetSessionIds += targetSessionId
+            val combinedStopAt = listOfNotNull(existing.stopAt, stopAt).maxOrNull()
+            _state.value = stateNow().copy(
+                monitor = existing.copy(
+                    stopAt = combinedStopAt,
+                    targetSessionIds = autoTargetSessionIds.toSet(),
+                ),
+                error = null,
+            )
+            safeNotify(NotificationEvent.MonitoringArmed(command.mode, local.toLocalDate(), combinedStopAt))
+            return CommandResult.Completed(_state.value)
+        }
+
         openNotified.clear()
         autoAttempts.clear()
+        autoFailureNotified.clear()
+        autoTargetSessionIds.clear()
+        targetSessionId?.let(autoTargetSessionIds::add)
         successfulMarks.clear()
         _state.value = stateNow().copy(
             monitor = MonitoringStatus(
@@ -508,6 +563,7 @@ class CompanionEngine(
                 stopAt = stopAt,
                 reason = null,
                 autoAttempts = emptyMap(),
+                targetSessionIds = autoTargetSessionIds.toSet(),
             ),
             error = null,
         )
@@ -520,6 +576,8 @@ class CompanionEngine(
         _state.value = stateNow().copy(monitor = MonitoringStatus(reason = MonitoringStopReason.DISARMED))
         openNotified.clear()
         autoAttempts.clear()
+        autoFailureNotified.clear()
+        autoTargetSessionIds.clear()
         if (wasActive) safeNotify(NotificationEvent.MonitoringStopped(MonitoringStopReason.DISARMED))
         return CommandResult.Completed(_state.value)
     }
@@ -532,6 +590,8 @@ class CompanionEngine(
         )
         openNotified.clear()
         autoAttempts.clear()
+        autoFailureNotified.clear()
+        autoTargetSessionIds.clear()
         if (wasActive) safeNotify(NotificationEvent.MonitoringStopped(MonitoringStopReason.SYSTEM_LIMIT))
         return CommandResult.Completed(_state.value)
     }
@@ -562,7 +622,7 @@ class CompanionEngine(
                     locationDecision.reason ?: LocationGateReason.MISSING_EVIDENCE,
                 )
                 _state.value = stateNow().copy(error = error)
-                if (automatic) safeNotify(NotificationEvent.MarkFailed(session, error))
+                if (automatic) notifyAutomaticFailureOnce(session, error)
                 return CommandResult.Rejected(error, _state.value)
             }
 
@@ -573,13 +633,13 @@ class CompanionEngine(
             } catch (error: Throwable) {
                 val mapped = mapError(error)
                 _state.value = stateNow().copy(error = mapped, sync = _state.value.sync.copy(error = mapped))
-                safeNotify(NotificationEvent.MarkFailed(session, mapped))
+                if (automatic) notifyAutomaticFailureOnce(session, mapped)
+                else safeNotify(NotificationEvent.MarkFailed(session, mapped))
                 return CommandResult.Rejected(mapped, _state.value)
             }
             if (markMap[sessionId]?.markable != true) {
                 val error = EngineError.MarkWindowClosed(sessionId)
                 _state.value = stateNow().copy(error = error)
-                if (automatic) safeNotify(NotificationEvent.MarkFailed(session, error))
                 return CommandResult.Rejected(error, _state.value)
             }
 
@@ -590,7 +650,7 @@ class CompanionEngine(
             } catch (error: Throwable) {
                 val mapped = EngineError.MarkRejected(sessionId, error.message ?: "The LMS rejected the mark.")
                 _state.value = stateNow().copy(error = mapped)
-                if (automatic) safeNotify(NotificationEvent.MarkFailed(session, mapped))
+                if (automatic) notifyAutomaticFailureOnce(session, mapped)
                 return CommandResult.Rejected(mapped, _state.value)
             }
             if (!detail.marked) {
@@ -599,7 +659,7 @@ class CompanionEngine(
                     "The LMS accepted the request but still reports you as unmarked.",
                 )
                 _state.value = stateNow().copy(error = error)
-                if (automatic) safeNotify(NotificationEvent.MarkFailed(session, error))
+                if (automatic) notifyAutomaticFailureOnce(session, error)
                 return CommandResult.Rejected(error, _state.value)
             }
 
@@ -616,13 +676,28 @@ class CompanionEngine(
                 subject = detail.course ?: session.subject,
             )
             val monitor = if (automatic && currentMonitor().mode == MonitoringMode.AUTO_MARK) {
-                autoAttempts.clear()
-                MonitoringStatus(reason = MonitoringStopReason.ATTENDANCE_MARKED)
+                val hasExplicitTargets = currentMonitor().targetSessionIds.isNotEmpty()
+                autoTargetSessionIds.remove(sessionId)
+                autoAttempts.remove(sessionId)
+                autoFailureNotified.remove(sessionId)
+                if (hasExplicitTargets && autoTargetSessionIds.isNotEmpty()) {
+                    currentMonitor().copy(
+                        autoAttempts = autoAttempts.toMap(),
+                        targetSessionIds = autoTargetSessionIds.toSet(),
+                    )
+                } else {
+                    autoAttempts.clear()
+                    autoTargetSessionIds.clear()
+                    MonitoringStatus(reason = MonitoringStopReason.ATTENDANCE_MARKED)
+                }
             } else {
                 currentMonitor()
             }
             _state.value = stateNow().copy(
                 sessions = _state.value.sessions.map { if (it.nid == sessionId) updated else it },
+                scheduleSessions = _state.value.scheduleSessions.map {
+                    if (it.nid == sessionId) updated else it
+                },
                 monitor = monitor,
                 error = null,
             )
@@ -650,6 +725,8 @@ class CompanionEngine(
             _state.value = stateNow().copy(monitor = MonitoringStatus(reason = reason))
             openNotified.clear()
             autoAttempts.clear()
+            autoFailureNotified.clear()
+            autoTargetSessionIds.clear()
             safeNotify(NotificationEvent.MonitoringStopped(reason))
         } else {
             _state.value = stateNow()
@@ -686,6 +763,11 @@ class CompanionEngine(
             // Notifications must never turn a confirmed LMS mark into an application failure.
             diagnostics.log("notification_failed", mapOf("event" to event.javaClass.simpleName), error)
         }
+    }
+
+    private suspend fun notifyAutomaticFailureOnce(session: CompanionSession, error: EngineError) {
+        val nid = session.nid ?: return
+        if (autoFailureNotified.add(nid)) safeNotify(NotificationEvent.MarkFailed(session, error))
     }
 
     private fun mapError(error: Throwable): EngineError {
