@@ -65,6 +65,24 @@ class CompanionEngineTest {
     }
 
     @Test
+    fun `command diagnostics retain timing and attendance state without session identifiers`() = runBlocking {
+        val diagnostics = RecordingDiagnosticsLogger()
+        val engine = engine(diagnostics = diagnostics)
+        configureAndRefresh(engine)
+
+        val fields = diagnostics.events.last { it.first == "command_finished" }.second
+
+        assertEquals("refresh_today", fields["command"])
+        assertEquals("completed", fields["result"])
+        assertEquals("1", fields["sessions"])
+        assertEquals("1", fields["markable_sessions"])
+        assertEquals("false", fields["monitor_active"])
+        assertEquals("0", fields["monitor_targets"])
+        assertTrue(fields.getValue("duration_ms").toLong() >= 0L)
+        assertFalse(fields.values.any { it.contains("1285348") })
+    }
+
+    @Test
     fun `monitor defaults to notify only and emits one opening notification`() = runBlocking {
         val engine = engine()
         configureAndRefresh(engine)
@@ -356,12 +374,14 @@ class CompanionEngineTest {
 
     private fun engine(
         locationGate: AttendanceLocationGatePort = AllowAttendanceLocationGate,
+        diagnostics: DiagnosticsLogger = NoopDiagnosticsLogger,
     ) = CompanionEngine(
         gateway,
         clock,
         notifier,
         readingDoneStore = doneStore,
         attendanceLocationGate = locationGate,
+        diagnostics = diagnostics,
     )
 
     private fun deniedLocationGate() = AttendanceLocationGatePort {
@@ -386,6 +406,14 @@ private class RecordingNotifier : Notifier {
 
     override suspend fun notify(event: NotificationEvent) {
         events += event
+    }
+}
+
+private class RecordingDiagnosticsLogger : DiagnosticsLogger {
+    val events = mutableListOf<Pair<String, Map<String, String>>>()
+
+    override fun log(event: String, attributes: Map<String, String>, error: Throwable?) {
+        events += event to attributes
     }
 }
 

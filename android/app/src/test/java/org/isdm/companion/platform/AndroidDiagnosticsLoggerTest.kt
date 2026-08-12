@@ -16,4 +16,18 @@ class AndroidDiagnosticsLoggerTest {
         assertFalse(sanitized.contains("session123"))
         assertFalse(sanitized.contains("signature=abc"))
     }
+
+    @Test
+    fun `redacts common header and oauth secret forms`() {
+        val raw = "Authorization: Bearer auth-secret Set-Cookie: sid=cookie-secret " +
+            "access_token=access-secret refresh_token=refresh-secret client_secret=client-secret"
+
+        val sanitized = sanitizeDiagnosticValue(raw)
+
+        assertFalse(sanitized.contains("auth-secret"))
+        assertFalse(sanitized.contains("cookie-secret"))
+        assertFalse(sanitized.contains("access-secret"))
+        assertFalse(sanitized.contains("refresh-secret"))
+        assertFalse(sanitized.contains("client-secret"))
+    }
 }

@@ -14,6 +14,7 @@ import org.isdm.companion.CompanionApplication
 import org.isdm.companion.engine.AUTO_ATTENDANCE_GRACE
 import org.isdm.companion.engine.AUTO_ATTENDANCE_LEAD
 import org.isdm.companion.engine.CompanionSession
+import org.isdm.companion.engine.DiagnosticsLogger
 import org.isdm.companion.engine.LMS_ZONE
 import java.time.Instant
 import java.time.LocalTime
@@ -62,6 +63,7 @@ sealed interface AutoAttendanceScheduleResult {
 class AutoAttendanceScheduler(
     context: Context,
     private val store: AutoAttendanceStore,
+    private val diagnostics: DiagnosticsLogger,
 ) {
     private val appContext = context.applicationContext
     private val alarmManager = appContext.getSystemService(AlarmManager::class.java)
@@ -71,28 +73,48 @@ class AutoAttendanceScheduler(
 
     fun schedule(sessions: List<CompanionSession>, now: Instant): AutoAttendanceScheduleResult {
         cancel()
-        if (!store.isEnabled()) return AutoAttendanceScheduleResult.Disabled
-        if (!hasAttendanceLocationAccess()) return AutoAttendanceScheduleResult.LocationPermissionRequired
-        if (!canScheduleExactAlarms()) return AutoAttendanceScheduleResult.ExactAlarmPermissionRequired
-
-        val windows = autoAttendanceWindows(sessions, now)
-        return try {
-            windows.forEach { window ->
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    window.alarmAt.toEpochMilli(),
-                    pendingIntent(window.requestId, window.targetSessionIds, window.stopAt),
-                )
+        val result = when {
+            !store.isEnabled() -> AutoAttendanceScheduleResult.Disabled
+            !hasAttendanceLocationAccess() -> AutoAttendanceScheduleResult.LocationPermissionRequired
+            !canScheduleExactAlarms() -> AutoAttendanceScheduleResult.ExactAlarmPermissionRequired
+            else -> {
+                val windows = autoAttendanceWindows(sessions, now)
+                try {
+                    windows.forEach { window ->
+                        alarmManager.setExactAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            window.alarmAt.toEpochMilli(),
+                            pendingIntent(window.requestId, window.targetSessionIds, window.stopAt),
+                        )
+                    }
+                    store.setScheduledIds(windows.mapTo(mutableSetOf()) { it.requestId })
+                    AutoAttendanceScheduleResult.Scheduled(windows)
+                } catch (error: RuntimeException) {
+                    AutoAttendanceScheduleResult.Failed(error)
+                }
             }
-            store.setScheduledIds(windows.mapTo(mutableSetOf()) { it.requestId })
-            AutoAttendanceScheduleResult.Scheduled(windows)
-        } catch (error: RuntimeException) {
-            AutoAttendanceScheduleResult.Failed(error)
         }
+        diagnostics.log(
+            "auto_attendance_schedule_evaluated",
+            mapOf(
+                "attendance_sessions" to sessions.count { it.nid != null }.toString(),
+                "outcome" to when (result) {
+                    AutoAttendanceScheduleResult.Disabled -> "disabled"
+                    AutoAttendanceScheduleResult.LocationPermissionRequired -> "location_permission_required"
+                    AutoAttendanceScheduleResult.ExactAlarmPermissionRequired -> "exact_alarm_permission_required"
+                    is AutoAttendanceScheduleResult.Scheduled -> "scheduled"
+                    is AutoAttendanceScheduleResult.Failed -> "failed"
+                },
+                "windows" to ((result as? AutoAttendanceScheduleResult.Scheduled)?.windows?.size ?: 0).toString(),
+            ),
+            (result as? AutoAttendanceScheduleResult.Failed)?.error,
+        )
+        return result
     }
 
     fun cancel() {
-        store.scheduledIds().forEach { requestId ->
+        val scheduledIds = store.scheduledIds()
+        scheduledIds.forEach { requestId ->
             val intent = alarmIntent(requestId, targetSessionIds = emptySet(), stopAt = Instant.EPOCH)
             PendingIntent.getBroadcast(
                 appContext,
@@ -102,6 +124,9 @@ class AutoAttendanceScheduler(
             )?.let(alarmManager::cancel)
         }
         store.setScheduledIds(emptySet())
+        if (scheduledIds.isNotEmpty()) {
+            diagnostics.log("auto_attendance_alarms_cancelled", mapOf("alarms" to scheduledIds.size.toString()))
+        }
     }
 
     private fun hasAttendanceLocationAccess(): Boolean {

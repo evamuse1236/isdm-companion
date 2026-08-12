@@ -5,32 +5,46 @@ import android.util.Log
 import org.isdm.companion.engine.DiagnosticsLogger
 import java.io.File
 import java.time.Instant
+import java.util.UUID
 
 class AndroidDiagnosticsLogger(context: Context) : DiagnosticsLogger {
     private val directory = File(context.filesDir, "diagnostics")
     private val current = File(directory, "companion.log")
     private val previous = File(directory, "companion.log.1")
     private val lock = Any()
+    private val runId = UUID.randomUUID().toString().take(8)
+    private var sequence = 0L
 
     override fun log(event: String, attributes: Map<String, String>, error: Throwable?) {
-        val fields = buildList {
-            add(Instant.now().toString())
-            add(clean(event))
-            attributes.toSortedMap().forEach { (key, value) -> add("${clean(key)}=${clean(value)}") }
-            error?.let {
-                add("error=${clean(it::class.java.simpleName)}")
-                it.message?.takeIf(String::isNotBlank)?.let { message -> add("message=${clean(message)}") }
+        val line = synchronized(lock) {
+            val fields = buildList {
+                sequence += 1
+                add(Instant.now().toString())
+                add("run=$runId")
+                add("seq=$sequence")
+                add("thread=${clean(Thread.currentThread().name)}")
+                add(clean(event))
+                attributes.toSortedMap().forEach { (key, value) -> add("${clean(key)}=${clean(value)}") }
+                error?.let {
+                    add("error=${clean(it::class.java.simpleName)}")
+                    it.message?.takeIf(String::isNotBlank)?.let { message -> add("message=${clean(message)}") }
+                    it.cause?.takeIf { cause -> cause !== it }?.let { cause ->
+                        add("cause=${clean(cause::class.java.simpleName)}")
+                        cause.message?.takeIf(String::isNotBlank)?.let { message ->
+                            add("cause_message=${clean(message)}")
+                        }
+                    }
+                }
+            }
+            fields.joinToString(" ").also { record ->
+                runCatching {
+                    directory.mkdirs()
+                    rotateIfNeeded(record)
+                    current.appendText("$record\n")
+                }.onFailure { Log.w(TAG, "diagnostic_file_write_failed", it) }
             }
         }
-        val line = fields.joinToString(" ")
         Log.i(TAG, line)
-        runCatching {
-            synchronized(lock) {
-                directory.mkdirs()
-                rotateIfNeeded(line)
-                current.appendText("$line\n")
-            }
-        }.onFailure { Log.w(TAG, "diagnostic_file_write_failed", it) }
     }
 
     private fun rotateIfNeeded(nextLine: String) {
@@ -57,6 +71,14 @@ internal fun sanitizeDiagnosticValue(value: String): String = value
     .replace(Regex("https?://\\S+", RegexOption.IGNORE_CASE), "[url]")
     .replace(Regex("[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}", RegexOption.IGNORE_CASE), "[email]")
     .replace(
-        Regex("(?i)(password|passwd|cookie|authorization|token|signature|sig)=?\\s*[^,;\\s]+"),
+        Regex("(?i)\\b(authorization|proxy-authorization)\\s*[:=]\\s*(?:bearer|basic)?\\s*[^,;\\s]+"),
+        "\$1=[redacted]",
+    )
+    .replace(Regex("(?i)\\bbearer\\s+[^,;\\s]+"), "Bearer [redacted]")
+    .replace(
+        Regex(
+            "(?i)\\b(password|passwd|cookie|set-cookie|authorization|token|access_token|" +
+                "refresh_token|client_secret|signature|sig)\\b\\s*[:=]?\\s*[^,;\\s]+",
+        ),
         "\$1=[redacted]",
     )

@@ -58,9 +58,12 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 ## Private diagnostic log
 
 The app writes a small rotating diagnostic log to its private app storage and mirrors the same
-events to Logcat under `ISDMCompanion`. It records lifecycle, command outcomes, sync decisions,
-alarm/service transitions, downloads, and sanitized failures. Emails, passwords, cookies,
-authorization values, signed URLs, and LMS payloads are not recorded.
+events to Logcat under `ISDMCompanion`. Every line includes a short process-run ID, a monotonic
+sequence number, and the emitting thread. It records the app and Android build at startup;
+permission decisions; command duration and privacy-safe attendance-state counts; sync decisions;
+alarm/service transitions; downloads; and sanitized outer/root failures. Emails, passwords,
+cookies, authorization values, OAuth secrets, signed URLs, session identifiers, and LMS payloads
+are not recorded in command summaries.
 
 With a debug build installed, retrieve both retained files with:
 

@@ -62,6 +62,7 @@ class CompanionEngine(
 
     suspend fun dispatch(command: Command): CommandResult = mutex.withLock {
         val commandName = commandName(command)
+        val startedAtNanos = System.nanoTime()
         diagnostics.log("command_started", mapOf("command" to commandName))
         try {
             reconcileSafety()
@@ -78,20 +79,43 @@ class CompanionEngine(
                 Command.SystemLimitReached -> systemLimitReached()
                 Command.MonitorTick -> monitorTick()
             }
+            val snapshot = _state.value
             diagnostics.log(
                 "command_finished",
                 mapOf(
                     "command" to commandName,
                     "result" to resultName(result),
                     "error" to result.errorName(),
+                    "duration_ms" to ((System.nanoTime() - startedAtNanos) / 1_000_000L).toString(),
+                    "sessions" to snapshot.sessions.size.toString(),
+                    "schedule_sessions" to snapshot.scheduleSessions.size.toString(),
+                    "marked_sessions" to snapshot.sessions.count(CompanionSession::marked).toString(),
+                    "markable_sessions" to snapshot.sessions.count(CompanionSession::markable).toString(),
+                    "monitor_active" to snapshot.monitor.active.toString(),
+                    "monitor_mode" to (snapshot.monitor.mode?.name?.lowercase() ?: "none"),
+                    "monitor_targets" to snapshot.monitor.targetSessionIds.size.toString(),
+                    "monitor_attempts" to snapshot.monitor.autoAttempts.values.sum().toString(),
                 ),
             )
             result
         } catch (error: CancellationException) {
-            diagnostics.log("command_cancelled", mapOf("command" to commandName))
+            diagnostics.log(
+                "command_cancelled",
+                mapOf(
+                    "command" to commandName,
+                    "duration_ms" to ((System.nanoTime() - startedAtNanos) / 1_000_000L).toString(),
+                ),
+            )
             throw error
         } catch (error: Throwable) {
-            diagnostics.log("command_crashed", mapOf("command" to commandName), error)
+            diagnostics.log(
+                "command_crashed",
+                mapOf(
+                    "command" to commandName,
+                    "duration_ms" to ((System.nanoTime() - startedAtNanos) / 1_000_000L).toString(),
+                ),
+                error,
+            )
             throw error
         }
     }

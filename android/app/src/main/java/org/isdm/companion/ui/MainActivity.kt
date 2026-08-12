@@ -120,6 +120,8 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val viewModel: CompanionViewModel by viewModels()
+    private val diagnostics
+        get() = (application as CompanionApplication).diagnostics
     private var pendingMarkSessionId: String? = null
     private var pendingMarkFromIntent = false
     private var pendingAutoAttendance = false
@@ -127,6 +129,10 @@ class MainActivity : ComponentActivity() {
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        diagnostics.log(
+            "permission_result",
+            mapOf("granted" to granted.toString(), "permission" to "notifications"),
+        )
         if (pendingAutoAttendance) {
             pendingAutoAttendance = false
             viewModel.setAutoAttendance(granted)
@@ -136,7 +142,16 @@ class MainActivity : ComponentActivity() {
     private val foregroundLocationPermission = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        if (hasPreciseLocationAccess()) {
+        val preciseGranted = hasPreciseLocationAccess()
+        diagnostics.log(
+            "permission_result",
+            mapOf(
+                "granted" to preciseGranted.toString(),
+                "permission" to "precise_location",
+                "purpose" to if (pendingAutoAttendance) "auto_attendance" else "manual_mark",
+            ),
+        )
+        if (preciseGranted) {
             completePendingMark()
             if (pendingAutoAttendance) requestBackgroundLocationAccess()
         } else {
@@ -152,14 +167,27 @@ class MainActivity : ComponentActivity() {
 
     private val backgroundLocationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { finishAutoAttendancePermissionFlow() }
+    ) { granted ->
+        diagnostics.log(
+            "permission_result",
+            mapOf("granted" to granted.toString(), "permission" to "background_location"),
+        )
+        finishAutoAttendancePermissionFlow()
+    }
 
     private val appLocationSettings = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
-    ) { finishAutoAttendancePermissionFlow() }
+    ) {
+        diagnostics.log(
+            "permission_settings_returned",
+            mapOf("background_location_granted" to hasBackgroundLocationAccess().toString()),
+        )
+        finishAutoAttendancePermissionFlow()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        diagnostics.log("main_activity_created", mapOf("restored" to (savedInstanceState != null).toString()))
         setContent {
             MaterialTheme(colorScheme = companionColors(), typography = companionTypography) {
                 CompanionScreen(
@@ -179,7 +207,7 @@ class MainActivity : ComponentActivity() {
                                 "Share issue report",
                             ),
                         )
-                        (application as CompanionApplication).diagnostics.log(
+                        diagnostics.log(
                             "issue_report_shared",
                             mapOf("attachment_count" to images.size.toString()),
                         )
@@ -217,6 +245,10 @@ class MainActivity : ComponentActivity() {
         }
         pendingAutoAttendance = true
         if (!hasPreciseLocationAccess()) {
+            diagnostics.log(
+                "permission_requested",
+                mapOf("permission" to "precise_location", "purpose" to "auto_attendance"),
+            )
             foregroundLocationPermission.launch(
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
             )
@@ -232,6 +264,10 @@ class MainActivity : ComponentActivity() {
         }
         pendingMarkSessionId = sessionId
         pendingMarkFromIntent = fromIntent
+        diagnostics.log(
+            "permission_requested",
+            mapOf("permission" to "precise_location", "purpose" to "manual_mark"),
+        )
         foregroundLocationPermission.launch(
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
         )
@@ -252,9 +288,15 @@ class MainActivity : ComponentActivity() {
         }
         when {
             Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> finishAutoAttendancePermissionFlow()
-            Build.VERSION.SDK_INT == Build.VERSION_CODES.Q ->
+            Build.VERSION.SDK_INT == Build.VERSION_CODES.Q -> {
+                diagnostics.log("permission_requested", mapOf("permission" to "background_location"))
                 backgroundLocationPermission.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            }
             else -> {
+                diagnostics.log(
+                    "permission_settings_opened",
+                    mapOf("permission" to "background_location"),
+                )
                 viewModel.showMessage("In Android settings, set Location to Allow all the time, then return.")
                 appLocationSettings.launch(
                     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
@@ -274,6 +316,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
+            diagnostics.log("permission_requested", mapOf("permission" to "notifications"))
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
             pendingAutoAttendance = false
