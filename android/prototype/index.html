@@ -1,0 +1,1509 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ISDM Companion — disposable UI prototype</title>
+  <!--
+    PROTOTYPE — throw this code away after the design is settled.
+    Final interaction prototype: approved schedule treatment plus a distinct expanded reading design
+    for each course. Scenario controls remain for state review. No LMS requests or persistence.
+  -->
+  <style>
+    :root {
+      color-scheme: light;
+      --teal-950: #073b3a;
+      --teal-800: #0d5f5c;
+      --teal-700: #14736e;
+      --teal-100: #d7f1ec;
+      --teal-50: #eef9f6;
+      --paper: #fbfaf6;
+      --surface: #ffffff;
+      --sand: #f0ece3;
+      --ink: #15201f;
+      --muted: #65706d;
+      --line: #dedfd9;
+      --amber: #f4b942;
+      --red: #b74635;
+      --green: #28755a;
+      --shadow: 0 22px 70px rgb(36 48 43 / 18%);
+      --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --motion-fast: 140ms;
+      --motion-base: 220ms;
+      --motion-slow: 320ms;
+      --ease-standard: cubic-bezier(.2, 0, 0, 1);
+      --ease-emphasized: cubic-bezier(.2, .8, .2, 1);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; font-family: var(--font); color: var(--ink); }
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 20% 0%, rgb(20 115 110 / 12%), transparent 32rem),
+        radial-gradient(circle at 100% 80%, rgb(244 185 66 / 12%), transparent 28rem),
+        #e9e8e3;
+    }
+    button, select { font: inherit; }
+    button {
+      -webkit-tap-highlight-color: transparent;
+      transition: transform var(--motion-fast) var(--ease-standard), filter var(--motion-fast) ease,
+        background-color var(--motion-base) var(--ease-standard), color var(--motion-base) var(--ease-standard),
+        border-color var(--motion-base) var(--ease-standard), opacity var(--motion-base) ease;
+    }
+    button:active { transform: scale(.975); }
+    button:focus-visible, select:focus-visible { outline: 3px solid #78b9ee; outline-offset: 2px; }
+
+    .lab-note {
+      position: fixed; top: 18px; left: 20px; z-index: 20;
+      width: 210px; color: #44504d; font-size: 13px; line-height: 1.45;
+    }
+    .lab-note b { display: block; color: #1f2d2b; margin-bottom: 4px; }
+    .phone-wrap { min-height: 100vh; display: grid; place-items: center; padding: 28px 20px 118px; }
+    .phone {
+      width: min(100%, 402px); height: min(850px, calc(100vh - 148px)); min-height: 650px;
+      border: 8px solid #181b1a; border-radius: 42px; overflow: hidden;
+      background: var(--paper); box-shadow: var(--shadow); position: relative;
+    }
+    .phone::before {
+      content: ""; position: absolute; z-index: 20; top: 8px; left: 50%; translate: -50% 0;
+      width: 86px; height: 24px; background: #181b1a; border-radius: 20px;
+    }
+    #app { height: 100%; overflow: hidden; }
+    .screen { height: 100%; display: flex; flex-direction: column; position: relative; }
+    .scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; scroll-behavior: smooth; }
+    .scroll::-webkit-scrollbar { display: none; }
+    .scroll > * { animation: content-enter var(--motion-base) var(--ease-emphasized) both; }
+    .safe-top { padding-top: 26px; }
+
+    .prototype-dock {
+      position: fixed; z-index: 50; bottom: 18px; left: 50%; translate: -50% 0;
+      width: min(420px, calc(100% - 24px)); padding: 8px 10px;
+      border-radius: 18px; background: #161b1a; color: white; box-shadow: 0 16px 40px rgb(0 0 0 / 34%);
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .dock-label { min-width: 170px; text-align: center; font-size: 12px; font-weight: 700; }
+    .dock-btn, .dock-segment, .scenario-select {
+      border: 0; color: white; background: #2b3331; border-radius: 11px; min-height: 38px; cursor: pointer;
+    }
+    .dock-btn { width: 42px; font-size: 20px; }
+    .dock-segment { padding: 0 12px; font-size: 12px; font-weight: 750; }
+    .dock-segment.is-active { color: #10201d; background: #c9f2e8; }
+    .scenario-select { padding: 0 28px 0 12px; font-size: 12px; }
+
+    .offline-strip {
+      padding: 8px 16px; background: #fff2c9; color: #6d4a00; font-size: 12px; font-weight: 650;
+      border-bottom: 1px solid #ead69b;
+    }
+    .offline-strip.is-syncing { background: #def1ff; color: #20516f; border-bottom-color: #bad9ec; }
+    .brand-row { display: flex; align-items: center; gap: 9px; }
+    .brand-dot { width: 11px; height: 11px; border-radius: 4px; background: var(--amber); }
+    .brand { font-weight: 800; letter-spacing: -.025em; }
+    .avatar {
+      width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+      background: var(--teal-100); color: var(--teal-800); font-size: 12px; font-weight: 800;
+    }
+    .muted { color: var(--muted); }
+    .eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .095em; text-transform: uppercase; }
+    .button-primary {
+      border: 0; border-radius: 14px; background: var(--teal-800); color: white;
+      padding: 13px 16px; font-weight: 780; cursor: pointer;
+    }
+    .button-primary.red { background: var(--red); }
+    .button-quiet {
+      border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink);
+      padding: 10px 13px; font-weight: 700; cursor: pointer;
+    }
+    .icon-button {
+      width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--line);
+      border-radius: 12px; background: var(--surface); color: var(--ink); cursor: pointer;
+    }
+    .chevron { font-size: 22px; line-height: 1; }
+
+    .bottom-nav {
+      flex: none; display: grid; grid-template-columns: 1fr 1fr; background: rgb(255 255 255 / 94%);
+      border-top: 1px solid var(--line); padding: 7px 14px 10px; backdrop-filter: blur(14px);
+    }
+    .nav-item {
+      border: 0; background: transparent; color: var(--muted); padding: 6px; border-radius: 13px;
+      display: grid; place-items: center; gap: 2px; font-size: 11px; font-weight: 720; cursor: pointer;
+    }
+    .nav-item svg { width: 21px; height: 21px; }
+    .nav-item.is-active { color: var(--teal-800); background: var(--teal-50); }
+
+    .day-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+    .day-chip {
+      border: 0; background: transparent; color: var(--muted); border-radius: 14px;
+      padding: 8px 3px; display: grid; gap: 3px; justify-items: center; cursor: pointer;
+    }
+    .day-chip b { color: inherit; font-size: 15px; }
+    .day-chip span { font-size: 10px; font-weight: 760; text-transform: uppercase; }
+    .day-chip.is-active { background: var(--teal-800); color: white; }
+    .day-chip.has-class:not(.is-active)::after { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--teal-700); }
+
+    .reading-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; }
+    .reading-title { font-size: 15px; font-weight: 750; line-height: 1.25; }
+    .reading-course { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.3; }
+    .reading-progress { margin-top: 8px; display: inline-flex; color: var(--teal-800); background: var(--teal-50); border-radius: 20px; padding: 4px 7px; font-size: 10px; font-weight: 760; }
+    .reading-check {
+      width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid #abb4b1; background: white;
+      color: transparent; cursor: pointer; font-size: 18px; font-weight: 900;
+    }
+    .reading-row.is-done { opacity: .55; }
+    .reading-row.is-done .reading-title { text-decoration: line-through; }
+    .reading-row.is-done .reading-check { background: var(--green); border-color: var(--green); color: white; }
+    .done-divider { display: flex; gap: 9px; align-items: center; color: var(--muted); font-size: 11px; font-weight: 760; text-transform: uppercase; letter-spacing: .07em; }
+    .done-divider::before, .done-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+    .empty-state { text-align: center; padding: 56px 24px; }
+    .empty-state .empty-icon { width: 54px; height: 54px; margin: 0 auto 16px; border-radius: 18px; display: grid; place-items: center; background: var(--teal-100); color: var(--teal-800); font-size: 26px; }
+    .empty-state h2 { margin: 0 0 7px; font-size: 20px; }
+    .empty-state p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+    /* Variant A — Day spine: next lives inside the chronological list */
+    .variant-a {
+      --a-ink: #15201f;
+      --a-paper: #f4f8f7;
+      --a-surface: #ffffff;
+      --a-teal: #0d5f5c;
+      --a-teal-deep: #073b3a;
+      --a-open: #b74635;
+      --a-muted: #65706d;
+      --a-line: #dce5e2;
+      --a-soft: #e4ece9;
+      background: var(--a-paper);
+      color: var(--a-ink);
+    }
+    .a-header {
+      padding: 14px 17px 10px; display: flex; justify-content: space-between; align-items: center;
+    }
+    .a-header .brand { font-size: 15px; }
+    .auto-attendance-toggle {
+      display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0;
+      background: transparent; color: var(--a-ink); cursor: pointer; text-align: left;
+    }
+    .auto-attendance-track {
+      position: relative; flex: 0 0 auto; width: 30px; height: 18px; border-radius: 999px;
+      background: #cbd5d1; transition: background 160ms ease;
+    }
+    .auto-attendance-thumb {
+      position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%;
+      background: white; box-shadow: 0 1px 3px rgb(0 0 0 / 18%); transition: translate 160ms ease;
+    }
+    .auto-attendance-toggle.is-on .auto-attendance-track { background: var(--a-teal); }
+    .auto-attendance-toggle.is-on .auto-attendance-thumb { translate: 12px 0; }
+    .auto-attendance-copy { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+    .auto-attendance-copy b { font-size: 10px; font-weight: 790; }
+    .auto-attendance-copy small { color: var(--a-teal); font-size: 9px; font-weight: 820; }
+    .auto-attendance-toggle:not(.is-on) .auto-attendance-copy small { color: var(--a-muted); }
+    .a-sync {
+      font-size: 11px; font-weight: 750; color: var(--green);
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .a-sync::before {
+      content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor;
+    }
+    .a-sync.is-warn { color: #6d4a00; }
+    .a-sync.is-info { color: #20516f; }
+    .a-tabs {
+      padding: 0 17px 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .a-tab {
+      border: 0; border-radius: 12px; padding: 10px; background: var(--a-soft);
+      color: var(--a-muted); font-weight: 760; cursor: pointer;
+    }
+    .a-tab.is-active { background: var(--a-teal-deep); color: white; }
+    .a-body { padding: 2px 14px 30px; }
+    .a-date {
+      display: flex; justify-content: space-between; align-items: center; padding: 2px 3px 12px;
+    }
+    .a-date h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; }
+    .a-date-actions { display: flex; gap: 6px; }
+    .a-arrow {
+      border: 0; width: 30px; height: 30px; border-radius: 9px; background: white; cursor: pointer;
+      color: var(--a-ink); font-size: 16px; line-height: 1;
+    }
+    .a-spine {
+      display: grid; gap: 0; background: var(--a-surface);
+      border: 1px solid var(--a-line); border-radius: 20px; overflow: hidden;
+    }
+    .a-node {
+      display: grid; grid-template-columns: 56px 1fr; gap: 0 10px;
+      padding: 0 14px; cursor: pointer; position: relative;
+    }
+    .a-node + .a-node { border-top: 1px solid #e8efec; }
+    .a-node-time {
+      padding: 14px 0 14px; font-size: 12px; font-weight: 800;
+      color: var(--a-teal); font-variant-numeric: tabular-nums; line-height: 1.2;
+    }
+    .a-node-main { padding: 13px 0 14px; min-width: 0; }
+    .a-node-main h3 {
+      margin: 0 0 4px; font-size: 13px; font-weight: 760; line-height: 1.25;
+      letter-spacing: -.01em;
+    }
+    .a-node-main p {
+      margin: 0; font-size: 11px; color: var(--a-muted); line-height: 1.35;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .a-node.is-past { opacity: .46; }
+    .a-node.is-past .a-node-time { color: var(--a-muted); }
+    .a-node.is-focus {
+      background: var(--a-teal); color: white;
+    }
+    .a-node.is-focus .a-node-time { color: #b8e2da; padding-top: 16px; }
+    .a-node.is-focus .a-node-main { padding: 15px 0 16px; }
+    .a-node.is-focus .a-node-main h3 {
+      font-size: 16px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 0;
+    }
+    .a-node.is-focus .a-node-main p { color: #c1d7d2; white-space: normal; }
+    .a-node.is-open { background: var(--a-open); }
+    .a-node.is-open .a-node-time { color: #ffd4cc; }
+    .a-node.is-open .a-node-main p { color: #f0d0ca; }
+    .a-focus-kicker {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+      margin-bottom: 8px;
+    }
+    .a-focus-kicker .eyebrow { color: #b8e2da; font-size: 10px; }
+    .a-node.is-open .a-focus-kicker .eyebrow { color: #ffd4cc; }
+    .a-count {
+      font-size: 28px; font-weight: 830; letter-spacing: -.05em; line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .a-count span { font-size: 11px; font-weight: 700; letter-spacing: 0; opacity: .8; margin-left: 4px; }
+    .a-focus-meta { margin: 10px 0 0; display: grid; gap: 4px; }
+    .a-focus-meta p { margin: 0; font-size: 12px; line-height: 1.4; color: #d5e8e3; }
+    .a-node.is-open .a-focus-meta p { color: #f5ddd8; }
+    .a-node .button-primary {
+      width: 100%; margin-top: 14px; border: 0; border-radius: 11px; padding: 11px;
+      background: white; color: var(--a-teal-deep); font-weight: 800; cursor: pointer;
+    }
+    .a-node.is-open .button-primary { color: #7a2418; }
+
+    /* The active class becomes a minimal insight card: sentence, fact, action, atmosphere. */
+    .a-node.is-focus {
+      display: grid; grid-template-columns: 70px 1fr; gap: 0 10px; padding: 0;
+      background: var(--active-panel); color: var(--a-ink);
+    }
+    .a-node.is-focus .a-node-time {
+      display: block; padding: 14px 0 14px 14px; color: var(--active-time); font-size: 12px;
+    }
+    .a-node.is-focus .a-node-main { padding: 0; }
+    .a-course-banner {
+      position: relative; isolation: isolate; overflow: hidden; min-height: 112px;
+      padding: 14px 0; border-radius: 0; cursor: pointer;
+    }
+    .a-banner-copy {
+      position: relative; z-index: 2; width: 88%; min-height: 84px;
+      display: flex; flex-direction: column; align-items: flex-start;
+    }
+    .a-course-banner h3 {
+      max-width: 250px; margin: 0; font-size: 16px; font-weight: 520;
+      line-height: 1.14; letter-spacing: -.035em;
+    }
+    .a-banner-class { font-weight: 860; }
+    .a-banner-connector { font-weight: 520; }
+    .a-banner-emphasis { color: var(--banner-accent); font-weight: 860; }
+    .a-banner-meta { margin-top: 7px; font-size: 9px; font-weight: 650; opacity: .68; }
+    .a-course-banner .button-primary {
+      position: absolute; left: 0; bottom: -4px; width: auto; margin: 0; padding: 7px 11px;
+      border: 0; border-radius: 999px; background: var(--banner-button);
+      color: var(--banner-button-ink); font-size: 9px; font-weight: 820;
+    }
+    .attendance-action {
+      opacity: 0; visibility: hidden; transform: translateY(4px); pointer-events: none;
+      transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 180ms;
+    }
+    .attendance-action.is-visible {
+      opacity: 1; visibility: visible; transform: translateY(0); pointer-events: auto;
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+    .a-node.is-focus .attendance-action { color: var(--banner-button-ink); }
+    .a-banner-shapes { position: absolute; z-index: 1; right: -14px; bottom: -22px; width: 86px; height: 68px; }
+    .a-banner-shapes span {
+      position: absolute; display: block; width: 54px; height: 54px; border-radius: 50%;
+      background: var(--banner-shape); opacity: .48;
+    }
+    .a-banner-shapes span:first-child { left: 0; top: 12px; }
+    .a-banner-shapes span:nth-child(2) { right: 0; top: 0; }
+    .a-banner-shapes span:nth-child(3) { display: none; }
+
+    /* A — closest to the reference: blush, inline fact, dark CTA. */
+    .pill-style-a .a-node.is-focus {
+      --active-panel: #e8bfdd; --active-time: #2c2630; --banner-accent: #b45558;
+      --banner-button: #18211f; --banner-button-ink: white; --banner-shape: #bd82aa;
+    }
+    .pill-style-a .a-course-banner {
+      background: transparent; color: #2c2630;
+    }
+
+    /* B — calmer mint with the time treated as the headline beat. */
+    .pill-style-b .a-node.is-focus {
+      --active-panel: #cfe7dd; --active-time: #183532; --banner-accent: #0d5f5c;
+      --banner-button: white; --banner-button-ink: #073b3a; --banner-shape: #8fbeb1;
+    }
+    .pill-style-b .a-course-banner {
+      background: transparent; color: #183532;
+    }
+    .pill-style-b .a-banner-emphasis { font-weight: 900; }
+    .pill-style-b .a-course-banner .button-primary { box-shadow: 0 1px 4px rgb(7 59 58 / 12%); }
+    .pill-style-b .a-banner-shapes {
+      right: -50px; bottom: -71px; width: 176px; height: 176px; border-radius: 50%;
+      background: var(--banner-shape); opacity: .34;
+    }
+    .pill-style-b .a-banner-shapes span { display: none; }
+
+    /* C — pale butter with a restrained ISDM action. */
+    .pill-style-c .a-node.is-focus {
+      --active-panel: #f4df9f; --active-time: #312b20; --banner-accent: #9a5b08;
+      --banner-button: #0d5f5c; --banner-button-ink: white; --banner-shape: #e0ae4d;
+    }
+    .pill-style-c .a-course-banner {
+      background: transparent; color: #312b20;
+    }
+    .pill-style-c .a-banner-shapes {
+      right: -12px; top: 32px; bottom: auto; display: grid; gap: 9px; width: 108px; height: auto;
+    }
+    .pill-style-c .a-banner-shapes span,
+    .pill-style-c .a-banner-shapes span:first-child,
+    .pill-style-c .a-banner-shapes span:nth-child(2),
+    .pill-style-c .a-banner-shapes span:nth-child(3) {
+      position: static; display: block; width: 100%; height: 8px; border-radius: 999px;
+      background: var(--banner-shape); opacity: .34;
+    }
+    .pill-style-c .a-banner-shapes span:nth-child(2) { translate: 17px 0; }
+
+    .a-readings { padding: 4px 14px 30px; }
+    .a-readings-head {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 2px 3px 12px;
+    }
+    .a-readings-head h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; }
+    .a-readings-head span { font-size: 11px; color: var(--a-muted); font-weight: 650; }
+    .a-reading {
+      background: white; border: 1px solid var(--a-line); border-radius: 16px;
+      padding: 14px; margin-bottom: 8px;
+    }
+    .course-stack { display: grid; gap: 10px; }
+    .course-card {
+      --course-panel: #e8bfdd; --course-accent: #a85369; --course-shape: #bd82aa;
+      overflow: hidden; border: 1px solid var(--a-line); border-radius: 19px; background: white;
+    }
+    .course-card.tone-mint { --course-panel: #cfe7dd; --course-accent: #17665e; --course-shape: #8fbeb1; }
+    .course-card.tone-butter { --course-panel: #f4df9f; --course-accent: #8a5b0e; --course-shape: #e0ae4d; }
+    .course-card.tone-sky { --course-panel: #cfe1ee; --course-accent: #315f7d; --course-shape: #8db7d0; }
+    .course-summary {
+      position: relative; isolation: isolate; width: 100%; min-height: 100px; overflow: hidden;
+      padding: 15px 16px; border: 0; background: var(--course-panel); color: #25282a;
+      text-align: left; cursor: pointer;
+    }
+    .course-summary-copy { position: relative; z-index: 2; width: 84%; }
+    .course-eyebrow { color: var(--course-accent); font-size: 9px; font-weight: 850; letter-spacing: .045em; text-transform: uppercase; }
+    .course-summary h2 { margin: 5px 0 8px; font-size: 17px; line-height: 1.12; letter-spacing: -.035em; }
+    .course-summary-meta { display: flex; align-items: center; gap: 7px; color: rgb(37 40 42 / 72%); font-size: 10px; font-weight: 680; }
+    .course-summary-meta b { color: #25282a; }
+    .course-chevron {
+      position: absolute; z-index: 3; right: 14px; top: 14px; display: grid; place-items: center;
+      width: 26px; height: 26px; border-radius: 50%; background: rgb(255 255 255 / 58%);
+      font-size: 15px; transition: rotate 160ms ease;
+    }
+    .course-card.is-expanded .course-chevron { rotate: 180deg; }
+    .course-shapes { position: absolute; z-index: 1; right: -13px; bottom: -22px; width: 90px; height: 68px; }
+    .course-shapes::before, .course-shapes::after {
+      content: ''; position: absolute; width: 56px; height: 56px; border-radius: 50%;
+      background: var(--course-shape); opacity: .44;
+    }
+    .course-shapes::before { left: 0; top: 11px; }
+    .course-shapes::after { right: 0; top: 0; }
+    .course-card.design-circles,
+    .course-card.design-arc,
+    .course-card.design-lines,
+    .course-card.design-halo { border-radius: 20px; }
+    .course-summary.design-circles,
+    .course-summary.design-arc,
+    .course-summary.design-lines,
+    .course-summary.design-halo {
+      min-height: 112px; padding: 16px; color: #25282a;
+    }
+    .course-summary.design-circles { background: #e8bfdd; }
+    .course-summary.design-arc { background: #d8ebe3; }
+    .course-summary.design-lines { background: #f4df9f; }
+    .course-summary.design-halo { background: #d9e7f2; }
+    .course-summary.design-circles .course-summary-copy,
+    .course-summary.design-arc .course-summary-copy,
+    .course-summary.design-lines .course-summary-copy { width: 78%; }
+    .course-summary.design-halo .course-summary-copy { width: 94%; }
+    .course-summary.design-halo h2 { max-width: 320px; padding-right: 0; }
+    .course-summary.design-arc .course-eyebrow { color: #17665e; }
+    .course-summary.design-lines .course-eyebrow { color: #8a5b0e; }
+    .course-summary.design-halo .course-eyebrow { color: #315f7d; }
+    .course-expand-mark {
+      position: absolute; z-index: 4; right: 14px; bottom: 13px; display: inline-flex;
+      align-items: center; gap: 5px; color: currentColor; opacity: .68;
+      font-size: 9px; font-weight: 780; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .course-expand-mark b { font-size: 17px; font-weight: 450; line-height: .8; }
+    .atmosphere-circles { position: absolute; z-index: 1; right: -14px; top: -19px; width: 94px; height: 82px; }
+    .atmosphere-circles i {
+      position: absolute; display: block; width: 64px; height: 64px; border-radius: 50%;
+      background: #bd82aa; opacity: .32;
+    }
+    .atmosphere-circles i:first-child { left: 0; top: 0; }
+    .atmosphere-circles i:last-child { right: -4px; bottom: -8px; }
+    .atmosphere-arc {
+      position: absolute; z-index: 1; right: -48px; bottom: -66px; width: 170px; height: 170px;
+      border-radius: 50%; background: #9fcabc; opacity: .30;
+    }
+    .atmosphere-lines { position: absolute; z-index: 1; right: -10px; top: 31px; display: grid; gap: 9px; width: 105px; }
+    .atmosphere-lines i { display: block; height: 8px; border-radius: 999px; background: #d7a949; opacity: .32; }
+    .atmosphere-lines i:nth-child(2) { translate: 17px 0; }
+    .atmosphere-halo {
+      position: absolute; z-index: 1; inset: 13px 44px 13px 13px; border-radius: 18px;
+      background: #b9d1e3; opacity: .24;
+    }
+    .course-detail { padding: 14px; background: #fbfcfc; }
+    .reading-group-label { display: flex; justify-content: space-between; gap: 10px; margin: 0 1px 8px; }
+    .reading-group-label span { color: var(--a-muted); font-size: 9px; font-weight: 760; text-transform: uppercase; letter-spacing: .05em; }
+    .reading-group-label b { font-size: 10px; }
+    .course-reading-list { display: grid; gap: 7px; }
+    .course-reading {
+      display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; width: 100%;
+      padding: 11px 12px; border: 1px solid #e1e8e5; border-radius: 13px; background: white;
+      color: #18211f; text-align: left; cursor: pointer;
+    }
+    .course-reading-title { font-size: 12px; font-weight: 760; line-height: 1.25; }
+    .course-reading-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 5px; color: var(--a-muted); font-size: 9px; }
+    .reading-required { padding: 3px 6px; border-radius: 999px; background: #f8e2e1; color: #964b4d; font-weight: 820; }
+    .reading-open-icon { color: var(--course-accent); font-size: 16px; font-weight: 800; }
+    .reading-accordion { margin-top: 9px; border-top: 1px solid #e4eae8; }
+    .reading-accordion-toggle {
+      display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 11px 2px 3px;
+      border: 0; background: transparent; color: #33403d; font-size: 10px; font-weight: 780; cursor: pointer;
+    }
+    .reading-accordion-toggle span:last-child { font-size: 14px; }
+    .reading-accordion-content { padding-top: 7px; }
+    .reading-index, .reading-open-label, .reading-doc-icon, .reading-date-rail { display: none; }
+    .reading-main { min-width: 0; }
+    .reading-section-label { display: inline-flex; align-items: center; gap: 7px; }
+    .reading-section-icon { position: relative; display: inline-block; width: 13px; height: 13px; color: currentColor; }
+    .reading-section-icon::before { content: ''; position: absolute; inset: 2px 1px 1px; border: 1.5px solid currentColor; border-radius: 2px; }
+    .reading-section-icon.icon-later::after { content: ''; position: absolute; left: 3px; right: 3px; top: 5px; border-top: 1.5px solid currentColor; }
+    .reading-section-icon.icon-general::before { inset: 4px 1px 1px; }
+    .reading-section-icon.icon-general::after { content: ''; position: absolute; left: 2px; top: 2px; width: 6px; height: 4px; border: 1.5px solid currentColor; border-bottom: 0; border-radius: 2px 2px 0 0; }
+    .reading-doc-icon {
+      position: relative; width: 34px; height: 38px; border-radius: 12px; background: #f8e4e3; color: #9d1739;
+    }
+    .reading-doc-icon::before {
+      content: ''; position: absolute; left: 11px; top: 9px; width: 11px; height: 15px;
+      border: 1.5px solid currentColor; border-radius: 1px;
+    }
+    .reading-doc-icon::after { content: ''; position: absolute; left: 14px; top: 14px; width: 6px; border-top: 1.5px solid currentColor; box-shadow: 0 4px 0 currentColor; }
+
+    .course-detail { transform-origin: top; animation: detail-enter var(--motion-slow) var(--ease-emphasized) both; }
+    .course-detail.is-collapsing, .reading-accordion-content.is-collapsing {
+      overflow: hidden; opacity: 0; transform: translateY(-5px);
+      transition: height var(--motion-base) var(--ease-standard), opacity var(--motion-fast) ease,
+        transform var(--motion-base) var(--ease-standard), padding var(--motion-base) var(--ease-standard);
+    }
+    .reading-accordion-content { animation: accordion-enter var(--motion-base) var(--ease-emphasized) both; }
+    .course-reading { transition: background-color var(--motion-base) ease, opacity var(--motion-base) ease, transform var(--motion-fast) ease; }
+    .course-reading:hover { filter: brightness(.985); }
+    .course-reading.is-done { opacity: .62; }
+    .course-reading.is-done .course-reading-title { text-decoration: line-through; text-decoration-thickness: 1px; }
+    .reading-local-done { padding: 3px 6px; border-radius: 999px; background: #dff1e8; color: #1f6c52; font-weight: 820; }
+
+    /* Approved blush design — Material agenda with a fixed session rail. */
+    .reading-layout-sms { padding: 13px 15px 9px; background: #fff; }
+    .reading-layout-sms .reading-main { display: grid; grid-template-columns: 54px 1fr; gap: 10px; }
+    .reading-layout-sms .reading-date-rail {
+      display: flex; flex-direction: column; align-items: center; padding: 3px 9px 0 0;
+      border-right: 1px solid #e2e5e3; color: #5f6663;
+    }
+    .reading-layout-sms .reading-date-rail span { font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+    .reading-layout-sms .reading-date-rail b { margin-top: 9px; color: #8f1b3a; font-size: 12px; }
+    .reading-layout-sms .reading-date-rail strong { margin-top: 2px; color: #3b2029; font-size: 24px; line-height: 1; }
+    .reading-layout-sms .reading-date-rail small { margin-top: 3px; font-size: 9px; }
+    .reading-layout-sms .course-reading-list { gap: 0; }
+    .reading-layout-sms .course-reading {
+      grid-template-columns: 1fr 24px; gap: 8px; min-height: 74px; padding: 11px 2px 11px 12px;
+      border: 0; border-bottom: 1px solid #e4e7e5; border-radius: 0; background: transparent;
+    }
+    .reading-layout-sms .course-reading.is-required { border-left: 3px solid #9d1739; }
+    .reading-layout-sms .reading-open-icon { font-size: 0; color: #252a28; }
+    .reading-layout-sms .reading-open-icon::after { content: '›'; font-size: 24px; font-weight: 400; }
+    .reading-layout-sms .reading-required { padding: 3px 6px; background: #f8e4e3; color: #8f1b3a; }
+    .reading-layout-sms .reading-extra-sections { margin-top: 8px; }
+    .reading-layout-sms .reading-accordion { margin: 0; }
+    .reading-layout-sms .reading-accordion-toggle { min-height: 45px; padding: 10px 2px; }
+
+    /* Mint — a compact analysis panel with one focused workshop reading. */
+    .reading-layout-data { padding: 12px; background: #fff; }
+    .reading-data-head { display: flex; justify-content: space-between; align-items: center; margin: 0 2px 8px; }
+    .reading-data-head span { color: #17665e; font-size: 9px; font-weight: 840; letter-spacing: .055em; text-transform: uppercase; }
+    .reading-data-head b { padding: 6px 9px; border-radius: 999px; background: #e4f2ec; color: #17665e; font-size: 9px; }
+    .reading-layout-data .reading-main {
+      position: relative; overflow: hidden; padding: 15px; border-radius: 18px; background-color: #e7f3ee;
+      background-image: linear-gradient(rgb(23 102 94 / 7%) 1px, transparent 1px), linear-gradient(90deg, rgb(23 102 94 / 7%) 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+    .reading-layout-data .course-reading { grid-template-columns: 1fr; min-height: 126px; align-content: space-between; padding: 0; border: 0; background: transparent; }
+    .reading-layout-data .course-reading-title { display: block; max-width: 250px; font-size: 17px; line-height: 1.16; letter-spacing: -.025em; }
+    .reading-layout-data .reading-open-icon { display: none; }
+    .reading-layout-data .reading-open-label {
+      display: inline-flex; align-items: center; justify-content: space-between; justify-self: start;
+      min-width: 105px; margin-top: 16px; padding: 9px 12px; border-radius: 12px; background: #17665e; color: white; font-size: 10px; font-weight: 820;
+    }
+    .reading-layout-data .reading-extra-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 8px; }
+    .reading-layout-data .reading-extra-sections:has(.reading-accordion-content) { grid-template-columns: 1fr; }
+    .reading-layout-data .reading-accordion { margin: 0; border: 0; }
+    .reading-layout-data .reading-accordion-toggle { min-height: 48px; padding: 9px 10px; border-radius: 12px; background: #edf4f1; text-align: left; }
+    .reading-layout-data .reading-accordion-content .course-reading {
+      grid-template-columns: 1fr 28px; min-height: 0; padding: 10px 11px; border: 1px solid #dce9e4;
+      border-radius: 12px; background: white;
+    }
+    .reading-layout-data .reading-accordion-content .reading-open-label { display: none; }
+    .reading-layout-data .reading-accordion-content .reading-open-icon { display: block; color: #17665e; }
+
+    /* Butter — a workshop briefing note with one direct action. */
+    .reading-layout-pra { padding: 13px; background: #fff; }
+    .reading-workshop-head { display: flex; justify-content: space-between; align-items: baseline; margin: 0 1px 9px; }
+    .reading-workshop-head span { color: #8a5b0e; font-size: 9px; font-weight: 840; letter-spacing: .055em; text-transform: uppercase; }
+    .reading-workshop-head b { font-size: 10px; }
+    .reading-layout-pra .reading-main { padding: 14px 14px 14px 16px; border-left: 5px solid #d7a949; border-radius: 5px 18px 18px 5px; background: #fff1bf; }
+    .reading-layout-pra .course-reading { grid-template-columns: 1fr; min-height: 132px; align-content: space-between; padding: 0; border: 0; background: transparent; }
+    .reading-layout-pra .course-reading-title { display: block; max-width: 270px; font-size: 17px; line-height: 1.18; letter-spacing: -.025em; }
+    .reading-layout-pra .reading-open-icon { display: none; }
+    .reading-layout-pra .reading-open-label { display: inline-flex; justify-content: space-between; min-width: 118px; margin-top: 16px; padding: 9px 12px; border-radius: 999px; background: #302719; color: white; font-size: 10px; font-weight: 820; }
+
+    /* Sky — a calm library focus panel that protects long course titles from crowding. */
+    .reading-layout-psd { padding: 13px; background: #fff; }
+    .reading-library-head { display: flex; justify-content: space-between; align-items: center; margin: 0 1px 9px; }
+    .reading-library-head span { color: #315f7d; font-size: 9px; font-weight: 840; letter-spacing: .055em; text-transform: uppercase; }
+    .reading-library-head b { padding: 6px 9px; border-radius: 999px; background: #e7f1f7; color: #315f7d; font-size: 9px; }
+    .reading-layout-psd .reading-main { padding: 16px; border-radius: 20px; background: #dcebf5; }
+    .reading-layout-psd .course-reading { grid-template-columns: 1fr 42px; min-height: 124px; align-content: center; gap: 12px; padding: 0; border: 0; background: transparent; }
+    .reading-layout-psd .course-reading-title { display: block; max-width: 240px; font-size: 19px; line-height: 1.12; letter-spacing: -.03em; }
+    .reading-layout-psd .reading-open-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #315f7d; color: white; }
+    .reading-layout-psd .reading-required { background: white; color: #315f7d; }
+
+    .reading-sheet { max-height: 88%; overflow: auto; padding: 0; background: #fbfcfc; }
+    .reading-document {
+      margin: 16px 0; padding: 18px; min-height: 180px; border: 1px solid #e2e8e6;
+      border-radius: 15px; background: #fcfdfd;
+    }
+    .reading-document small { color: var(--a-muted); font-size: 9px; font-weight: 760; text-transform: uppercase; letter-spacing: .05em; }
+    .reading-document h3 { margin: 12px 0 9px; font-size: 18px; line-height: 1.2; }
+    .reading-document p { margin: 0; color: #5c6764; font-size: 11px; line-height: 1.55; }
+    .variant-a .reading-progress { background: var(--teal-50); color: var(--a-teal); }
+    .variant-a .reading-check { border-color: #abb4b1; }
+    .variant-a .reading-row.is-done .reading-check { background: var(--green); border-color: var(--green); }
+
+    /* Variant B — Lean board: full-width next, no side stat tiles */
+    .variant-b {
+      --b-ink: #15201f;
+      --b-paper: #f4f8f7;
+      --b-surface: #ffffff;
+      --b-teal: #0d5f5c;
+      --b-teal-deep: #073b3a;
+      --b-open: #b74635;
+      --b-muted: #65706d;
+      --b-line: #dce5e2;
+      --b-soft: #e4ece9;
+      background: var(--b-paper);
+      color: var(--b-ink);
+    }
+    .b-header {
+      padding: 14px 17px 10px; display: flex; justify-content: space-between; align-items: center;
+    }
+    .b-header .brand { font-size: 15px; }
+    .b-sync {
+      font-size: 11px; font-weight: 750; color: var(--green);
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .b-sync::before {
+      content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor;
+    }
+    .b-sync.is-warn { color: #6d4a00; }
+    .b-sync.is-info { color: #20516f; }
+    .b-tabs {
+      padding: 0 17px 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .b-tab {
+      border: 0; border-radius: 12px; padding: 10px; background: var(--b-soft);
+      color: var(--b-muted); font-weight: 760; cursor: pointer;
+    }
+    .b-tab.is-active { background: var(--b-teal-deep); color: white; }
+    .b-body { padding: 2px 14px 30px; }
+    .b-date {
+      display: flex; justify-content: space-between; align-items: center; padding: 2px 3px 12px;
+    }
+    .b-date h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; }
+    .b-date-actions { display: flex; gap: 6px; }
+    .b-arrow {
+      border: 0; width: 30px; height: 30px; border-radius: 9px; background: white; cursor: pointer;
+      color: var(--b-ink); font-size: 16px; line-height: 1;
+    }
+    .b-next {
+      background: var(--b-teal); color: white; border-radius: 20px; padding: 16px 16px 15px;
+      cursor: pointer; border: 1px solid transparent;
+    }
+    .b-next.is-open { background: var(--b-open); }
+    .b-next-top {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+    }
+    .b-next .eyebrow { color: #b8e2da; }
+    .b-next.is-open .eyebrow { color: #ffd4cc; }
+    .b-countdown {
+      text-align: right; flex: none;
+    }
+    .b-countdown .num {
+      display: block; font-size: 36px; font-weight: 830; letter-spacing: -.055em;
+      line-height: .95; font-variant-numeric: tabular-nums;
+    }
+    .b-countdown .unit {
+      display: block; margin-top: 3px; font-size: 10px; font-weight: 700; color: #b8d5cf;
+    }
+    .b-next.is-open .b-countdown .unit { color: #f0c8c0; }
+    .b-next h2 {
+      margin: 14px 0 0; font-size: 18px; line-height: 1.18; letter-spacing: -.02em;
+      font-weight: 800; max-width: 15ch;
+    }
+    .b-next-facts {
+      margin: 12px 0 0; display: grid; gap: 5px;
+    }
+    .b-next-facts p {
+      margin: 0; font-size: 12px; line-height: 1.4; color: #c8ddd8;
+    }
+    .b-next.is-open .b-next-facts p { color: #f0d0ca; }
+    .b-next .button-primary {
+      width: 100%; margin-top: 15px; border: 0; border-radius: 11px; padding: 11px;
+      background: white; color: var(--b-teal-deep); font-weight: 800; cursor: pointer;
+    }
+    .b-next.is-open .button-primary { color: #7a2418; }
+    .b-rest { margin-top: 14px; }
+    .b-rest-head {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin: 0 3px 8px; font-size: 13px; font-weight: 760;
+    }
+    .b-rest-head span { color: var(--b-muted); font-size: 11px; font-weight: 650; }
+    .b-list {
+      background: white; border: 1px solid var(--b-line); border-radius: 16px; overflow: hidden;
+    }
+    .b-row {
+      display: grid; grid-template-columns: 48px 1fr auto; gap: 10px; align-items: center;
+      padding: 12px 12px; cursor: pointer; border-bottom: 1px solid #e8efec;
+    }
+    .b-row:last-child { border-bottom: 0; }
+    .b-row-time {
+      font-size: 11px; font-weight: 800; color: var(--b-teal);
+      font-variant-numeric: tabular-nums;
+    }
+    .b-row h4 { margin: 0 0 3px; font-size: 12px; font-weight: 750; line-height: 1.25; }
+    .b-row p { margin: 0; color: var(--b-muted); font-size: 10px; line-height: 1.3; }
+    .b-room {
+      background: var(--sand); border-radius: 9px; padding: 5px 7px;
+      font-size: 9px; font-weight: 750; max-width: 7.5rem; text-align: center;
+      line-height: 1.2;
+    }
+    .b-row.is-past { opacity: .45; }
+    .b-row.is-past .b-row-time { color: var(--b-muted); }
+    .b-row.is-now {
+      background: var(--teal-50);
+    }
+    .b-row.is-now .b-row-time { color: var(--b-teal-deep); }
+    .b-row.is-now .b-room { background: #d7f1ec; color: var(--b-teal-deep); }
+    .b-row-mark {
+      display: inline-block; margin-left: 5px; font-size: 9px; font-weight: 800;
+      letter-spacing: .04em; text-transform: uppercase; color: var(--b-teal);
+    }
+    .b-readings { padding: 4px 14px 30px; }
+    .b-readings-head {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 2px 3px 12px;
+    }
+    .b-readings-head h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; }
+    .b-readings-head span { font-size: 11px; color: var(--b-muted); font-weight: 650; }
+    .b-reading {
+      background: white; border: 1px solid var(--b-line); border-radius: 16px;
+      padding: 14px; margin-bottom: 8px;
+    }
+    .variant-b .reading-progress { background: var(--teal-50); color: var(--b-teal); }
+    .variant-b .reading-check { border-color: #abb4b1; }
+    .variant-b .reading-row.is-done .reading-check { background: var(--green); border-color: var(--green); }
+
+    /* Variant C — glanceable dashboard / bento */
+    .variant-c { background: #f4f8f7; }
+    .c-header { padding: 14px 17px 12px; display: flex; justify-content: space-between; align-items: center; }
+    .c-status { display: flex; align-items: center; gap: 7px; color: var(--green); font-size: 11px; font-weight: 750; }
+    .c-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .c-tabs { padding: 0 17px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .c-tab { border: 0; border-radius: 12px; padding: 10px; background: #e4ece9; color: var(--muted); font-weight: 760; cursor: pointer; }
+    .c-tab.is-active { background: var(--teal-950); color: white; }
+    .c-content { padding: 2px 14px 30px; }
+    .c-date { display: flex; justify-content: space-between; align-items: center; padding: 3px 3px 11px; }
+    .c-date h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; }
+    .c-date-actions { display: flex; gap: 6px; }
+    .c-arrow { border: 0; width: 30px; height: 30px; border-radius: 9px; background: white; cursor: pointer; }
+    .c-grid { display: grid; grid-template-columns: 1.12fr .88fr; gap: 9px; }
+    .c-tile { background: white; border: 1px solid #dce5e2; border-radius: 20px; padding: 15px; }
+    .c-next { grid-row: span 2; background: var(--teal-800); color: white; cursor: pointer; }
+    .c-next .eyebrow { color: #b8e2da; }
+    .c-next .count { font-size: 42px; line-height: .95; font-weight: 830; letter-spacing: -.055em; margin: 17px 0 3px; }
+    .c-next .count-label { color: #b8d5cf; font-size: 11px; }
+    .c-next h2 { margin: 24px 0 10px; font-size: 18px; line-height: 1.18; }
+    .c-next p { color: #c1d7d2; font-size: 11px; line-height: 1.5; margin: 4px 0; }
+    .c-next button { width: 100%; border: 0; border-radius: 11px; padding: 10px; background: white; color: var(--teal-950); font-weight: 800; margin-top: 15px; cursor: pointer; }
+    .c-mini .big { font-size: 27px; font-weight: 830; letter-spacing: -.04em; }
+    .c-mini small { color: var(--muted); font-size: 10px; }
+    .c-mini p { margin: 11px 0 0; font-size: 11px; line-height: 1.4; }
+    .c-agenda { margin-top: 10px; }
+    .c-agenda h3 { margin: 17px 3px 9px; font-size: 13px; }
+    .c-event { display: grid; grid-template-columns: 53px 1fr auto; gap: 10px; align-items: center; padding: 12px 10px; background: white; border-bottom: 1px solid #e5ebe9; cursor: pointer; }
+    .c-event:first-of-type { border-radius: 16px 16px 0 0; }
+    .c-event:last-child { border-radius: 0 0 16px 16px; border-bottom: 0; }
+    .c-event-time { color: var(--teal-800); font-size: 11px; font-weight: 800; }
+    .c-event h4 { margin: 0 0 3px; font-size: 12px; }
+    .c-event p { margin: 0; color: var(--muted); font-size: 10px; }
+    .c-room { background: var(--sand); border-radius: 9px; padding: 5px 7px; font-size: 9px; font-weight: 750; }
+    .c-readings { padding: 4px 14px 30px; }
+    .c-reading { background: white; border: 1px solid #dce5e2; border-radius: 16px; padding: 14px; margin-bottom: 8px; }
+
+    .sheet-backdrop {
+      position: absolute; inset: 0; z-index: 30; background: rgb(7 20 18 / 45%); display: flex; align-items: end;
+      animation: backdrop-enter var(--motion-base) ease both;
+    }
+    .sheet { width: 100%; background: white; border-radius: 25px 25px 0 0; padding: 12px 20px 24px; animation: rise var(--motion-slow) var(--ease-emphasized) both; }
+    .sheet-backdrop.is-leaving { animation: backdrop-exit var(--motion-base) ease both; }
+    .sheet-backdrop.is-leaving .sheet { animation: sheet-exit var(--motion-base) var(--ease-standard) both; }
+    .sheet-handle { width: 42px; height: 4px; border-radius: 4px; background: #d0d5d2; margin: 0 auto 18px; }
+    .sheet h2 { margin: 0 0 5px; font-size: 22px; line-height: 1.15; }
+    .sheet .sheet-course { color: var(--muted); font-size: 12px; }
+    .sheet-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 18px 0; }
+    .sheet-fact { background: var(--teal-50); border-radius: 13px; padding: 11px; }
+    .sheet-fact small { display: block; color: var(--muted); margin-bottom: 4px; }
+    .sheet-fact b { font-size: 13px; }
+    .sheet-close { width: 100%; }
+    .reading-sheet > .sheet-handle {
+      position: absolute; z-index: 4; top: 10px; left: 50%; translate: -50% 0; margin: 0;
+      background: rgb(30 41 39 / 22%);
+    }
+    .reading-sheet-hero { position: relative; overflow: hidden; padding: 34px 22px 20px; background: #e8bfdd; }
+    .reading-sheet.tone-mint .reading-sheet-hero { background: #d8ebe3; }
+    .reading-sheet.tone-butter .reading-sheet-hero { background: #f4df9f; }
+    .reading-sheet.tone-sky .reading-sheet-hero { background: #d9e7f2; }
+    .reading-sheet-eyebrow { color: #8f1b3a; font-size: 9px; font-weight: 850; letter-spacing: .055em; text-transform: uppercase; }
+    .reading-sheet.tone-mint .reading-sheet-eyebrow { color: #17665e; }
+    .reading-sheet.tone-butter .reading-sheet-eyebrow { color: #8a5b0e; }
+    .reading-sheet.tone-sky .reading-sheet-eyebrow { color: #315f7d; }
+    .reading-sheet h2 { max-width: 310px; margin: 7px 0 8px; font-size: 24px; line-height: 1.08; letter-spacing: -.04em; }
+    .reading-sheet-course { color: rgb(35 42 40 / 67%); font-size: 10px; font-weight: 680; }
+    .reading-sheet-state { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; padding: 6px 9px; border-radius: 999px; background: rgb(255 255 255 / 62%); font-size: 9px; font-weight: 820; }
+    .reading-sheet-state::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #8f1b3a; }
+    .reading-sheet-state.is-done::before { background: #28755a; }
+    .reading-sheet-body { padding: 0 20px 20px; }
+    .reading-sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .reading-source-action, .reading-done-action { min-height: 44px; border: 0; border-radius: 13px; font-size: 10px; font-weight: 820; cursor: pointer; }
+    .reading-source-action { background: #18211f; color: white; }
+    .reading-done-action { background: #e8eeeb; color: #29403a; }
+    .reading-done-action.is-done { background: #dff1e8; color: #1f6c52; }
+    .reading-sheet-close { margin-top: 8px; border: 0; background: transparent; color: var(--muted); }
+    .lecture-sheet { padding: 0; overflow: hidden; background: #f9fbfa; }
+    .lecture-sheet > .sheet-handle {
+      position: absolute; z-index: 4; top: 10px; left: 50%; translate: -50% 0;
+      margin: 0; background: rgb(44 38 48 / 24%);
+    }
+    .lecture-sheet-hero {
+      position: relative; isolation: isolate; overflow: hidden; padding: 32px 22px 21px;
+      background: #e8bfdd; color: #2c2630;
+    }
+    .lecture-sheet-copy { position: relative; z-index: 2; width: 88%; }
+    .lecture-sheet-eyebrow {
+      color: #9c4e64; font-size: 9px; font-weight: 850; letter-spacing: .055em; text-transform: uppercase;
+    }
+    .lecture-sheet h2 { margin: 7px 0 15px; max-width: 290px; font-size: 24px; line-height: 1.06; letter-spacing: -.045em; }
+    .lecture-sheet-time { display: flex; align-items: baseline; gap: 4px; font-variant-numeric: tabular-nums; }
+    .lecture-sheet-time strong { font-size: 29px; line-height: 1; letter-spacing: -.05em; }
+    .lecture-sheet-time span { font-size: 13px; font-weight: 720; }
+    .lecture-sheet-place { margin-top: 7px; color: rgb(44 38 48 / 70%); font-size: 11px; font-weight: 680; }
+    .lecture-sheet-shapes { position: absolute; z-index: 1; right: -18px; bottom: -24px; width: 108px; height: 82px; }
+    .lecture-sheet-shapes::before, .lecture-sheet-shapes::after {
+      content: ''; position: absolute; width: 68px; height: 68px; border-radius: 50%;
+      background: #bd82aa; opacity: .46;
+    }
+    .lecture-sheet-shapes::before { left: 0; top: 14px; }
+    .lecture-sheet-shapes::after { right: 0; top: 0; }
+    .lecture-sheet.visual-arc .lecture-sheet-hero { background: #d8ebe3; color: #183532; }
+    .lecture-sheet.visual-arc .lecture-sheet-eyebrow { color: #17665e; }
+    .lecture-sheet.visual-arc .lecture-sheet-shapes {
+      right: -52px; bottom: -76px; width: 184px; height: 184px; border-radius: 50%;
+      background: #9fcabc; opacity: .34;
+    }
+    .lecture-sheet.visual-arc .lecture-sheet-shapes::before,
+    .lecture-sheet.visual-arc .lecture-sheet-shapes::after { display: none; }
+    .lecture-sheet.visual-lines .lecture-sheet-hero { background: #f4df9f; color: #312b20; }
+    .lecture-sheet.visual-lines .lecture-sheet-eyebrow { color: #8a5b0e; }
+    .lecture-sheet.visual-lines .lecture-sheet-copy { width: 82%; }
+    .lecture-sheet.visual-lines .lecture-sheet-shapes {
+      right: -12px; top: 84px; bottom: auto; width: 118px; height: 8px; border-radius: 999px;
+      background: #d7a949; opacity: .34; box-shadow: 0 17px 0 #d7a949, 0 34px 0 #d7a949;
+    }
+    .lecture-sheet.visual-lines .lecture-sheet-shapes::before,
+    .lecture-sheet.visual-lines .lecture-sheet-shapes::after { display: none; }
+    .lecture-sheet-body { padding: 8px 22px 20px; }
+    .lecture-detail-row {
+      display: grid; grid-template-columns: 86px 1fr; gap: 12px; align-items: center;
+      min-height: 45px; border-bottom: 1px solid #e2e9e6;
+    }
+    .lecture-detail-row:last-of-type { border-bottom: 0; }
+    .lecture-detail-row span { color: var(--muted); font-size: 10px; }
+    .lecture-detail-row b { font-size: 12px; }
+    .lecture-status { display: inline-flex; align-items: center; gap: 6px; }
+    .lecture-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #9aa5a1; }
+    .lecture-status.is-open { color: #0d5f5c; }
+    .lecture-status.is-open::before { background: #2c8a70; }
+    .lecture-sheet-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+    .lecture-sheet-actions .sheet-close {
+      width: auto; border: 0; border-radius: 999px; padding: 10px 19px;
+      background: #18211f; color: white; font-size: 11px; font-weight: 800;
+    }
+    .toast {
+      position: absolute; z-index: 35; left: 18px; right: 18px; bottom: 22px; background: #18211f; color: white;
+      border-radius: 14px; padding: 12px 14px; font-size: 12px; box-shadow: 0 12px 26px rgb(0 0 0 / 22%);
+      animation: toast-enter var(--motion-base) var(--ease-emphasized) both;
+    }
+    .toast.is-leaving { animation: toast-exit var(--motion-fast) ease both; }
+
+    @keyframes content-enter { from { opacity: 0; transform: translateY(6px); } }
+    @keyframes detail-enter { from { opacity: 0; transform: translateY(-8px) scaleY(.98); } }
+    @keyframes accordion-enter { from { opacity: 0; transform: translateY(-5px); } }
+    @keyframes backdrop-enter { from { opacity: 0; } }
+    @keyframes backdrop-exit { to { opacity: 0; } }
+    @keyframes rise { from { translate: 0 46px; opacity: .55; } }
+    @keyframes sheet-exit { to { translate: 0 38px; opacity: .4; } }
+    @keyframes toast-enter { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+    @keyframes toast-exit { to { opacity: 0; transform: translateY(6px); } }
+
+    @media (max-width: 900px) {
+      .lab-note { display: none; }
+    }
+    @media (max-width: 760px) {
+      .phone-wrap { padding: 0 0 94px; display: block; }
+      .phone { width: 100%; height: calc(100vh - 94px); min-height: 570px; border: 0; border-radius: 0; box-shadow: none; }
+      .phone::before { display: none; }
+      .safe-top { padding-top: 6px; }
+      .prototype-dock { flex-wrap: wrap; border-radius: 16px; bottom: 8px; }
+      .dock-label { order: -1; width: 100%; min-width: 0; }
+      .dock-segment { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <aside class="lab-note">
+    <b>Disposable design lab</b>
+    Compare structure, not polish. Try Schedule and Readings, change the state, tap a lecture, and mark readings Done.
+  </aside>
+  <div class="phone-wrap">
+    <main class="phone" aria-label="Android app prototype">
+      <div id="app"></div>
+    </main>
+  </div>
+
+  <div class="prototype-dock" aria-label="Prototype controls">
+    <div class="dock-label">Final design · preview state</div>
+    <select class="scenario-select" id="scenario" aria-label="Preview state">
+      <option value="upcoming">Between classes</option>
+      <option value="live">Attendance open</option>
+      <option value="syncing">Refreshing cache</option>
+      <option value="offline">Offline cache</option>
+      <option value="empty">Quiet day</option>
+    </select>
+  </div>
+
+  <script>
+    const days = [
+      { dow: 'Mon', date: '10', label: 'Monday, 10 Aug', count: 2 },
+      { dow: 'Tue', date: '11', label: 'Tuesday, 11 Aug', count: 3 },
+      { dow: 'Wed', date: '12', label: 'Wednesday, 12 Aug', count: 2 },
+      { dow: 'Thu', date: '13', label: 'Thursday, 13 Aug', count: 0 },
+      { dow: 'Fri', date: '14', label: 'Friday, 14 Aug', count: 1 },
+    ];
+
+    const baseSessions = [
+      { id: 's1', start: '9:00', end: '10:15 AM', title: 'Public Policy and Institutions', short: 'Public Policy', room: 'Sahyog', floor: 'Floor 3', trainer: 'Prof. Anuradha Joshi', state: 'past', visual: 'arc' },
+      { id: 's2', start: '11:30', end: '12:45 PM', title: 'Development Management', short: 'Development Management', room: 'Majlis', floor: 'Floor 6', trainer: 'Dr. Nivedita Narain', state: 'next', visual: 'circles' },
+      { id: 's3', start: '2:00', end: '3:15 PM', title: 'Data Analysis for Development', short: 'Data Analysis', room: 'Room to be confirmed', floor: '', trainer: 'Vikas Mani', state: 'later', visual: 'lines' },
+    ];
+
+    const readings = [
+      { id: 'r1', title: 'Seeing Like a State — Chapter 1', courseId: 'sms', course: 'State, Market and Society', section: 'Mandatory Reading', progress: 'LMS: Viewed', bucket: 'next', session: 'Tue, 18 Aug', mandatory: true },
+      { id: 'r5', title: 'Markets and social institutions', courseId: 'sms', course: 'State, Market and Society', section: 'Course Readings', progress: 'Not opened on LMS', bucket: 'next', session: 'Tue, 18 Aug', mandatory: false },
+      { id: 'r6', title: 'Institutions and everyday markets', courseId: 'sms', course: 'State, Market and Society', section: 'Course Readings', progress: 'LMS: Viewed', bucket: 'later', session: 'Thu, 27 Aug', mandatory: false },
+      { id: 'r9', title: 'Course bibliography and reference pack', courseId: 'sms', course: 'State, Market and Society', section: 'Resources', progress: 'Not opened on LMS', bucket: 'general', mandatory: false },
+      { id: 'r3', title: 'Working with messy datasets', courseId: 'data', course: 'Data Analysis for Development', section: 'Workshop Readings', progress: 'Not opened on LMS', bucket: 'next', session: 'Wed, 19 Aug', mandatory: false },
+      { id: 'r7', title: 'Sampling and descriptive statistics', courseId: 'data', course: 'Data Analysis for Development', section: 'Course Readings', progress: 'LMS: In progress', bucket: 'later', session: 'Fri, 28 Aug', mandatory: false },
+      { id: 'r8', title: 'Spreadsheet reference guide', courseId: 'data', course: 'Data Analysis for Development', section: 'Resources', progress: 'Not opened on LMS', bucket: 'general', mandatory: false },
+      { id: 'r4', title: 'Participatory Rural Appraisal: Principles', courseId: 'pra', course: 'Participatory Research workshop', section: 'Workshop Readings', progress: 'LMS: Completed', bucket: 'next', session: 'Fri, 21 Aug', mandatory: false },
+      { id: 'r2', title: 'The Anti-Politics Machine', courseId: 'psd', course: 'Perspectives on Society and Development', section: 'Mandatory Reading', progress: 'LMS: In progress', bucket: 'next', session: 'Mon, 24 Aug', mandatory: true },
+    ];
+
+    const readingCourses = [
+      { id: 'sms', name: 'State, Market and Society', tone: 'blush', nextSession: 'Tue, 18 Aug' },
+      { id: 'data', name: 'Data Analysis for Development', tone: 'mint', nextSession: 'Wed, 19 Aug' },
+      { id: 'pra', name: 'Participatory Research workshop', tone: 'butter', nextSession: 'Fri, 21 Aug' },
+      { id: 'psd', name: 'Perspectives on Society and Development', tone: 'sky', nextSession: 'Mon, 24 Aug' },
+    ];
+
+    const state = {
+      variant: 'C',
+      scenario: new URLSearchParams(location.search).get('scenario') || 'upcoming',
+      destination: 'schedule',
+      selectedDay: 1,
+      autoAttendance: true,
+      done: new Set(['r5']),
+      expandedCourses: new Set(['sms']),
+      expandedReadingSections: new Set(),
+      readingDetail: null,
+      detail: null,
+      toast: '',
+    };
+
+    const iconSchedule = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>`;
+    const iconReading = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H11v17H7.5A3.5 3.5 0 0 0 4 22V5.5Z"/><path d="M20 5.5A3.5 3.5 0 0 0 16.5 2H13v17h3.5A3.5 3.5 0 0 1 20 22V5.5Z"/></svg>`;
+
+    function sessions() {
+      if (state.scenario === 'empty' || state.selectedDay === 3) return [];
+      if (state.selectedDay !== 1) {
+        const count = days[state.selectedDay].count;
+        return baseSessions.slice(0, count).map((session, index) => ({ ...session, state: index ? 'later' : 'next' }));
+      }
+      return baseSessions.map((session) => {
+        if (session.id === 's2' && state.scenario === 'live') return { ...session, state: 'open' };
+        return session;
+      });
+    }
+
+    function focusSession() {
+      return sessions().find((session) => ['next', 'open'].includes(session.state)) || sessions()[0];
+    }
+
+    function updateUrl() {
+      const url = new URL(location.href);
+      url.searchParams.set('variant', state.variant);
+      url.searchParams.set('scenario', state.scenario);
+      history.replaceState({}, '', url);
+    }
+
+    function dayStrip(className = 'day-strip', buttonClass = 'day-chip') {
+      return `<div class="${className}">${days.map((day, index) => `
+        <button class="${buttonClass} ${index === state.selectedDay ? 'is-active' : ''} ${day.count ? 'has-class' : ''}" data-day="${index}">
+          <span>${day.dow}</span><b>${day.date}</b>
+        </button>`).join('')}</div>`;
+    }
+
+    function offlineStrip() {
+      if (state.scenario === 'offline') return `<div class="offline-strip">Offline · showing schedule saved 18 min ago</div>`;
+      if (state.scenario === 'syncing') return `<div class="offline-strip is-syncing">Updating schedule… showing your saved copy</div>`;
+      return '';
+    }
+
+    function actionText(session) {
+      if (session?.state === 'open') return 'Mark attendance';
+      return 'View class details';
+    }
+
+    function focusLabel(session) {
+      if (!session) return '';
+      if (session.state === 'open') return 'Attendance open now';
+      if (session.state === 'past') return 'Earlier today';
+      if (session.state === 'later') return 'Later today';
+      return 'Next · in 48 min';
+    }
+
+    function placeLine(session) {
+      if (!session.floor) return session.room;
+      return `${session.room} · ${session.floor}`;
+    }
+
+    function emptySchedule() {
+      return `<div class="empty-state"><div class="empty-icon">✓</div><h2>Nothing scheduled</h2><p>Your day is clear. Readings are still available offline.</p></div>`;
+    }
+
+    function nav() {
+      return `<nav class="bottom-nav">
+        <button class="nav-item ${state.destination === 'schedule' ? 'is-active' : ''}" data-destination="schedule">${iconSchedule}<span>Schedule</span></button>
+        <button class="nav-item ${state.destination === 'readings' ? 'is-active' : ''}" data-destination="readings">${iconReading}<span>Readings</span></button>
+      </nav>`;
+    }
+
+    function readingGroups(wrapperClass) {
+      const pending = readings.filter((reading) => !state.done.has(reading.id));
+      const done = readings.filter((reading) => state.done.has(reading.id));
+      const row = (reading) => `<article class="reading-row ${wrapperClass} ${state.done.has(reading.id) ? 'is-done' : ''}" data-reading="${reading.id}">
+        <div><div class="reading-title">${reading.title}</div><div class="reading-course">${reading.course}<br>${reading.section}</div><span class="reading-progress">${reading.progress}</span></div>
+        <button class="reading-check" data-done="${reading.id}" aria-label="${state.done.has(reading.id) ? 'Undo Done' : 'Mark Done'}">✓</button>
+      </article>`;
+      return `${pending.map(row).join('')}${done.length ? `<div class="done-divider">Done · ${done.length}</div>${done.map(row).join('')}` : ''}`;
+    }
+
+    function courseReadingRow(reading, index = 0) {
+      const done = state.done.has(reading.id);
+      return `<button class="course-reading ${reading.mandatory ? 'is-required' : 'is-optional'} ${done ? 'is-done' : ''}" data-open-reading="${reading.id}">
+        <span class="reading-index" aria-hidden="true">${String(index + 1).padStart(2, '0')}</span>
+        <span class="reading-doc-icon" aria-hidden="true"></span>
+        <span>
+          <span class="course-reading-title">${reading.title}</span>
+          <span class="course-reading-meta">
+            ${reading.mandatory ? '<span class="reading-required">Mandatory</span>' : ''}
+            ${done ? '<span class="reading-local-done">Done</span>' : ''}
+            <span>${reading.section}</span><span>·</span><span>${reading.progress}</span>
+          </span>
+        </span>
+        <span class="reading-open-icon" aria-hidden="true">↗</span>
+        <span class="reading-open-label" aria-hidden="true">Open <b>↗</b></span>
+      </button>`;
+    }
+
+    function readingAccordion(courseId, key, label, items) {
+      if (!items.length) return '';
+      const sectionId = `${courseId}:${key}`;
+      const open = state.expandedReadingSections.has(sectionId);
+      return `<div class="reading-accordion">
+        <button class="reading-accordion-toggle" data-reading-section="${sectionId}" aria-expanded="${open}">
+          <span class="reading-section-label"><span class="reading-section-icon icon-${key}" aria-hidden="true"></span><span>${label} · ${items.length}</span></span><span aria-hidden="true">${open ? '−' : '+'}</span>
+        </button>
+        ${open ? `<div class="reading-accordion-content course-reading-list">${items.map((item, index) => courseReadingRow(item, index)).join('')}</div>` : ''}
+      </div>`;
+    }
+
+    function readingDetailIntro(course, nextCount, mandatoryCount) {
+      if (course.id === 'sms') return '';
+      if (course.id === 'data') return `<div class="reading-data-head"><span>Analysis workshop pack</span><b>${course.nextSession}</b></div>`;
+      if (course.id === 'pra') return `<div class="reading-workshop-head"><span>Bring to the workshop</span><b>${course.nextSession}</b></div>`;
+      return `<div class="reading-library-head"><span>Required reading</span><b>${course.nextSession}</b></div>`;
+    }
+
+    function readingDateRail(course) {
+      if (course.id !== 'sms') return '';
+      const parts = course.nextSession.replace(',', '').split(' ');
+      return `<div class="reading-date-rail" aria-label="Next session ${course.nextSession}">
+        <span>Next</span><b>${parts[0]}</b><strong>${parts[1]}</strong><small>${parts[2]}</small>
+      </div>`;
+    }
+
+    function courseSummaryArtwork(course) {
+      if (course.id === 'sms') return '<span class="atmosphere-circles" aria-hidden="true"><i></i><i></i></span>';
+      if (course.id === 'data') return '<span class="atmosphere-arc" aria-hidden="true"></span>';
+      if (course.id === 'pra') return '<span class="atmosphere-lines" aria-hidden="true"><i></i><i></i><i></i></span>';
+      return '<span class="atmosphere-halo" aria-hidden="true"></span>';
+    }
+
+    function courseReadingsView() {
+      return `<div class="course-stack">${readingCourses.map((course) => {
+        const items = readings.filter((reading) => reading.courseId === course.id);
+        const next = items.filter((reading) => reading.bucket === 'next').sort((a, b) => Number(b.mandatory) - Number(a.mandatory));
+        const later = items.filter((reading) => reading.bucket === 'later');
+        const general = items.filter((reading) => reading.bucket === 'general');
+        const open = state.expandedCourses.has(course.id);
+        const mandatoryCount = next.filter((reading) => reading.mandatory).length;
+        const design = course.id === 'sms' ? 'circles' : course.id === 'data' ? 'arc' : course.id === 'pra' ? 'lines' : 'halo';
+        return `<article class="course-card design-${design} ${open ? 'is-expanded' : ''}">
+          <button class="course-summary design-${design}" data-course-toggle="${course.id}" aria-expanded="${open}">
+            <span class="course-summary-copy">
+              <span class="course-eyebrow">Next reading session · ${course.nextSession}</span>
+              <h2>${course.name}</h2>
+              <span class="course-summary-meta"><b>${next.length} for next session</b>${mandatoryCount ? `<span>· ${mandatoryCount} mandatory</span>` : ''}</span>
+            </span>
+            ${courseSummaryArtwork(course)}
+            <span class="course-expand-mark" aria-hidden="true"><b>${open ? '−' : '+'}</b><span>${open ? 'Less' : 'Expand'}</span></span>
+          </button>
+          ${open ? `<div class="course-detail reading-layout-${course.id}">
+            ${readingDetailIntro(course, next.length, mandatoryCount)}
+            <div class="reading-main">
+              ${readingDateRail(course)}
+              <div class="course-reading-list">${next.map((item, index) => courseReadingRow(item, index)).join('')}</div>
+            </div>
+            <div class="reading-extra-sections">
+              ${readingAccordion(course.id, 'later', 'Upcoming readings', later)}
+              ${readingAccordion(course.id, 'general', 'General readings', general)}
+            </div>
+          </div>` : ''}
+        </article>`;
+      }).join('')}</div>`;
+    }
+
+    function syncHint() {
+      if (state.scenario === 'offline') return 'Cached 18 min ago';
+      if (state.scenario === 'syncing') return 'Updating…';
+      return 'Updated 10:41';
+    }
+
+    function syncStatusClass() {
+      if (state.scenario === 'offline') return 'is-warn';
+      if (state.scenario === 'syncing') return 'is-info';
+      return '';
+    }
+
+    function countdownParts(session) {
+      if (!session) return { num: '—', unit: '' };
+      if (session.state === 'open') return { num: '08', unit: 'min left to mark' };
+      return { num: '48', unit: 'min' };
+    }
+
+    function variantA() {
+      const list = sessions();
+      const focus = focusSession();
+      const pendingCount = readings.filter((r) => !state.done.has(r.id)).length;
+      let schedule;
+      if (!list.length) {
+        schedule = `<div class="a-body">
+          <div class="a-date"><h1>${days[state.selectedDay].label}</h1><div class="a-date-actions"><button class="a-arrow" data-step-day="-1" aria-label="Previous day">‹</button><button class="a-arrow" data-step-day="1" aria-label="Next day">›</button></div></div>
+          ${emptySchedule()}
+        </div>`;
+      } else {
+        const nodes = list.map((session) => {
+          const isFocus = session.id === focus.id;
+          const classes = [
+            'a-node',
+            session.state === 'past' ? 'is-past' : '',
+            isFocus ? 'is-focus' : '',
+            session.state === 'open' ? 'is-open' : '',
+          ].filter(Boolean).join(' ');
+          if (isFocus) {
+            const attendanceOpen = session.state === 'open';
+            const displayMinutes = '48';
+            const action = `<button class="button-primary attendance-action ${attendanceOpen ? 'is-visible' : ''}" data-primary="${session.id}" aria-hidden="${attendanceOpen ? 'false' : 'true'}" tabindex="${attendanceOpen ? '0' : '-1'}">Mark attendance</button>`;
+            const place = session.floor
+              ? `${session.room} · ${session.floor}`
+              : `${session.room} · Floor not posted`;
+            const className = `<span class="a-banner-class">${session.title}</span>`;
+            const headline = `${className} <span class="a-banner-connector">starts in</span> <span class="a-banner-emphasis">${displayMinutes} minutes</span>.`;
+            return `<article class="${classes}" data-session="${session.id}">
+              <div class="a-node-time">${session.start}</div>
+              <div class="a-node-main">
+                <div class="a-course-banner">
+                  <div class="a-banner-copy">
+                    <h3>${headline}</h3>
+                    <div class="a-banner-meta">${place} · ${session.trainer}</div>
+                    ${action}
+                  </div>
+                  <div class="a-banner-shapes" aria-hidden="true"><span></span><span></span><span></span></div>
+                </div>
+              </div>
+            </article>`;
+          }
+          return `<article class="${classes}" data-session="${session.id}">
+            <div class="a-node-time">${session.start}</div>
+            <div class="a-node-main">
+              <h3>${session.short}</h3>
+              <p>${placeLine(session)} · ${session.trainer}</p>
+            </div>
+          </article>`;
+        }).join('');
+        schedule = `<div class="a-body">
+          <div class="a-date"><h1>${days[state.selectedDay].label}</h1><div class="a-date-actions"><button class="a-arrow" data-step-day="-1" aria-label="Previous day">‹</button><button class="a-arrow" data-step-day="1" aria-label="Next day">›</button></div></div>
+          <div class="a-spine">${nodes}</div>
+        </div>`;
+      }
+const readingsView = `<div class="a-readings">
+  ${courseReadingsView()}
+</div>`;
+      return `<section class="screen variant-a pill-style-a safe-top">${offlineStrip()}
+        <header class="a-header">
+          <button class="auto-attendance-toggle ${state.autoAttendance ? 'is-on' : ''}" data-auto-attendance role="switch" aria-checked="${state.autoAttendance}" aria-label="Auto attendance marking">
+            <span class="auto-attendance-track" aria-hidden="true"><span class="auto-attendance-thumb"></span></span>
+            <span class="auto-attendance-copy"><b>Auto attendance</b><small>${state.autoAttendance ? 'On' : 'Off'}</small></span>
+          </button>
+          <span class="a-sync ${syncStatusClass()}">${syncHint()}</span>
+        </header>
+        <div class="a-tabs">
+          <button class="a-tab ${state.destination === 'schedule' ? 'is-active' : ''}" data-destination="schedule">Schedule</button>
+          <button class="a-tab ${state.destination === 'readings' ? 'is-active' : ''}" data-destination="readings">Readings</button>
+        </div>
+        <div class="scroll">${state.destination === 'schedule' ? schedule : readingsView}</div>
+      </section>`;
+    }
+
+    function variantB() {
+      const list = sessions();
+      const focus = focusSession();
+      const pendingCount = readings.filter((r) => !state.done.has(r.id)).length;
+      let schedule;
+      if (!list.length) {
+        schedule = `<div class="b-body">
+          <div class="b-date"><h1>${days[state.selectedDay].label}</h1><div class="b-date-actions"><button class="b-arrow" data-step-day="-1" aria-label="Previous day">‹</button><button class="b-arrow" data-step-day="1" aria-label="Next day">›</button></div></div>
+          ${emptySchedule()}
+        </div>`;
+      } else {
+        const count = countdownParts(focus);
+        const place = focus.floor
+          ? `${focus.room} · ${focus.floor}`
+          : `${focus.room} · Floor not posted`;
+        const action = focus.state === 'open' || focus.state === 'next'
+          ? `<button class="button-primary" data-primary="${focus.id}">${actionText(focus)}</button>`
+          : '';
+        const rest = list.map((session) => {
+          const isFocus = session.id === focus.id;
+          const classes = [
+            'b-row',
+            session.state === 'past' ? 'is-past' : '',
+            isFocus ? 'is-now' : '',
+          ].filter(Boolean).join(' ');
+          const mark = isFocus
+            ? `<span class="b-row-mark">${session.state === 'open' ? 'Open' : 'Next'}</span>`
+            : '';
+          return `<article class="${classes}" data-session="${session.id}">
+            <div class="b-row-time">${session.start}</div>
+            <div>
+              <h4>${session.short}${mark}</h4>
+              <p>${session.trainer}</p>
+            </div>
+            <span class="b-room">${session.room}</span>
+          </article>`;
+        }).join('');
+        schedule = `<div class="b-body">
+          <div class="b-date"><h1>${days[state.selectedDay].label}</h1><div class="b-date-actions"><button class="b-arrow" data-step-day="-1" aria-label="Previous day">‹</button><button class="b-arrow" data-step-day="1" aria-label="Next day">›</button></div></div>
+          <article class="b-next ${focus.state === 'open' ? 'is-open' : ''}" data-session="${focus.id}">
+            <div class="b-next-top">
+              <div class="eyebrow">${focus.state === 'open' ? 'Open now' : 'Starts in'}</div>
+              <div class="b-countdown"><span class="num">${count.num}</span><span class="unit">${count.unit}</span></div>
+            </div>
+            <h2>${focus.title}</h2>
+            <div class="b-next-facts">
+              <p>${focus.start}–${focus.end}</p>
+              <p>${place}</p>
+              <p>${focus.trainer}</p>
+            </div>
+            ${action}
+          </article>
+          <div class="b-rest">
+            <div class="b-rest-head"><div>Today</div><span>${list.length} lectures</span></div>
+            <div class="b-list">${rest}</div>
+          </div>
+        </div>`;
+      }
+      const readingsView = `<div class="b-readings">
+        <div class="b-readings-head"><h1>Reading checklist</h1><span>${pendingCount} left</span></div>
+        ${readingGroups('b-reading')}
+      </div>`;
+      return `<section class="screen variant-b safe-top">${offlineStrip()}
+        <header class="b-header">
+          <div class="brand-row"><span class="brand-dot"></span><span class="brand">ISDM</span></div>
+          <span class="b-sync ${syncStatusClass()}">${syncHint()}</span>
+        </header>
+        <div class="b-tabs">
+          <button class="b-tab ${state.destination === 'schedule' ? 'is-active' : ''}" data-destination="schedule">Schedule</button>
+          <button class="b-tab ${state.destination === 'readings' ? 'is-active' : ''}" data-destination="readings">Readings</button>
+        </div>
+        <div class="scroll">${state.destination === 'schedule' ? schedule : readingsView}</div>
+      </section>`;
+    }
+
+    function variantC() {
+      const list = sessions();
+      const focus = focusSession();
+      const schedule = !list.length ? emptySchedule() : `<div class="c-content">
+        <div class="c-date"><h1>${days[state.selectedDay].label}</h1><div class="c-date-actions"><button class="c-arrow" data-step-day="-1">‹</button><button class="c-arrow" data-step-day="1">›</button></div></div>
+        <div class="c-grid">
+          <article class="c-tile c-next" data-session="${focus.id}"><div class="eyebrow">${focus.state === 'open' ? 'Open now' : 'Starts in'}</div><div class="count">${focus.state === 'open' ? '08' : '48'}</div><div class="count-label">minutes</div><h2>${focus.title}</h2><p>${focus.start}–${focus.end}</p><p>${focus.room} · ${focus.floor || 'Floor unknown'}</p><button data-primary="${focus.id}">${actionText(focus)}</button></article>
+          <article class="c-tile c-mini"><div class="big">${list.length}</div><small>lectures today</small><p>Last one ends at ${list.at(-1).end}</p></article>
+          <article class="c-tile c-mini"><div class="big">${readings.filter((r) => !state.done.has(r.id)).length}</div><small>readings left</small><p>One already finished</p></article>
+        </div>
+        <div class="c-agenda"><h3>Today at a glance</h3>${list.map((session) => `<article class="c-event" data-session="${session.id}"><div class="c-event-time">${session.start}</div><div><h4>${session.short}</h4><p>${session.trainer}</p></div><span class="c-room">${session.room}</span></article>`).join('')}</div>
+      </div>`;
+      const readingsView = `<div class="c-readings"><div class="c-date"><h1>Reading checklist</h1><span class="muted" style="font-size:11px">${readings.filter((r) => !state.done.has(r.id)).length} left</span></div>${readingGroups('c-reading')}</div>`;
+      return `<section class="screen variant-c safe-top">${offlineStrip()}
+        <header class="c-header"><div class="brand-row"><span class="brand-dot"></span><span class="brand">ISDM</span></div><span class="c-status">Synced</span></header>
+        <div class="c-tabs"><button class="c-tab ${state.destination === 'schedule' ? 'is-active' : ''}" data-destination="schedule">Schedule</button><button class="c-tab ${state.destination === 'readings' ? 'is-active' : ''}" data-destination="readings">Readings</button></div>
+        <div class="scroll">${state.destination === 'schedule' ? schedule : readingsView}</div></section>`;
+    }
+
+    function detailSheet(id) {
+      const session = baseSessions.find((item) => item.id === id);
+      if (!session) return '';
+      const attendanceOpen = state.scenario === 'live' && id === 's2';
+      const attendance = attendanceOpen ? 'Open now' : session.state === 'past' ? 'Closed' : id === 's3' ? 'No mark required' : 'Not open';
+      const timingLabel = attendanceOpen ? 'Happening now' : session.state === 'past' ? 'Earlier today' : 'Upcoming session';
+      return `<div class="sheet-backdrop" data-close-sheet><div class="sheet lecture-sheet visual-${session.visual}" role="dialog" aria-modal="true" aria-label="Lecture details">
+        <div class="sheet-handle"></div>
+        <div class="lecture-sheet-hero">
+          <div class="lecture-sheet-copy">
+            <div class="lecture-sheet-eyebrow">Term 1 · ${timingLabel}</div>
+            <h2>${session.title}</h2>
+            <div class="lecture-sheet-time"><strong>${session.start}</strong><span>–${session.end}</span></div>
+            <div class="lecture-sheet-place">${session.room}${session.floor ? ` · ${session.floor}` : ''}</div>
+          </div>
+          <div class="lecture-sheet-shapes" aria-hidden="true"></div>
+        </div>
+        <div class="lecture-sheet-body">
+          <div class="lecture-detail-row"><span>Trainer</span><b>${session.trainer}</b></div>
+          <div class="lecture-detail-row"><span>Attendance</span><b class="lecture-status ${attendanceOpen ? 'is-open' : ''}">${attendance}</b></div>
+          <div class="lecture-detail-row"><span>Last updated</span><b>${state.scenario === 'offline' ? '18 min ago' : 'Just now'}</b></div>
+          <div class="lecture-sheet-actions"><button class="sheet-close" data-close-sheet>Close</button></div>
+        </div>
+      </div></div>`;
+    }
+
+    function readingSheet(id) {
+      const reading = readings.find((item) => item.id === id);
+      if (!reading) return '';
+      const course = readingCourses.find((item) => item.id === reading.courseId);
+      const done = state.done.has(reading.id);
+      return `<div class="sheet-backdrop" data-close-reading><div class="sheet reading-sheet tone-${course?.tone || 'blush'}" role="dialog" aria-modal="true" aria-label="Reading viewer">
+        <div class="sheet-handle"></div>
+        <div class="reading-sheet-hero">
+          <div class="reading-sheet-eyebrow">${reading.mandatory ? 'Mandatory reading' : reading.section}</div>
+          <h2>${reading.title}</h2>
+          <div class="reading-sheet-course">${reading.course}</div>
+          <div class="reading-sheet-state ${done ? 'is-done' : ''}">${done ? 'Marked done locally' : reading.progress}</div>
+        </div>
+        <div class="reading-sheet-body">
+          <div class="reading-document">
+            <small>Reading preview</small>
+            <h3>${reading.title}</h3>
+            <p>This prototype keeps the reading inside a focused viewer. The production app will open the authenticated LMS source while preserving your separate local Done status.</p>
+          </div>
+          <div class="reading-sheet-actions">
+            <button class="reading-source-action" data-open-source="${reading.id}">Open LMS source ↗</button>
+            <button class="reading-done-action ${done ? 'is-done' : ''}" data-reading-done="${reading.id}">${done ? 'Undo Done' : 'Mark Done'}</button>
+          </div>
+          <button class="button-quiet sheet-close reading-sheet-close" data-close-reading>Close reading</button>
+        </div>
+      </div></div>`;
+    }
+
+    const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function render({ resetScroll = false } = {}) {
+      const previousScroll = resetScroll ? 0 : (document.querySelector('.scroll')?.scrollTop || 0);
+      const markup = variantA();
+      document.querySelector('#app').innerHTML = markup + (state.detail ? detailSheet(state.detail) : '') + (state.readingDetail ? readingSheet(state.readingDetail) : '');
+      document.querySelector('#scenario').value = state.scenario;
+      const scroll = document.querySelector('.scroll');
+      if (scroll) scroll.scrollTop = previousScroll;
+      bindApp();
+    }
+
+    function transitionContent(mutate) {
+      const content = document.querySelector('.scroll > *');
+      if (!content || prefersReducedMotion) { mutate(); render({ resetScroll: true }); return; }
+      const animation = content.animate(
+        [{ opacity: 1, transform: 'translateY(0)' }, { opacity: 0, transform: 'translateY(-5px)' }],
+        { duration: 130, easing: 'cubic-bezier(.2, 0, 0, 1)', fill: 'forwards' },
+      );
+      animation.finished.then(() => { mutate(); render({ resetScroll: true }); });
+    }
+
+    function collapseAndRender(element, mutate) {
+      if (!element || prefersReducedMotion) { mutate(); render(); return; }
+      element.style.height = `${element.getBoundingClientRect().height}px`;
+      element.getBoundingClientRect();
+      requestAnimationFrame(() => {
+        element.classList.add('is-collapsing');
+        element.style.height = '0px';
+        element.style.paddingTop = '0px';
+        element.style.paddingBottom = '0px';
+      });
+      setTimeout(() => { mutate(); render(); }, 225);
+    }
+
+    function closeOverlay(backdrop, mutate, toastMessage = '') {
+      const finish = () => {
+        mutate();
+        render();
+        if (toastMessage) showToast(toastMessage);
+      };
+      if (!backdrop || prefersReducedMotion) { finish(); return; }
+      backdrop.classList.add('is-leaving');
+      setTimeout(finish, 220);
+    }
+
+    function bindApp() {
+      document.querySelectorAll('[data-auto-attendance]').forEach((button) => button.addEventListener('click', () => {
+        state.autoAttendance = !state.autoAttendance;
+        button.classList.toggle('is-on', state.autoAttendance);
+        button.setAttribute('aria-checked', String(state.autoAttendance));
+        button.querySelector('small').textContent = state.autoAttendance ? 'On' : 'Off';
+        showToast(`Auto attendance ${state.autoAttendance ? 'on' : 'off'}.`);
+      }));
+      document.querySelectorAll('[data-destination]').forEach((button) => button.addEventListener('click', () => {
+        if (state.destination === button.dataset.destination) return;
+        transitionContent(() => { state.destination = button.dataset.destination; state.detail = null; state.readingDetail = null; });
+      }));
+      document.querySelectorAll('[data-day]').forEach((button) => button.addEventListener('click', () => transitionContent(() => { state.selectedDay = Number(button.dataset.day); })));
+      document.querySelectorAll('[data-step-day]').forEach((button) => button.addEventListener('click', () => transitionContent(() => { state.selectedDay = Math.max(0, Math.min(days.length - 1, state.selectedDay + Number(button.dataset.stepDay))); })));
+      document.querySelectorAll('[data-course-toggle]').forEach((button) => button.addEventListener('click', () => {
+        const id = button.dataset.courseToggle;
+        if (state.expandedCourses.has(id)) {
+          collapseAndRender(button.closest('.course-card')?.querySelector('.course-detail'), () => state.expandedCourses.delete(id));
+        } else {
+          state.expandedCourses.add(id);
+          render();
+        }
+      }));
+      document.querySelectorAll('[data-reading-section]').forEach((button) => button.addEventListener('click', () => {
+        const id = button.dataset.readingSection;
+        if (state.expandedReadingSections.has(id)) {
+          collapseAndRender(button.closest('.reading-accordion')?.querySelector('.reading-accordion-content'), () => state.expandedReadingSections.delete(id));
+        } else {
+          state.expandedReadingSections.add(id);
+          render();
+        }
+      }));
+      document.querySelectorAll('[data-open-reading]').forEach((button) => button.addEventListener('click', () => { state.readingDetail = button.dataset.openReading; render(); }));
+      document.querySelectorAll('[data-session]').forEach((card) => card.addEventListener('click', (event) => { if (event.target.closest('[data-primary]')) return; state.detail = card.dataset.session; render(); }));
+      document.querySelectorAll('[data-primary]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); const session = baseSessions.find((item) => item.id === button.dataset.primary); if (state.scenario === 'live' && session?.id === 's2') showToast('Attendance marked in this prototype only.'); else { state.detail = session?.id || null; render(); } }));
+      document.querySelectorAll('[data-done]').forEach((button) => button.addEventListener('click', () => {
+        const id = button.dataset.done; const wasDone = state.done.has(id);
+        if (wasDone) state.done.delete(id); else state.done.add(id);
+        render(); showToast(wasDone ? 'Moved back to To read.' : 'Marked Done. Tap again to undo.');
+      }));
+      document.querySelectorAll('[data-reading-done]').forEach((button) => button.addEventListener('click', () => {
+        const id = button.dataset.readingDone; const wasDone = state.done.has(id);
+        closeOverlay(button.closest('.sheet-backdrop'), () => {
+          if (wasDone) state.done.delete(id); else state.done.add(id);
+          state.readingDetail = null;
+        }, wasDone ? 'Moved back to To read.' : 'Marked Done.');
+      }));
+      document.querySelectorAll('[data-open-source]').forEach((button) => button.addEventListener('click', () => showToast('Authenticated LMS source would open here.')));
+      document.querySelectorAll('[data-close-sheet]').forEach((element) => element.addEventListener('click', (event) => {
+        if (element !== event.target && !element.matches('button')) return;
+        closeOverlay(element.closest('.sheet-backdrop') || element, () => { state.detail = null; });
+      }));
+      document.querySelectorAll('[data-close-reading]').forEach((element) => element.addEventListener('click', (event) => {
+        if (element !== event.target && !element.matches('button')) return;
+        closeOverlay(element.closest('.sheet-backdrop') || element, () => { state.readingDetail = null; });
+      }));
+    }
+
+    function showToast(message) {
+      document.querySelector('.toast')?.remove();
+      const toast = document.createElement('div');
+      toast.className = 'toast'; toast.setAttribute('role', 'status'); toast.textContent = message;
+      document.querySelector('#app').append(toast);
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => {
+        toast.classList.add('is-leaving');
+        setTimeout(() => toast.remove(), prefersReducedMotion ? 0 : 150);
+      }, 2300);
+    }
+
+    document.querySelector('#scenario').addEventListener('change', (event) => { state.scenario = event.target.value; state.selectedDay = event.target.value === 'empty' ? 3 : 1; state.detail = null; updateUrl(); render({ resetScroll: true }); });
+    addEventListener('keydown', (event) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
+      if (event.key === 'Escape' && (state.detail || state.readingDetail)) {
+        const backdrop = document.querySelector('.sheet-backdrop');
+        closeOverlay(backdrop, () => { state.detail = null; state.readingDetail = null; });
+      }
+    });
+
+    updateUrl();
+    render();
+  </script>
+</body>
+</html>

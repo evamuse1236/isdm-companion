@@ -4,6 +4,8 @@ import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
+import org.isdm.companion.domain.AttendanceLocationGateDecision
+import org.isdm.companion.domain.LocationGateReason
 import org.isdm.companion.domain.parseLmsTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,6 +17,7 @@ class CompanionEngineTest {
     private val clock = TestClock(start)
     private val gateway = FakeGateway()
     private val notifier = RecordingNotifier()
+    private val doneStore = MemoryReadingDoneStore()
 
     init {
         gateway.events += CalendarEvent(
@@ -79,6 +82,21 @@ class CompanionEngineTest {
     }
 
     @Test
+    fun `monitoring cannot arm after its configured stop time`() = runBlocking {
+        clock.current = Instant.parse("2026-08-08T15:30:00Z") // 21:00 IST
+        val engine = engine()
+        configureAndRefresh(engine)
+
+        val result = engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK))
+
+        assertTrue(result is CommandResult.Rejected)
+        val error = (result as CommandResult.Rejected).error
+        assertTrue(error is EngineError.InvalidCommand)
+        assertEquals("Monitoring stop time must be later today.", (error as EngineError.InvalidCommand).message)
+        assertFalse(engine.state.value.monitor.active)
+    }
+
+    @Test
     fun `manual mark revalidates markability and is idempotent after confirmation`() = runBlocking {
         val engine = engine()
         configureAndRefresh(engine)
@@ -93,6 +111,41 @@ class CompanionEngineTest {
         val second = engine.dispatch(Command.Mark("1285348"))
         assertTrue(second is CommandResult.AlreadyMarked)
         assertEquals(1, gateway.markPresentCalls)
+    }
+
+    @Test
+    fun `manual mark denied by the Attendance Location Gate makes no LMS marking calls`() = runBlocking {
+        val engine = engine(locationGate = deniedLocationGate())
+        configureAndRefresh(engine)
+        gateway.markabilityCalls = 0
+
+        val result = engine.dispatch(Command.Mark("1285348"))
+
+        assertTrue(result is CommandResult.Rejected)
+        assertEquals(
+            EngineError.AttendanceLocationDenied(LocationGateReason.OUTSIDE_CAMPUS_ZONE),
+            (result as CommandResult.Rejected).error,
+        )
+        assertEquals(0, gateway.markabilityCalls)
+        assertEquals(0, gateway.markPresentCalls)
+    }
+
+    @Test
+    fun `automatic mark denied by the Attendance Location Gate makes no LMS marking calls and notifies`() = runBlocking {
+        val engine = engine(locationGate = deniedLocationGate())
+        configureAndRefresh(engine)
+        gateway.markabilityCalls = 0
+        engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK))
+
+        engine.dispatch(Command.MonitorTick)
+
+        assertEquals(0, gateway.markabilityCalls)
+        assertEquals(0, gateway.markPresentCalls)
+        val failed = notifier.events.filterIsInstance<NotificationEvent.MarkFailed>().single()
+        assertEquals(
+            LocationGateReason.OUTSIDE_CAMPUS_ZONE,
+            (failed.error as EngineError.AttendanceLocationDenied).reason,
+        )
     }
 
     @Test
@@ -132,6 +185,18 @@ class CompanionEngineTest {
 
         assertEquals(3, gateway.markPresentCalls)
         assertEquals(3, engine.state.value.monitor.autoAttempts["1285348"])
+    }
+
+    @Test
+    fun `successful automatic mark stops its monitoring window`() = runBlocking {
+        val engine = engine()
+        configureAndRefresh(engine)
+        engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK))
+
+        engine.dispatch(Command.MonitorTick)
+
+        assertEquals(1, gateway.markPresentCalls)
+        assertFalse(engine.state.value.monitor.active)
     }
 
     @Test
@@ -175,7 +240,60 @@ class CompanionEngineTest {
         assertTrue((arm as CommandResult.Rejected).error is EngineError.CredentialsMissing)
     }
 
-    private fun engine() = CompanionEngine(gateway, clock, notifier)
+    @Test
+    fun `schedule refresh retains today separately and loads a rolling range`() = runBlocking {
+        gateway.events += CalendarEvent(
+            nid = "event-2",
+            title = "Policy - Section B - Session 3",
+            url = "/join/webinar?nid=event-2",
+            start = "2026-08-11 09:00:00",
+            end = "2026-08-11 10:15:00",
+        )
+        val engine = engine()
+        engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
+        engine.dispatch(Command.RefreshAll)
+
+        assertEquals(1, engine.state.value.sessions.size)
+        assertEquals(listOf("Maths", "Policy"), engine.state.value.scheduleSessions.map { it.name })
+        assertEquals(LocalDate.parse("2026-08-08"), engine.state.value.scheduleStart)
+        assertEquals(LocalDate.parse("2026-08-22"), engine.state.value.scheduleEndExclusive)
+    }
+
+    @Test
+    fun `reading refresh identifies mandatory items and local done survives refresh`() = runBlocking {
+        val course = LmsCourse("12", "State, Market and Society")
+        gateway.courseRows += course
+        gateway.readingRows[course.catId] = mutableListOf(
+            ReadingItem("501", "91", "7", "12", "Seeing Like a State", course.name, "Mandatory Reading", "https://lms/501", mandatory = true),
+            ReadingItem("502", "92", "7", "12", "Markets", course.name, "Course Readings", "https://lms/502"),
+        )
+        val engine = engine()
+        engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
+        engine.dispatch(Command.RefreshReadings)
+        engine.dispatch(Command.ToggleReadingDone("501"))
+        engine.dispatch(Command.RefreshReadings)
+
+        assertEquals(listOf("502", "501"), engine.state.value.readings.map { it.vid })
+        assertTrue(engine.state.value.readings.last().done)
+        assertEquals(setOf("501"), doneStore.load())
+    }
+
+    private fun engine(
+        locationGate: AttendanceLocationGatePort = AllowAttendanceLocationGate,
+    ) = CompanionEngine(
+        gateway,
+        clock,
+        notifier,
+        readingDoneStore = doneStore,
+        attendanceLocationGate = locationGate,
+    )
+
+    private fun deniedLocationGate() = AttendanceLocationGatePort {
+        AttendanceLocationGateDecision(
+            allowsMark = false,
+            reason = LocationGateReason.OUTSIDE_CAMPUS_ZONE,
+        )
+    }
 
     private suspend fun configureAndRefresh(engine: CompanionEngine) {
         engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
@@ -199,6 +317,8 @@ private class FakeGateway : LmsGateway {
     val events = mutableListOf<CalendarEvent>()
     val details = mutableMapOf<String, ClassroomDetail>()
     val markabilityMap = mutableMapOf<String, Markability>()
+    val courseRows = mutableListOf<LmsCourse>()
+    val readingRows = mutableMapOf<String, MutableList<ReadingItem>>()
     var markFailuresRemaining = 0
     var markPresentCalls = 0
     var markabilityCalls = 0
@@ -206,6 +326,10 @@ private class FakeGateway : LmsGateway {
     var classroomCalls = 0
 
     override suspend fun login(credentials: Credentials): Identity = Identity("1042", "Student")
+
+    override suspend fun courses(): List<LmsCourse> = courseRows.toList()
+
+    override suspend fun readings(course: LmsCourse): List<ReadingItem> = readingRows[course.catId].orEmpty()
 
     override suspend fun calendar(start: LocalDate, endExclusive: LocalDate): List<CalendarEvent> {
         calendarCalls++
@@ -236,5 +360,13 @@ private class FakeGateway : LmsGateway {
         val updated = old.copy(marked = true, status = "Present")
         details[nid] = updated
         return updated
+    }
+}
+
+private class MemoryReadingDoneStore : ReadingDoneStore {
+    private val values = mutableSetOf<String>()
+    override fun load(): Set<String> = values.toSet()
+    override fun setDone(readingId: String, done: Boolean) {
+        if (done) values += readingId else values -= readingId
     }
 }

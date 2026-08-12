@@ -14,6 +14,7 @@ import okhttp3.RequestBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
@@ -21,8 +22,12 @@ import org.jsoup.nodes.Element
 import org.isdm.companion.engine.CalendarEvent
 import org.isdm.companion.engine.ClassroomDetail
 import org.isdm.companion.engine.Credentials
+import org.isdm.companion.engine.FacultyDirectory
+import org.isdm.companion.engine.FacultyProfile
 import org.isdm.companion.engine.Identity
+import org.isdm.companion.engine.LmsCourse
 import org.isdm.companion.engine.Markability
+import org.isdm.companion.engine.ReadingItem
 import java.time.LocalDate
 import java.io.IOException
 
@@ -38,7 +43,7 @@ class RealLmsAdapter(
     private val defaultEmail: String? = null,
     private val defaultPassword: String? = null,
     baseUrl: String = DEFAULT_BASE_URL,
-) : LmsGateway {
+) : LmsGateway, FacultyDirectory {
     private val baseUrl: HttpUrl = baseUrl.trimEnd('/').toHttpUrl()
     private val cookies = SessionCookieJar()
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -65,6 +70,52 @@ class RealLmsAdapter(
 
     /** Convenience overload for tests and callers that already have the LMS wire dates. */
     suspend fun login(): Identity = login(defaultCredentials())
+
+    /**
+     * Return a freshly validated LMS session in Set-Cookie form for the in-app reading browser.
+     * The browser never needs the user's password; it receives only the same authenticated
+     * session cookies already used by this adapter.
+     */
+    suspend fun browserCookieHeaders(credentials: Credentials): List<String> {
+        activeCredentials = credentials
+        login(credentials)
+        authed("/home")
+        return cookies.snapshotFor(baseUrl).map(Cookie::toString)
+    }
+
+    /** Resolve the LMS document metadata to its temporary, directly downloadable PDF URL. */
+    suspend fun readingDownloadUrl(credentials: Credentials, sourceUrl: String): String {
+        val source = sourceUrl.toHttpUrlOrNull()
+            ?.takeIf { it.host.equals(baseUrl.host, ignoreCase = true) }
+            ?: throw LmsProtocolException("The reading URL is not on the LMS.")
+        val readingId = source.queryParameter("vid")
+            ?.takeIf { it.matches(NUMERIC_ID) }
+            ?: throw LmsProtocolException("The reading URL has no numeric document id.")
+        val courseId = source.queryParameter("sid")?.takeIf { it.matches(NUMERIC_ID) }.orEmpty()
+
+        activeCredentials = credentials
+        val identity = login(credentials)
+        val metadataUrl = baseUrl.resolve("/api/downloadcontent")!!.newBuilder()
+            .addQueryParameter("nid", readingId)
+            .addQueryParameter("format", "native")
+            .addQueryParameter("auth", "true")
+            .addQueryParameter("uid", identity.uid)
+            .addQueryParameter("courseid", courseId)
+            .addQueryParameter("api_version", "1")
+            .build()
+        val metadata = authed(metadataUrl.toString())
+        val directUrl = runCatching {
+            JSONArray(metadata.body)
+                .getJSONObject(0)
+                .getJSONObject("videourl")
+                .getString("native")
+        }.getOrNull()
+            ?.toHttpUrlOrNull()
+            ?.takeIf { it.isHttps }
+            ?.toString()
+            ?: throw LmsProtocolException("The LMS did not provide a secure PDF download URL.")
+        return directUrl
+    }
 
     override suspend fun calendar(start: LocalDate, endExclusive: LocalDate): List<CalendarEvent> =
         calendar(start.toString(), endExclusive.toString())
@@ -98,6 +149,25 @@ class RealLmsAdapter(
         }
     }
 
+    override suspend fun courses(): List<LmsCourse> {
+        val page = authed("/show/all/courses")
+        return parseCourses(page.body, baseUrl.toString())
+    }
+
+    override suspend fun readings(course: LmsCourse): List<ReadingItem> {
+        requireNumericId(course.catId, "course")
+        val coursePage = authed("/course/details?cat_id=${course.catId}")
+        val sections = parseReadingSections(coursePage.body, course, baseUrl.toString())
+        return buildList {
+            for (section in sections) {
+                val page = authed(
+                    "/course/details?cat_id=${course.catId}&course_id=${section.sid}",
+                )
+                addAll(parseReadingItems(page.body, course, section, baseUrl.toString()))
+            }
+        }.distinctBy { it.vid }
+    }
+
     override suspend fun classroom(nid: String): ClassroomDetail {
         requireNumericSessionId(nid)
         val page = authed("/classroom/${encodePathSegment(nid)}/view")
@@ -112,6 +182,12 @@ class RealLmsAdapter(
             marked = markedRaw?.equals("yes", ignoreCase = true) == true,
             status = pick(table, "Status"),
         )
+    }
+
+    override suspend fun facultyProfiles(course: LmsCourse): List<FacultyProfile> {
+        requireNumericId(course.catId, "course")
+        val coursePage = authed("/course/details?cat_id=${course.catId}")
+        return parseFacultyProfiles(coursePage.body, course, baseUrl.toString())
     }
 
     override suspend fun markability(): Map<String, Markability> {
@@ -394,9 +470,11 @@ class RealLmsAdapter(
         value.replace("/", "%2F").replace("?", "%3F")
 
     private fun requireNumericSessionId(nid: String) {
-        if (!nid.matches(NUMERIC_ID)) {
-            throw LmsProtocolException("A numeric LMS session id is required.")
-        }
+        requireNumericId(nid, "session")
+    }
+
+    private fun requireNumericId(value: String, label: String) {
+        if (!value.matches(NUMERIC_ID)) throw LmsProtocolException("A numeric LMS $label id is required.")
     }
 
     private fun nullableString(json: JSONObject, key: String): String? {
@@ -431,6 +509,8 @@ class RealLmsAdapter(
             values.values.removeAll { cookie -> cookie.persistent && cookie.expiresAt <= now }
             values.values.filter { it.matches(url) }
         }
+
+        fun snapshotFor(url: HttpUrl): List<Cookie> = loadForRequest(url).toList()
 
         fun clear() = synchronized(lock) { values.clear() }
 

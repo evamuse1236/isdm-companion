@@ -4,9 +4,11 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 
+import org.isdm.companion.domain.AttendanceLocationGateDecision
 import org.isdm.companion.domain.CalendarEvent as DomainCalendarEvent
 import org.isdm.companion.domain.Cohorts as DomainCohorts
 import org.isdm.companion.domain.LMS_ZONE as DOMAIN_LMS_ZONE
+import org.isdm.companion.domain.LocationGateReason
 import org.isdm.companion.domain.SessionState as DomainSessionState
 
 /** Type aliases keep the data seam and the pure domain model on the same wire types. */
@@ -28,6 +30,29 @@ object SystemClock : Clock {
     override fun now(): Instant = Instant.now()
 }
 
+/** The attendance-action boundary receives only a privacy-safe gate decision. */
+fun interface AttendanceLocationGatePort {
+    suspend fun evaluate(now: Instant): AttendanceLocationGateDecision
+}
+
+/** Test/default adapter. Android production wiring replaces this with a fail-closed adapter. */
+object AllowAttendanceLocationGate : AttendanceLocationGatePort {
+    override suspend fun evaluate(now: Instant): AttendanceLocationGateDecision =
+        AttendanceLocationGateDecision(allowsMark = true)
+}
+
+interface DiagnosticsLogger {
+    fun log(
+        event: String,
+        attributes: Map<String, String> = emptyMap(),
+        error: Throwable? = null,
+    )
+}
+
+object NoopDiagnosticsLogger : DiagnosticsLogger {
+    override fun log(event: String, attributes: Map<String, String>, error: Throwable?) = Unit
+}
+
 /**
  * The only network seam the engine knows about. Implementations own HTTP, cookies, HTML
  * parsing, and the LMS's login/session details.
@@ -35,6 +60,8 @@ object SystemClock : Clock {
 interface LmsGateway {
     suspend fun login(credentials: Credentials): Identity
     suspend fun calendar(start: LocalDate, endExclusive: LocalDate): List<CalendarEvent>
+    suspend fun courses(): List<LmsCourse>
+    suspend fun readings(course: LmsCourse): List<ReadingItem>
     suspend fun classroom(nid: String): ClassroomDetail
     suspend fun markability(): Map<String, Markability>
     suspend fun markPresent(nid: String): ClassroomDetail
@@ -52,7 +79,79 @@ object NoopNotifier : Notifier {
     override suspend fun notify(event: NotificationEvent) = Unit
 }
 
+interface ReadingDoneStore {
+    fun load(): Set<String>
+    fun setDone(readingId: String, done: Boolean)
+}
+
+object NoopReadingDoneStore : ReadingDoneStore {
+    override fun load(): Set<String> = emptySet()
+    override fun setDone(readingId: String, done: Boolean) = Unit
+}
+
+data class CachedSchedule(
+    val start: LocalDate,
+    val endExclusive: LocalDate,
+    val sessions: List<CompanionSession>,
+    val syncedAt: Instant,
+)
+
+interface CompanionCacheStore {
+    /** Selects an account namespace before any cached personal data is loaded or saved. */
+    fun selectAccount(accountId: String)
+    fun loadSchedule(): CachedSchedule?
+    fun saveSchedule(schedule: CachedSchedule)
+    fun loadReadings(): List<ReadingItem>
+    fun saveReadings(readings: List<ReadingItem>)
+    fun loadFacultyProfiles(): List<FacultyProfile>
+    fun saveFacultyProfiles(profiles: List<FacultyProfile>)
+}
+
+object NoopCompanionCacheStore : CompanionCacheStore {
+    override fun selectAccount(accountId: String) = Unit
+    override fun loadSchedule(): CachedSchedule? = null
+    override fun saveSchedule(schedule: CachedSchedule) = Unit
+    override fun loadReadings(): List<ReadingItem> = emptyList()
+    override fun saveReadings(readings: List<ReadingItem>) = Unit
+    override fun loadFacultyProfiles(): List<FacultyProfile> = emptyList()
+    override fun saveFacultyProfiles(profiles: List<FacultyProfile>) = Unit
+}
+
 data class Identity(val uid: String, val displayName: String? = null)
+
+data class LmsCourse(
+    val catId: String,
+    val name: String,
+)
+
+data class LmsReadingSection(
+    val sid: String,
+    val catId: String,
+    val name: String,
+)
+
+enum class LmsReadingProgress {
+    UNOPENED,
+    VIEWED,
+    IN_PROGRESS,
+    COMPLETED,
+    UNKNOWN,
+}
+
+data class ReadingItem(
+    val vid: String,
+    val sid: String,
+    val cid: String,
+    val catId: String,
+    val title: String,
+    val courseName: String,
+    val sectionName: String,
+    val sourceUrl: String,
+    val sessionNumber: Int? = null,
+    val progress: LmsReadingProgress = LmsReadingProgress.UNKNOWN,
+    val mandatory: Boolean = false,
+    val done: Boolean = false,
+)
 
 data class ClassroomDetail(
     val nid: String,
@@ -76,6 +175,7 @@ enum class MonitoringMode {
 }
 
 enum class MonitoringStopReason {
+    ATTENDANCE_MARKED,
     DISARMED,
     NEW_DAY,
     STOP_TIME,
@@ -125,8 +225,15 @@ data class CompanionState(
     val credentialsConfigured: Boolean = false,
     val identity: Identity? = null,
     val sessions: List<CompanionSession> = emptyList(),
+    val scheduleStart: LocalDate = today,
+    val scheduleEndExclusive: LocalDate = today.plusDays(14),
+    val scheduleSessions: List<CompanionSession> = emptyList(),
+    val readings: List<ReadingItem> = emptyList(),
+    val facultyProfiles: List<FacultyProfile> = emptyList(),
     val monitor: MonitoringStatus = MonitoringStatus(),
     val sync: SyncStatus = SyncStatus(),
+    val scheduleSync: SyncStatus = SyncStatus(),
+    val readingSync: SyncStatus = SyncStatus(),
     val error: EngineError? = null,
 )
 
@@ -137,6 +244,7 @@ sealed interface EngineError {
     data class NetworkFailure(val message: String) : EngineError
     data class LmsFailure(val message: String) : EngineError
     data class MarkWindowClosed(val sessionId: String) : EngineError
+    data class AttendanceLocationDenied(val reason: LocationGateReason) : EngineError
     data class MarkRejected(val sessionId: String, val message: String) : EngineError
     data object SystemLimitReached : EngineError
 }
@@ -166,6 +274,10 @@ sealed interface NotificationEvent {
 sealed interface Command {
     data class ConfigureCredentials(val email: String, val password: String) : Command
     data object RefreshToday : Command
+    data class RefreshSchedule(val days: Int = 14) : Command
+    data object RefreshReadings : Command
+    data object RefreshAll : Command
+    data class ToggleReadingDone(val readingId: String) : Command
     data class Mark(val sessionId: String) : Command
     data class ArmMonitoring(
         val mode: MonitoringMode = MonitoringMode.NOTIFY_ONLY,

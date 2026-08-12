@@ -15,6 +15,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import org.isdm.companion.domain.Session as DomainSession
+import org.isdm.companion.domain.AttendanceLocationGateDecision
+import org.isdm.companion.domain.LocationGateReason
 import org.isdm.companion.domain.buildSessions
 import org.isdm.companion.domain.detectCohorts
 import org.isdm.companion.domain.floorFor
@@ -32,9 +34,14 @@ class CompanionEngine(
     private val gateway: LmsGateway,
     private val clock: Clock = SystemClock,
     private val notifier: Notifier = NoopNotifier,
+    private val readingDoneStore: ReadingDoneStore = NoopReadingDoneStore,
+    private val cacheStore: CompanionCacheStore = NoopCompanionCacheStore,
+    private val diagnostics: DiagnosticsLogger = NoopDiagnosticsLogger,
+    private val attendanceLocationGate: AttendanceLocationGatePort = AllowAttendanceLocationGate,
     private val cohortOverride: Cohorts? = null,
     private val roomFloors: Map<String, Double> = mapOf("sahyog" to 3.0, "majlis" to 6.0),
     private val lateAfterMinutes: Long = 10,
+    private val facultyDirectory: FacultyDirectory? = null,
 ) {
     private val mutex = Mutex()
     private val _state = MutableStateFlow(initialState())
@@ -52,21 +59,55 @@ class CompanionEngine(
     private val detailCache = mutableMapOf<String, CacheEntry<ClassroomDetail>>()
 
     suspend fun dispatch(command: Command): CommandResult = mutex.withLock {
-        reconcileSafety()
-        when (command) {
-            is Command.ConfigureCredentials -> configureCredentials(command)
-            Command.RefreshToday -> refreshToday(allowMonitoringEffects = false)
-            is Command.Mark -> mark(command.sessionId, automatic = false)
-            is Command.ArmMonitoring -> armMonitoring(command)
-            Command.DisarmMonitoring -> disarmMonitoring()
-            Command.SystemLimitReached -> systemLimitReached()
-            Command.MonitorTick -> monitorTick()
+        val commandName = commandName(command)
+        diagnostics.log("command_started", mapOf("command" to commandName))
+        try {
+            reconcileSafety()
+            val result = when (command) {
+                is Command.ConfigureCredentials -> configureCredentials(command)
+                Command.RefreshToday -> refreshToday(allowMonitoringEffects = false)
+                is Command.RefreshSchedule -> refreshSchedule(command.days)
+                Command.RefreshReadings -> refreshReadings()
+                Command.RefreshAll -> refreshAll()
+                is Command.ToggleReadingDone -> toggleReadingDone(command.readingId)
+                is Command.Mark -> mark(command.sessionId, automatic = false)
+                is Command.ArmMonitoring -> armMonitoring(command)
+                Command.DisarmMonitoring -> disarmMonitoring()
+                Command.SystemLimitReached -> systemLimitReached()
+                Command.MonitorTick -> monitorTick()
+            }
+            diagnostics.log(
+                "command_finished",
+                mapOf(
+                    "command" to commandName,
+                    "result" to resultName(result),
+                    "error" to result.errorName(),
+                ),
+            )
+            result
+        } catch (error: CancellationException) {
+            diagnostics.log("command_cancelled", mapOf("command" to commandName))
+            throw error
+        } catch (error: Throwable) {
+            diagnostics.log("command_crashed", mapOf("command" to commandName), error)
+            throw error
         }
     }
 
     private fun initialState(): CompanionState {
         val now = clock.now()
-        return CompanionState(now = now, today = now.atZone(LMS_ZONE).toLocalDate())
+        val today = now.atZone(LMS_ZONE).toLocalDate()
+        val cachedSchedule = cacheStore.loadSchedule()
+        return CompanionState(
+            now = now,
+            today = today,
+            scheduleStart = cachedSchedule?.start ?: today,
+            scheduleEndExclusive = cachedSchedule?.endExclusive ?: today.plusDays(DEFAULT_SCHEDULE_DAYS.toLong()),
+            scheduleSessions = cachedSchedule?.sessions.orEmpty(),
+            readings = loadCachedReadings(),
+            facultyProfiles = cacheStore.loadFacultyProfiles(),
+            scheduleSync = SyncStatus(lastSuccess = cachedSchedule?.syncedAt),
+        )
     }
 
     private suspend fun configureCredentials(command: Command.ConfigureCredentials): CommandResult {
@@ -76,6 +117,9 @@ class CompanionEngine(
         }
         // The engine deliberately keeps this only in memory; the platform owns persistence.
         val wasMonitoring = currentMonitor().active
+        cacheStore.selectAccount(email)
+        val cachedSchedule = cacheStore.loadSchedule()
+        val today = clock.now().atZone(LMS_ZONE).toLocalDate()
         credentials = Credentials(email, command.password)
         identity = null
         authenticated = false
@@ -88,15 +132,26 @@ class CompanionEngine(
             credentialsConfigured = true,
             identity = null,
             sessions = emptyList(),
+            scheduleStart = cachedSchedule?.start ?: today,
+            scheduleEndExclusive = cachedSchedule?.endExclusive
+                ?: today.plusDays(DEFAULT_SCHEDULE_DAYS.toLong()),
+            scheduleSessions = cachedSchedule?.sessions.orEmpty(),
+            readings = loadCachedReadings(),
+            facultyProfiles = cacheStore.loadFacultyProfiles(),
             monitor = MonitoringStatus(reason = if (wasMonitoring) MonitoringStopReason.DISARMED else null),
             error = null,
             sync = SyncStatus(),
+            scheduleSync = SyncStatus(lastSuccess = cachedSchedule?.syncedAt),
+            readingSync = SyncStatus(),
         )
         if (wasMonitoring) safeNotify(NotificationEvent.MonitoringStopped(MonitoringStopReason.DISARMED))
         return CommandResult.Completed(_state.value)
     }
 
-    private suspend fun refreshToday(allowMonitoringEffects: Boolean): CommandResult {
+    private suspend fun refreshToday(
+        allowMonitoringEffects: Boolean,
+        includeMarkability: Boolean = true,
+    ): CommandResult {
         val saved = credentials
         if (saved == null) return reject(EngineError.CredentialsMissing)
 
@@ -109,10 +164,7 @@ class CompanionEngine(
         )
 
         return try {
-            if (!authenticated) {
-                identity = gateway.login(saved)
-                authenticated = true
-            }
+            authenticateIfNeeded(saved)
 
             val tomorrow = today.plusDays(1)
             val (todayEvents, cohorts) = coroutineScope {
@@ -123,7 +175,13 @@ class CompanionEngine(
 
             val drafts = buildSessions(todayEvents, cohorts)
             var markabilityError: EngineError? = null
-            val markMap = if (drafts.any { it.nid != null }) {
+            val markMap = if (!includeMarkability) {
+                // Preserve the last known open state long enough for mark() to perform its
+                // location-gated live revalidation without a pre-gate LMS markability call.
+                _state.value.sessions.mapNotNull { session ->
+                    session.nid?.let { nid -> nid to Markability(markable = session.markable) }
+                }.toMap()
+            } else if (drafts.any { it.nid != null }) {
                 try {
                     gateway.markability()
                 } catch (error: CancellationException) {
@@ -134,43 +192,7 @@ class CompanionEngine(
                 }
             } else emptyMap()
             val details = loadDetails(drafts, now)
-            val assembled = drafts.map { draft ->
-                val detail = draft.nid?.let(details::get)
-                val marked = detail?.marked ?: false
-                val markable = draft.nid?.let { markMap[it]?.markable == true } == true && !marked
-                val room = detail?.room
-                val base = draft.copy(
-                    name = detail?.title?.takeIf { it.isNotBlank() } ?: draft.name,
-                    subject = detail?.course ?: draft.subject,
-                    trainer = detail?.trainer ?: draft.trainer,
-                    room = room,
-                    floor = floorFor(room, roomFloors),
-                    floorLabel = floorLabel(room, roomFloors),
-                    marked = marked,
-                    markable = markable,
-                    status = detail?.status,
-                )
-                CompanionSession(
-                    nid = base.nid,
-                    eventNid = base.eventNid,
-                    name = base.name,
-                    cohort = base.cohort,
-                    sessionNumber = base.session,
-                    start = base.start,
-                    end = base.end ?: base.start,
-                    subject = base.subject,
-                    trainer = base.trainer,
-                    room = base.room,
-                    floor = base.floor,
-                    floorLabel = base.floorLabel,
-                    marked = base.marked,
-                    markable = base.markable,
-                    state = sessionState(base, now),
-                    lateAfter = base.nid?.let {
-                        base.start.plus(lateAfterMinutes, ChronoUnit.MINUTES)
-                    },
-                )
-            }
+            val assembled = assembleSessions(drafts, details, markMap, now)
 
             _state.value = stateNow().copy(
                 today = today,
@@ -196,6 +218,185 @@ class CompanionEngine(
             )
             CommandResult.Rejected(mapped, _state.value)
         }
+    }
+
+    private suspend fun refreshAll(): CommandResult {
+        val todayResult = refreshToday(allowMonitoringEffects = false)
+        if (todayResult is CommandResult.Rejected) return todayResult
+        refreshSchedule(DEFAULT_SCHEDULE_DAYS)
+        refreshReadings()
+        return CommandResult.Completed(_state.value)
+    }
+
+    private suspend fun refreshSchedule(days: Int): CommandResult {
+        if (days !in 1..MAX_SCHEDULE_DAYS) {
+            return reject(EngineError.InvalidCommand("Schedule range must be between 1 and $MAX_SCHEDULE_DAYS days."))
+        }
+        val saved = credentials ?: return reject(EngineError.CredentialsMissing)
+        val now = clock.now()
+        val start = now.atZone(LMS_ZONE).toLocalDate()
+        val end = start.plusDays(days.toLong())
+        _state.value = stateNow().copy(scheduleSync = _state.value.scheduleSync.copy(inProgress = true, error = null))
+        return try {
+            authenticateIfNeeded(saved)
+            val (events, cohorts) = coroutineScope {
+                val eventsRequest = async { gateway.calendar(start, end) }
+                val cohortRequest = async { loadCohorts(start, now) }
+                eventsRequest.await() to cohortRequest.await()
+            }
+            val drafts = buildSessions(events, cohorts)
+            val details = loadDetails(drafts, now)
+            val assembled = assembleSessions(drafts, details, emptyMap(), now)
+            _state.value = stateNow().copy(
+                scheduleStart = start,
+                scheduleEndExclusive = end,
+                scheduleSessions = assembled,
+                scheduleSync = SyncStatus(lastSuccess = now),
+            )
+            cacheStore.saveSchedule(CachedSchedule(start, end, assembled, now))
+            CommandResult.Completed(_state.value)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            val mapped = mapError(error)
+            _state.value = stateNow().copy(scheduleSync = SyncStatus(error = mapped))
+            CommandResult.Rejected(mapped, _state.value)
+        }
+    }
+
+    private suspend fun refreshReadings(): CommandResult {
+        val saved = credentials ?: return reject(EngineError.CredentialsMissing)
+        val now = clock.now()
+        _state.value = stateNow().copy(readingSync = _state.value.readingSync.copy(inProgress = true, error = null))
+        return try {
+            authenticateIfNeeded(saved)
+            val courses = gateway.courses()
+            val semaphore = Semaphore(3)
+            val courseContent = coroutineScope {
+                courses.map { course ->
+                    async {
+                        semaphore.withPermit {
+                            CourseContent(
+                                readings = captureFetch { gateway.readings(course) },
+                                facultyProfiles = facultyDirectory?.let { directory ->
+                                    captureFetch { directory.facultyProfiles(course) }
+                                },
+                            )
+                        }
+                    }
+                }.awaitAll()
+            }
+
+            val readingFailures = courseContent.mapNotNull { it.readings.error }
+            val profileFetches = courseContent.mapNotNull { it.facultyProfiles }
+            val profileFailures = profileFetches.mapNotNull { it.error }
+            var updated = stateNow()
+
+            if (readingFailures.isEmpty()) {
+                val fresh = courseContent.flatMap { it.readings.value.orEmpty() }.distinctBy { it.vid }
+                val done = readingDoneStore.load()
+                updated = updated.copy(
+                    readings = fresh.map { it.copy(done = it.vid in done) }.sortedBy { it.done },
+                    readingSync = SyncStatus(lastSuccess = now),
+                )
+                cacheStore.saveReadings(fresh)
+                diagnostics.log(
+                    "readings_refreshed",
+                    mapOf("courses" to courses.size.toString(), "readings" to fresh.size.toString()),
+                )
+            } else {
+                diagnostics.log(
+                    "readings_refresh_failed",
+                    mapOf("courses" to courses.size.toString(), "failed_courses" to readingFailures.size.toString()),
+                )
+            }
+
+            if (facultyDirectory != null && profileFailures.isEmpty()) {
+                val profiles = profileFetches.flatMap { it.value.orEmpty() }
+                    .distinctBy { it.courseCatId to it.sourceUrl }
+                updated = updated.copy(facultyProfiles = profiles)
+                cacheStore.saveFacultyProfiles(profiles)
+                diagnostics.log(
+                    "faculty_profiles_refreshed",
+                    mapOf("courses" to courses.size.toString(), "profiles" to profiles.size.toString()),
+                )
+            } else if (profileFailures.isNotEmpty()) {
+                diagnostics.log(
+                    "faculty_profiles_refresh_failed",
+                    mapOf("courses" to courses.size.toString(), "failed_courses" to profileFailures.size.toString()),
+                )
+            }
+
+            _state.value = updated
+            if (readingFailures.isEmpty()) {
+                CommandResult.Completed(_state.value)
+            } else {
+                val mapped = mapError(readingFailures.first())
+                _state.value = stateNow().copy(readingSync = SyncStatus(error = mapped))
+                CommandResult.Rejected(mapped, _state.value)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            val mapped = mapError(error)
+            _state.value = stateNow().copy(readingSync = SyncStatus(error = mapped))
+            CommandResult.Rejected(mapped, _state.value)
+        }
+    }
+
+    private fun toggleReadingDone(readingId: String): CommandResult {
+        val reading = _state.value.readings.firstOrNull { it.vid == readingId }
+            ?: return reject(EngineError.InvalidCommand("Unknown reading id: $readingId"))
+        val done = !reading.done
+        readingDoneStore.setDone(readingId, done)
+        _state.value = stateNow().copy(
+            readings = _state.value.readings
+                .map { if (it.vid == readingId) it.copy(done = done) else it }
+                .sortedBy { it.done },
+            error = null,
+        )
+        return CommandResult.Completed(_state.value)
+    }
+
+    private fun assembleSessions(
+        drafts: List<DomainSession>,
+        details: Map<String, ClassroomDetail>,
+        markMap: Map<String, Markability>,
+        now: Instant,
+    ): List<CompanionSession> = drafts.map { draft ->
+        val detail = draft.nid?.let(details::get)
+        val marked = detail?.marked ?: false
+        val markable = draft.nid?.let { markMap[it]?.markable == true } == true && !marked
+        val room = detail?.room
+        val base = draft.copy(
+            name = detail?.title?.takeIf { it.isNotBlank() } ?: draft.name,
+            subject = detail?.course ?: draft.subject,
+            trainer = detail?.trainer ?: draft.trainer,
+            room = room,
+            floor = floorFor(room, roomFloors),
+            floorLabel = floorLabel(room, roomFloors),
+            marked = marked,
+            markable = markable,
+            status = detail?.status,
+        )
+        CompanionSession(
+            nid = base.nid,
+            eventNid = base.eventNid,
+            name = base.name,
+            cohort = base.cohort,
+            sessionNumber = base.session,
+            start = base.start,
+            end = base.end ?: base.start,
+            subject = base.subject,
+            trainer = base.trainer,
+            room = base.room,
+            floor = base.floor,
+            floorLabel = base.floorLabel,
+            marked = base.marked,
+            markable = base.markable,
+            state = sessionState(base, now),
+            lateAfter = base.nid?.let { base.start.plus(lateAfterMinutes, ChronoUnit.MINUTES) },
+        )
     }
 
     private suspend fun loadTodayEvents(
@@ -259,7 +460,11 @@ class CompanionEngine(
 
     private suspend fun monitorTick(): CommandResult {
         if (!currentMonitor().active) return CommandResult.Completed(stateNow())
-        val result = refreshToday(allowMonitoringEffects = true)
+        val result = refreshToday(
+            allowMonitoringEffects = true,
+            // Auto-mark's live markability check belongs only in mark(), after the location gate.
+            includeMarkability = currentMonitor().mode != MonitoringMode.AUTO_MARK,
+        )
         return result
     }
 
@@ -273,7 +478,7 @@ class CompanionEngine(
                 val attempts = autoAttempts[nid] ?: 0
                 if (attempts < MAX_AUTO_ATTEMPTS && nid !in successfulMarks) {
                     autoAttempts[nid] = attempts + 1
-                    val result = mark(nid, automatic = true)
+                    mark(nid, automatic = true)
                     continue
                 }
             }
@@ -342,6 +547,25 @@ class CompanionEngine(
         }
 
         try {
+            val locationDecision = try {
+                attendanceLocationGate.evaluate(clock.now())
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                AttendanceLocationGateDecision(
+                    allowsMark = false,
+                    reason = LocationGateReason.MISSING_EVIDENCE,
+                )
+            }
+            if (!locationDecision.allowsMark) {
+                val error = EngineError.AttendanceLocationDenied(
+                    locationDecision.reason ?: LocationGateReason.MISSING_EVIDENCE,
+                )
+                _state.value = stateNow().copy(error = error)
+                if (automatic) safeNotify(NotificationEvent.MarkFailed(session, error))
+                return CommandResult.Rejected(error, _state.value)
+            }
+
             val markMap = try {
                 gateway.markability()
             } catch (error: CancellationException) {
@@ -391,8 +615,15 @@ class CompanionEngine(
                 trainer = detail.trainer ?: session.trainer,
                 subject = detail.course ?: session.subject,
             )
+            val monitor = if (automatic && currentMonitor().mode == MonitoringMode.AUTO_MARK) {
+                autoAttempts.clear()
+                MonitoringStatus(reason = MonitoringStopReason.ATTENDANCE_MARKED)
+            } else {
+                currentMonitor()
+            }
             _state.value = stateNow().copy(
                 sessions = _state.value.sessions.map { if (it.nid == sessionId) updated else it },
+                monitor = monitor,
                 error = null,
             )
             safeNotify(NotificationEvent.MarkedPresent(updated, automatic))
@@ -451,8 +682,9 @@ class CompanionEngine(
             notifier.notify(event)
         } catch (error: CancellationException) {
             throw error
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
             // Notifications must never turn a confirmed LMS mark into an application failure.
+            diagnostics.log("notification_failed", mapOf("event" to event.javaClass.simpleName), error)
         }
     }
 
@@ -474,7 +706,35 @@ class CompanionEngine(
         detailCache.clear()
     }
 
+    private fun loadCachedReadings(): List<ReadingItem> {
+        val done = readingDoneStore.load()
+        return cacheStore.loadReadings()
+            .map { it.copy(done = it.vid in done) }
+            .sortedBy { it.done }
+    }
+
+    private suspend fun <T> captureFetch(block: suspend () -> T): Fetch<T> = try {
+        Fetch(value = block())
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        Fetch(error = error)
+    }
+
+    private suspend fun authenticateIfNeeded(saved: Credentials) {
+        if (authenticated) return
+        identity = gateway.login(saved)
+        authenticated = true
+    }
+
     private data class CacheEntry<T>(val loadedAt: Instant, val value: T)
+
+    private data class CourseContent(
+        val readings: Fetch<List<ReadingItem>>,
+        val facultyProfiles: Fetch<List<FacultyProfile>>?,
+    )
+
+    private data class Fetch<T>(val value: T? = null, val error: Throwable? = null)
 
     private data class DayCache(
         val date: LocalDate,
@@ -483,10 +743,48 @@ class CompanionEngine(
     )
 
     private companion object {
+        const val DEFAULT_SCHEDULE_DAYS = 14
+        const val MAX_SCHEDULE_DAYS = 31
         const val MAX_AUTO_ATTEMPTS = 3
         const val LIVE_CALENDAR_TTL_SECONDS = 60L
         const val COHORT_TTL_SECONDS = 60L * 60L
         const val LIVE_DETAIL_TTL_SECONDS = 45L
         const val MARKED_DETAIL_TTL_SECONDS = 6L * 60L
     }
+}
+
+private fun commandName(command: Command): String = when (command) {
+    is Command.ConfigureCredentials -> "configure_credentials"
+    Command.RefreshToday -> "refresh_today"
+    is Command.RefreshSchedule -> "refresh_schedule"
+    Command.RefreshReadings -> "refresh_readings"
+    Command.RefreshAll -> "refresh_all"
+    is Command.ToggleReadingDone -> "toggle_reading_done"
+    is Command.Mark -> "mark"
+    is Command.ArmMonitoring -> "arm_monitoring"
+    Command.DisarmMonitoring -> "disarm_monitoring"
+    Command.SystemLimitReached -> "system_limit_reached"
+    Command.MonitorTick -> "monitor_tick"
+}
+
+private fun resultName(result: CommandResult): String = when (result) {
+    is CommandResult.Completed -> "completed"
+    is CommandResult.Marked -> "marked"
+    is CommandResult.AlreadyMarked -> "already_marked"
+    is CommandResult.Rejected -> "rejected"
+}
+
+private fun CommandResult.errorName(): String =
+    if (this is CommandResult.Rejected) errorName(error) else "none"
+
+private fun errorName(error: EngineError): String = when (error) {
+    EngineError.CredentialsMissing -> "credentials_missing"
+    is EngineError.InvalidCommand -> "invalid_command"
+    is EngineError.AuthenticationFailed -> "authentication_failed"
+    is EngineError.NetworkFailure -> "network_failure"
+    is EngineError.LmsFailure -> "lms_failure"
+    is EngineError.MarkWindowClosed -> "mark_window_closed"
+    is EngineError.AttendanceLocationDenied -> "attendance_location_denied"
+    is EngineError.MarkRejected -> "mark_rejected"
+    EngineError.SystemLimitReached -> "system_limit_reached"
 }

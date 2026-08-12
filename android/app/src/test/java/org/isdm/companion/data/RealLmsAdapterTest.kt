@@ -10,8 +10,124 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.isdm.companion.engine.Credentials
 
 class RealLmsAdapterTest {
+    @Test
+    fun readingDownloadResolvesTheSignedNativePdfUrl() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.method == "GET" && request.path == "/user/login" -> MockResponse()
+                    .setHeader("Set-Cookie", "SESSdownload=trusted; Path=/; HttpOnly")
+                    .setBody(loginForm())
+                request.method == "POST" && request.path == "/user/login" -> MockResponse()
+                    .setResponseCode(302).setHeader("Location", "/home")
+                request.method == "GET" && request.path == "/home" -> MockResponse()
+                    .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
+                request.path?.startsWith("/api/downloadcontent?") == true -> MockResponse().setBody(
+                    """[{"videourl":{"native":"https://files.example/reading.pdf?signature=ok"}}]""",
+                )
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+
+        try {
+            val adapter = RealLmsAdapter(baseUrl = server.url("/").toString())
+            val url = adapter.readingDownloadUrl(
+                Credentials("student@example.com", "secret"),
+                server.url("/subtopic/view?sid=1296141&vid=1298349").toString(),
+            )
+
+            assertEquals("https://files.example/reading.pdf?signature=ok", url)
+            val requests = generateSequence { server.takeRequest() }.take(4).toList()
+            val download = requests.last()
+            assertEquals("1298349", download.requestUrl?.queryParameter("nid"))
+            assertEquals("1296141", download.requestUrl?.queryParameter("courseid"))
+            assertEquals("1042", download.requestUrl?.queryParameter("uid"))
+            assertEquals("native", download.requestUrl?.queryParameter("format"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun browserCookiesReuseTheValidatedLmsSession() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.method == "GET" && request.path == "/user/login" -> MockResponse()
+                    .setHeader("Set-Cookie", "SESSbrowser=trusted; Path=/; HttpOnly")
+                    .setBody(loginForm())
+                request.method == "POST" && request.path == "/user/login" -> MockResponse()
+                    .setResponseCode(302).setHeader("Location", "/home")
+                request.method == "GET" && request.path == "/home" -> MockResponse()
+                    .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+
+        try {
+            val adapter = RealLmsAdapter(baseUrl = server.url("/").toString())
+            val cookies = adapter.browserCookieHeaders(Credentials("student@example.com", "secret"))
+
+            assertTrue(cookies.any { it.startsWith("SESSbrowser=trusted") })
+            assertTrue(cookies.any { "httponly" in it.lowercase() })
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun readingsAreAggregatedFromListingPagesWithoutOpeningItems() = runBlocking {
+        val server = MockWebServer()
+        val paths = mutableListOf<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                paths += request.path.orEmpty()
+                return when {
+                    request.method == "GET" && request.path == "/user/login" -> MockResponse()
+                        .setHeader("Set-Cookie", "SESSreadings=one; Path=/")
+                        .setBody(loginForm())
+                    request.method == "POST" && request.path == "/user/login" -> MockResponse()
+                        .setResponseCode(302).setHeader("Location", "/home")
+                    request.method == "GET" && request.path == "/home" -> MockResponse()
+                        .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
+                    request.path == "/show/all/courses" -> MockResponse().setBody(
+                        "<a href='/course/details?cat_id=12'>State, Market and Society</a>",
+                    )
+                    request.path == "/course/details?cat_id=12" -> MockResponse().setBody(
+                        "<a href='/course/details?cat_id=12&amp;course_id=91'>Mandatory Reading</a>",
+                    )
+                    request.path == "/course/details?cat_id=12&course_id=91" -> MockResponse().setBody(
+                        """
+                        <div class='document_status_icon'>
+                          <a href='/subtopic/view?sid=91&amp;vid=501&amp;cid=7&amp;cat_id=12'>Seeing Like a State</a>
+                        </div>
+                        """.trimIndent(),
+                    )
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        server.start()
+
+        try {
+            val adapter = RealLmsAdapter("a@b.c", "password", server.url("/").toString())
+            val course = adapter.courses().single()
+            val reading = adapter.readings(course).single()
+
+            assertEquals("12", course.catId)
+            assertEquals("501", reading.vid)
+            assertTrue(reading.mandatory)
+            assertFalse(paths.any { it.startsWith("/subtopic/view") })
+        } finally {
+            server.shutdown()
+        }
+    }
+
     @Test
     fun loginCookieIsCarriedAndMarkIsConfirmedByReread() = runBlocking {
         val server = MockWebServer()

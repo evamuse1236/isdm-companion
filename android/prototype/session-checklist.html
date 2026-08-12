@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ISDM session checklist</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18201d;
+      --muted: #66706b;
+      --line: #dfe5e1;
+      --paper: #ffffff;
+      --wash: #f3f6f4;
+      --accent: #236b4b;
+      --accent-soft: #e5f1eb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--wash);
+      color: var(--ink);
+      font: 15px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 28px));
+      margin: 28px auto;
+    }
+
+    header { margin-bottom: 18px; }
+    h1 { margin: 0 0 5px; font-size: clamp(25px, 4vw, 38px); line-height: 1.1; }
+    header p { margin: 0; color: var(--muted); max-width: 760px; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 8px 28px rgba(28, 50, 39, .06);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: rgba(255, 255, 255, .96);
+      border-radius: 14px 14px 0 0;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--paper);
+      color: var(--ink);
+      padding: 8px 11px;
+      font: inherit;
+      font-weight: 650;
+      cursor: pointer;
+    }
+
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+
+    .date-group { padding: 16px 18px 4px; }
+    .date-group + .date-group { border-top: 1px solid var(--line); }
+    .date-group h2 { margin: 0 0 10px; font-size: 16px; }
+
+    label.session {
+      display: grid;
+      grid-template-columns: 22px 145px minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      padding: 9px 8px;
+      margin: 0 -8px;
+      border-radius: 9px;
+      cursor: pointer;
+    }
+
+    label.session:hover { background: var(--wash); }
+    label.session:has(input:checked) { background: var(--accent-soft); }
+    input[type="checkbox"] { width: 17px; height: 17px; margin: 2px 0 0; accent-color: var(--accent); }
+    .time { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .workshop { color: var(--accent); font-weight: 750; }
+
+    aside { position: sticky; top: 16px; padding: 18px; }
+    .summary-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+    aside h2 { margin: 0; font-size: 19px; }
+    .count { color: var(--accent); font-weight: 800; }
+    .hint { color: var(--muted); margin: 8px 0 14px; font-size: 13px; }
+    #selected-list { margin: 0; padding-left: 21px; max-height: 62vh; overflow: auto; }
+    #selected-list li { margin-bottom: 10px; }
+    #empty { color: var(--muted); padding: 24px 0; text-align: center; }
+    #copy { width: 100%; margin-top: 14px; }
+
+    @media (max-width: 820px) {
+      main { width: min(100% - 18px, 680px); margin-top: 18px; }
+      .layout { grid-template-columns: 1fr; }
+      aside { position: static; }
+      label.session { grid-template-columns: 22px 1fr; }
+      .time { grid-column: 2; }
+      .name { grid-column: 2; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Choose your ISDM sessions</h1>
+      <p>Prototype question: which sessions from 27 July–6 August should stay in your final list? Tick the ones you want; the refined list updates immediately.</p>
+    </header>
+
+    <div class="layout">
+      <section class="panel" aria-label="All sessions">
+        <div class="toolbar">
+          <button type="button" id="all">Select all</button>
+          <button type="button" id="workshops">Workshops only</button>
+          <button type="button" id="clear">Clear</button>
+        </div>
+        <div id="sessions"></div>
+      </section>
+
+      <aside class="panel" aria-live="polite">
+        <div class="summary-head">
+          <h2>Your refined list</h2>
+          <span class="count" id="count">0 selected</span>
+        </div>
+        <p class="hint">Copy this and paste it back into our chat if you want me to edit, regroup, or format it further.</p>
+        <div id="empty">Nothing selected yet.</div>
+        <ol id="selected-list"></ol>
+        <button type="button" class="primary" id="copy" disabled>Copy selected list</button>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const sessions = [
+      ["2026-07-27", "27 July", "9:00–10:30 AM", "The Context of Development in India — Sections A & B — Session 1"],
+      ["2026-07-27", "27 July", "11:00 AM–1:00 PM", "About PGP — Sections A & B — Session 1"],
+      ["2026-07-27", "27 July", "2:00–3:30 PM", "Digital Engagement — Section A — Session 1"],
+      ["2026-07-27", "27 July", "2:00–3:30 PM", "Know the Campus — Section B — Session 1"],
+      ["2026-07-27", "27 July", "3:45–5:15 PM", "Digital Engagement — Section B — Session 1"],
+      ["2026-07-27", "27 July", "3:45–5:15 PM", "Know the Campus — Section A — Session 1"],
+      ["2026-07-27", "27 July", "5:15–6:15 PM", "Fun Activity — Sections A & B — Session 1"],
+      ["2026-07-28", "28 July", "9:30–11:00 AM", "Excel — Section B — Session 1"],
+      ["2026-07-28", "28 July", "9:30–11:00 AM", "Maths — Section A — Session 1"],
+      ["2026-07-28", "28 July", "11:30 AM–1:00 PM", "Excel — Section A — Session 1"],
+      ["2026-07-28", "28 July", "11:30 AM–1:00 PM", "Maths — Section B — Session 1"],
+      ["2026-07-28", "28 July", "2:00–3:30 PM", "Campus Context Presentation — Section A — Session 1"],
+      ["2026-07-28", "28 July", "2:00–3:30 PM", "Excel — Section B — Session 2"],
+      ["2026-07-28", "28 July", "3:45–5:15 PM", "Bricolage — Sections A & B — Session 1"],
+      ["2026-07-29", "29 July", "9:30–11:00 AM", "Excel — Section A — Session 2"],
+      ["2026-07-29", "29 July", "9:30–11:00 AM", "Maths — Section B — Session 2"],
+      ["2026-07-29", "29 July", "11:30 AM–1:00 PM", "Maths — Section A — Session 2"],
+      ["2026-07-29", "29 July", "11:30 AM–1:00 PM", "PMDL — Section B — Session 1"],
+      ["2026-07-29", "29 July", "2:00–3:30 PM", "Excel — Section B — Session 3"],
+      ["2026-07-29", "29 July", "2:00–3:30 PM", "PMDL — Section A — Session 1"],
+      ["2026-07-29", "29 July", "3:45–5:15 PM", "Bricolage — Sections A & B — Session 2"],
+      ["2026-07-30", "30 July", "9:30–11:00 AM", "Excel — Section A — Session 3"],
+      ["2026-07-30", "30 July", "9:30–11:00 AM", "Maths — Section B — Session 3"],
+      ["2026-07-30", "30 July", "11:30 AM–1:00 PM", "Excel — Section B — Session 4"],
+      ["2026-07-30", "30 July", "11:30 AM–1:00 PM", "Maths — Section A — Session 3"],
+      ["2026-07-30", "30 July", "2:00–3:30 PM", "Excel — Section A — Session 4"],
+      ["2026-07-30", "30 July", "2:00–3:00 PM", "Context Presentation — Section B — Session 1"],
+      ["2026-07-30", "30 July", "3:30–5:30 PM", "Context Presentation — Sections A & B — Session 2"],
+      ["2026-07-31", "31 July", "10:00 AM–12:00 PM", "SPO Visit — Group 1 — Session 1"],
+      ["2026-07-31", "31 July", "3:00–5:00 PM", "SPO Visit — Group 2 — Session 1"],
+      ["2026-07-31", "31 July", "3:00–5:00 PM", "SPO Visit — Group 3 — Session 1"],
+      ["2026-08-01", "1 August", "9:30–11:00 AM", "Excel — Section B — Session 5"],
+      ["2026-08-01", "1 August", "9:30–11:00 AM", "Maths — Section A — Session 4"],
+      ["2026-08-01", "1 August", "11:30 AM–1:00 PM", "Excel — Section A — Session 5"],
+      ["2026-08-01", "1 August", "11:30 AM–1:00 PM", "Maths — Section B — Session 4"],
+      ["2026-08-03", "3 August", "8:00 AM–12:30 PM", "SEE Workshop — Group 1 — Session 1"],
+      ["2026-08-03", "3 August", "9:30 AM–1:00 PM", "Case Study — Group 2 — Session 1"],
+      ["2026-08-03", "3 August", "9:30 AM–1:00 PM", "PMDL — Group 3 — Session 2"],
+      ["2026-08-03", "3 August", "1:30–6:00 PM", "SEE Workshop — Group 2 — Session 1"],
+      ["2026-08-03", "3 August", "2:00–5:30 PM", "Case Study — Group 3 — Session 1"],
+      ["2026-08-03", "3 August", "2:00–5:30 PM", "PMDL — Group 1 — Session 2"],
+      ["2026-08-04", "4 August", "8:00 AM–12:30 PM", "SEE Workshop — Group 3 — Session 1"],
+      ["2026-08-04", "4 August", "9:30 AM–1:00 PM", "Case Study — Group 1 — Session 1"],
+      ["2026-08-04", "4 August", "9:30 AM–1:00 PM", "PMDL — Group 2 — Session 2"],
+      ["2026-08-04", "4 August", "2:00–3:30 PM", "PMDL Plenary — Sections A & B — Session 3"],
+      ["2026-08-04", "4 August", "3:45–5:15 PM", "Fun Activity — Sections A & B — Session 2"],
+      ["2026-08-05", "5 August", "10:30 AM–1:00 PM", "Case Study — Section A — Session 2"],
+      ["2026-08-05", "5 August", "10:30 AM–1:00 PM", "We The People — Section B — Session 1"],
+      ["2026-08-05", "5 August", "2:00–4:30 PM", "Case Study — Section B — Session 2"],
+      ["2026-08-05", "5 August", "2:00–4:30 PM", "We The People — Section A — Session 1"],
+      ["2026-08-05", "5 August", "5:00–6:30 PM", "Context Presentation — Sections A & B — Session 3"],
+      ["2026-08-06", "6 August", "9:00–10:30 AM", "Guest Lectures — Sections A & B — Session 1"],
+      ["2026-08-06", "6 August", "11:30 AM–12:45 PM", "Maths Readiness"],
+      ["2026-08-06", "6 August", "2:30–4:00 PM", "Well Being Session — Sections A & B — Session 1"],
+      ["2026-08-06", "6 August", "4:30–6:00 PM", "Context Presentation — Sections A & B — Session 4"]
+    ].map(([date, dateLabel, time, name], id) => ({ id, date, dateLabel, time, name }));
+
+    // Pure selection logic: the page only renders the state returned here.
+    const selection = {
+      toggle(selected, id) {
+        const next = new Set(selected);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+      },
+      all(items) { return new Set(items.map(item => item.id)); },
+      workshops(items) { return new Set(items.filter(item => item.name.includes("Workshop")).map(item => item.id)); },
+      clear() { return new Set(); },
+      refine(items, selected) { return items.filter(item => selected.has(item.id)); }
+    };
+
+    let selected = selection.clear();
+
+    const groups = Object.groupBy
+      ? Object.groupBy(sessions, item => item.date)
+      : sessions.reduce((result, item) => ((result[item.date] ??= []).push(item), result), {});
+
+    const sessionsRoot = document.querySelector("#sessions");
+    const selectedList = document.querySelector("#selected-list");
+    const empty = document.querySelector("#empty");
+    const count = document.querySelector("#count");
+    const copy = document.querySelector("#copy");
+
+    sessionsRoot.innerHTML = Object.values(groups).map(items => `
+      <section class="date-group">
+        <h2>${items[0].dateLabel}</h2>
+        ${items.map(item => `
+          <label class="session">
+            <input type="checkbox" data-id="${item.id}">
+            <span class="time">${item.time}</span>
+            <span class="name ${item.name.includes("Workshop") ? "workshop" : ""}">${item.name}</span>
+          </label>
+        `).join("")}
+      </section>
+    `).join("");
+
+    function render() {
+      const refined = selection.refine(sessions, selected);
+      document.querySelectorAll("input[data-id]").forEach(input => {
+        input.checked = selected.has(Number(input.dataset.id));
+      });
+      count.textContent = `${refined.length} selected`;
+      empty.hidden = refined.length > 0;
+      selectedList.innerHTML = refined.map(item => `<li><strong>${item.dateLabel}, ${item.time}</strong><br>${item.name}</li>`).join("");
+      copy.disabled = refined.length === 0;
+    }
+
+    sessionsRoot.addEventListener("change", event => {
+      if (!event.target.matches("input[data-id]")) return;
+      selected = selection.toggle(selected, Number(event.target.dataset.id));
+      render();
+    });
+
+    document.querySelector("#all").addEventListener("click", () => { selected = selection.all(sessions); render(); });
+    document.querySelector("#workshops").addEventListener("click", () => { selected = selection.workshops(sessions); render(); });
+    document.querySelector("#clear").addEventListener("click", () => { selected = selection.clear(); render(); });
+
+    copy.addEventListener("click", async () => {
+      const refined = selection.refine(sessions, selected);
+      const text = refined.map(item => `- ${item.dateLabel}, ${item.time} — ${item.name}`).join("\n");
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const helper = Object.assign(document.createElement("textarea"), { value: text });
+        document.body.append(helper);
+        helper.select();
+        document.execCommand("copy");
+        helper.remove();
+      }
+      copy.textContent = "Copied — paste it into chat";
+      setTimeout(() => { copy.textContent = "Copy selected list"; }, 1800);
+    });
+
+    render();
+  </script>
+</body>
+</html>
