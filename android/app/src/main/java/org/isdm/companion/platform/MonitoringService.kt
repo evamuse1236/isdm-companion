@@ -59,7 +59,13 @@ class MonitoringService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        app.diagnostics.log("monitor_service_started", mapOf("source" to if (autoArm) "alarm" else "user"))
+        app.diagnostics.log(
+            "monitor_service_started",
+            mapOf(
+                "source" to if (autoArm) "alarm" else "user",
+                "fgs_type" to "location",
+            ),
+        )
         if (autoArm) {
             val stopAt = intent.getLongExtra(EXTRA_STOP_AT, 0L)
             val sessionIds = intent.getStringArrayListExtra(EXTRA_SESSION_IDS).orEmpty().toSet()
@@ -143,8 +149,7 @@ class MonitoringService : Service() {
             NOTIFICATION_ID,
             notification,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
             } else {
                 0
             },

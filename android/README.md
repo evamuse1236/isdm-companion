@@ -76,7 +76,9 @@ The current file rotates at 512 KiB and only one previous file is retained.
 
 ## Android background limit
 
-Android 15 and newer limits `dataSync` foreground services to six hours of background runtime
-in a 24-hour period. The app avoids an all-day service by running short windows around each known
-attendance session. It still handles the platform timeout defensively and records it in the
-diagnostic log.
+The attendance monitor is a `location` foreground service because its continuing task is the
+Attendance Location Gate. It deliberately does not declare `dataSync`: Android 15 and newer limit
+that foreground-service type to six hours of background runtime in a 24-hour period, which can
+prevent a later attendance window from starting. Network requests remain scoped to short windows
+around known Attendance Sessions. The service still handles an unexpected platform timeout
+defensively and records it in the diagnostic log.
