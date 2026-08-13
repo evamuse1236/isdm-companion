@@ -1,6 +1,7 @@
 package org.isdm.companion
 
 import android.app.Application
+import android.os.Build
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import org.isdm.companion.data.RealLmsAdapter
@@ -37,13 +38,16 @@ class CompanionApplication : Application() {
     lateinit var autoAttendanceScheduler: AutoAttendanceScheduler
         private set
 
+    lateinit var localStore: CompanionLocalStore
+        private set
+
     override fun onCreate() {
         super.onCreate()
         diagnostics = AndroidDiagnosticsLogger(this)
         credentialStore = SecureCredentialStore(this)
         autoAttendanceStore = AutoAttendanceStore(this)
-        autoAttendanceScheduler = AutoAttendanceScheduler(this, autoAttendanceStore)
-        val localStore = CompanionLocalStore(this)
+        autoAttendanceScheduler = AutoAttendanceScheduler(this, autoAttendanceStore, diagnostics)
+        localStore = CompanionLocalStore(this)
         lmsAdapter = RealLmsAdapter()
         val locationGate = AndroidAttendanceLocationGatePort(
             evidenceProvider = AndroidLocationEvidenceProvider(this),
@@ -60,7 +64,18 @@ class CompanionApplication : Application() {
         )
         AndroidNotifier.createChannels(this)
         CompanionSyncWorker.schedule(this)
-        diagnostics.log("application_started")
+        diagnostics.log(
+            "application_started",
+            mapOf(
+                "android_sdk" to Build.VERSION.SDK_INT.toString(),
+                "auto_attendance_enabled" to autoAttendanceStore.isEnabled().toString(),
+                "build_type" to BuildConfig.BUILD_TYPE,
+                "device_model" to Build.MODEL,
+                "saved_login" to (credentialStore.load() != null).toString(),
+                "version_code" to BuildConfig.VERSION_CODE.toString(),
+                "version_name" to BuildConfig.VERSION_NAME,
+            ),
+        )
     }
 }
 

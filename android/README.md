@@ -58,9 +58,12 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 ## Private diagnostic log
 
 The app writes a small rotating diagnostic log to its private app storage and mirrors the same
-events to Logcat under `ISDMCompanion`. It records lifecycle, command outcomes, sync decisions,
-alarm/service transitions, downloads, and sanitized failures. Emails, passwords, cookies,
-authorization values, signed URLs, and LMS payloads are not recorded.
+events to Logcat under `ISDMCompanion`. Every line includes a short process-run ID, a monotonic
+sequence number, and the emitting thread. It records the app and Android build at startup;
+permission decisions; command duration and privacy-safe attendance-state counts; sync decisions;
+alarm/service transitions; downloads; and sanitized outer/root failures. Emails, passwords,
+cookies, authorization values, OAuth secrets, signed URLs, session identifiers, and LMS payloads
+are not recorded in command summaries.
 
 With a debug build installed, retrieve both retained files with:
 
@@ -73,7 +76,9 @@ The current file rotates at 512 KiB and only one previous file is retained.
 
 ## Android background limit
 
-Android 15 and newer limits `dataSync` foreground services to six hours of background runtime
-in a 24-hour period. The app avoids an all-day service by running short windows around each known
-attendance session. It still handles the platform timeout defensively and records it in the
-diagnostic log.
+The attendance monitor is a `location` foreground service because its continuing task is the
+Attendance Location Gate. It deliberately does not declare `dataSync`: Android 15 and newer limit
+that foreground-service type to six hours of background runtime in a 24-hour period, which can
+prevent a later attendance window from starting. Network requests remain scoped to short windows
+around known Attendance Sessions. The service still handles an unexpected platform timeout
+defensively and records it in the diagnostic log.

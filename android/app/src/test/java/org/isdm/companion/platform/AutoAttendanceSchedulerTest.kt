@@ -51,6 +51,19 @@ class AutoAttendanceSchedulerTest {
         assertTrue(autoAttendanceWindows(listOf(marked), now).isEmpty())
     }
 
+    @Test
+    fun `each overlapping alarm carries every target before monitoring starts`() {
+        val now = Instant.parse("2026-08-10T03:00:00Z")
+        val first = session("101", "2026-08-10T03:30:00Z", "2026-08-10T04:45:00Z")
+        val second = session("202", "2026-08-10T03:30:00Z", "2026-08-10T05:00:00Z")
+
+        val windows = autoAttendanceWindows(listOf(first, second), now)
+
+        assertEquals(2, windows.size)
+        assertTrue(windows.all { it.targetSessionIds == setOf("101", "202") })
+        assertTrue(windows.all { it.stopAt == Instant.parse("2026-08-10T05:15:00Z") })
+    }
+
     private fun session(id: String?, start: String, end: String) = CompanionSession(
         nid = id,
         eventNid = null,

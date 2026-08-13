@@ -65,6 +65,24 @@ class CompanionEngineTest {
     }
 
     @Test
+    fun `command diagnostics retain timing and attendance state without session identifiers`() = runBlocking {
+        val diagnostics = RecordingDiagnosticsLogger()
+        val engine = engine(diagnostics = diagnostics)
+        configureAndRefresh(engine)
+
+        val fields = diagnostics.events.last { it.first == "command_finished" }.second
+
+        assertEquals("refresh_today", fields["command"])
+        assertEquals("completed", fields["result"])
+        assertEquals("1", fields["sessions"])
+        assertEquals("1", fields["markable_sessions"])
+        assertEquals("false", fields["monitor_active"])
+        assertEquals("0", fields["monitor_targets"])
+        assertTrue(fields.getValue("duration_ms").toLong() >= 0L)
+        assertFalse(fields.values.any { it.contains("1285348") })
+    }
+
+    @Test
     fun `monitor defaults to notify only and emits one opening notification`() = runBlocking {
         val engine = engine()
         configureAndRefresh(engine)
@@ -138,6 +156,7 @@ class CompanionEngineTest {
         engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK))
 
         engine.dispatch(Command.MonitorTick)
+        engine.dispatch(Command.MonitorTick)
 
         assertEquals(0, gateway.markabilityCalls)
         assertEquals(0, gateway.markPresentCalls)
@@ -188,6 +207,28 @@ class CompanionEngineTest {
     }
 
     @Test
+    fun `automatic monitoring detects a window that opens after arming`() = runBlocking {
+        clock.current = Instant.parse("2026-08-08T04:50:00Z") // 10:20 IST
+        gateway.markabilityMap["1285348"] = Markability(markable = false)
+        val engine = engine()
+        configureAndRefresh(engine)
+        engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK))
+
+        clock.current = Instant.parse("2026-08-08T05:01:00Z") // 10:31 IST
+        repeat(5) { engine.dispatch(Command.MonitorTick) }
+        assertEquals(0, gateway.markPresentCalls)
+        assertEquals(emptyMap<String, Int>(), engine.state.value.monitor.autoAttempts)
+        assertTrue(notifier.events.none { it is NotificationEvent.MarkFailed })
+
+        gateway.markabilityMap["1285348"] = Markability(markable = true, uid = "1042")
+        engine.dispatch(Command.MonitorTick)
+
+        assertEquals(1, gateway.markPresentCalls)
+        assertTrue(engine.state.value.sessions.single().marked)
+        assertFalse(engine.state.value.monitor.active)
+    }
+
+    @Test
     fun `successful automatic mark stops its monitoring window`() = runBlocking {
         val engine = engine()
         configureAndRefresh(engine)
@@ -197,6 +238,34 @@ class CompanionEngineTest {
 
         assertEquals(1, gateway.markPresentCalls)
         assertFalse(engine.state.value.monitor.active)
+    }
+
+    @Test
+    fun `overlapping automatic windows retain and mark both target sessions`() = runBlocking {
+        gateway.events += CalendarEvent(
+            nid = "2222222",
+            title = "Attendance - Alpha - Section B - Session 2",
+            url = "/classroom/2222222/view",
+            start = "2026-08-08 10:30:00",
+            end = "2026-08-08 12:00:00",
+        )
+        gateway.details["2222222"] = ClassroomDetail(
+            nid = "2222222",
+            title = "Alpha",
+            marked = false,
+            status = "Not Marked",
+        )
+        gateway.markabilityMap["2222222"] = Markability(markable = true, uid = "1042")
+        val engine = engine()
+        configureAndRefresh(engine)
+
+        engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK, targetSessionId = "1285348"))
+        engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK, targetSessionId = "2222222"))
+        engine.dispatch(Command.MonitorTick)
+
+        assertTrue(engine.state.value.sessions.all { it.marked })
+        assertFalse(engine.state.value.monitor.active)
+        assertEquals(2, gateway.markPresentCalls)
     }
 
     @Test
@@ -260,6 +329,31 @@ class CompanionEngineTest {
     }
 
     @Test
+    fun `schedule refresh preserves today's live attendance state`() = runBlocking {
+        val engine = engine()
+        configureAndRefresh(engine)
+
+        engine.dispatch(Command.RefreshSchedule())
+
+        val scheduled = engine.state.value.scheduleSessions.single()
+        assertEquals(SessionState.OPEN, scheduled.state)
+        assertTrue(scheduled.markable)
+    }
+
+    @Test
+    fun `confirmed attendance updates the rolling schedule state`() = runBlocking {
+        val engine = engine()
+        configureAndRefresh(engine)
+        engine.dispatch(Command.RefreshSchedule())
+
+        engine.dispatch(Command.Mark("1285348"))
+
+        val scheduled = engine.state.value.scheduleSessions.single()
+        assertTrue(scheduled.marked)
+        assertEquals(SessionState.MARKED, scheduled.state)
+    }
+
+    @Test
     fun `reading refresh identifies mandatory items and local done survives refresh`() = runBlocking {
         val course = LmsCourse("12", "State, Market and Society")
         gateway.courseRows += course
@@ -280,12 +374,14 @@ class CompanionEngineTest {
 
     private fun engine(
         locationGate: AttendanceLocationGatePort = AllowAttendanceLocationGate,
+        diagnostics: DiagnosticsLogger = NoopDiagnosticsLogger,
     ) = CompanionEngine(
         gateway,
         clock,
         notifier,
         readingDoneStore = doneStore,
         attendanceLocationGate = locationGate,
+        diagnostics = diagnostics,
     )
 
     private fun deniedLocationGate() = AttendanceLocationGatePort {
@@ -310,6 +406,14 @@ private class RecordingNotifier : Notifier {
 
     override suspend fun notify(event: NotificationEvent) {
         events += event
+    }
+}
+
+private class RecordingDiagnosticsLogger : DiagnosticsLogger {
+    val events = mutableListOf<Pair<String, Map<String, String>>>()
+
+    override fun log(event: String, attributes: Map<String, String>, error: Throwable?) {
+        events += event to attributes
     }
 }
 
