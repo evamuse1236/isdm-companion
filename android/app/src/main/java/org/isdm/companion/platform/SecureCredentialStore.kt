@@ -32,9 +32,7 @@ class SecureCredentialStore(context: Context) {
             .apply()
     }
 
-    fun clear() {
-        preferences.edit().clear().apply()
-    }
+    fun clear(): Boolean = preferences.edit().clear().commit()
 
     private companion object {
         const val FILE_NAME = "secure_lms_credentials"

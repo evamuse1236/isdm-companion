@@ -37,6 +37,7 @@ class CompanionEngine(
     private val readingDoneStore: ReadingDoneStore = NoopReadingDoneStore,
     private val cacheStore: CompanionCacheStore = NoopCompanionCacheStore,
     private val diagnostics: DiagnosticsLogger = NoopDiagnosticsLogger,
+    private val attendanceTelemetry: AttendanceTelemetryPort = NoopAttendanceTelemetry,
     private val attendanceLocationGate: AttendanceLocationGatePort = AllowAttendanceLocationGate,
     private val cohortOverride: Cohorts? = null,
     private val roomFloors: Map<String, Double> = mapOf("sahyog" to 3.0, "majlis" to 6.0),
@@ -68,6 +69,7 @@ class CompanionEngine(
             reconcileSafety()
             val result = when (command) {
                 is Command.ConfigureCredentials -> configureCredentials(command)
+                Command.SignOut -> signOut()
                 Command.RefreshToday -> refreshToday(allowMonitoringEffects = false)
                 is Command.RefreshSchedule -> refreshSchedule(command.days)
                 Command.RefreshReadings -> refreshReadings()
@@ -141,12 +143,17 @@ class CompanionEngine(
         if (email.isEmpty() || command.password.isEmpty()) {
             return reject(EngineError.InvalidCommand("Email and password are required."))
         }
+        val configured = Credentials(email, command.password)
+        if (credentials == configured) {
+            _state.value = stateNow().copy(error = null)
+            return CommandResult.Completed(_state.value)
+        }
         // The engine deliberately keeps this only in memory; the platform owns persistence.
         val wasMonitoring = currentMonitor().active
         cacheStore.selectAccount(email)
         val cachedSchedule = cacheStore.loadSchedule()
         val today = clock.now().atZone(LMS_ZONE).toLocalDate()
-        credentials = Credentials(email, command.password)
+        credentials = configured
         identity = null
         authenticated = false
         gateway.resetSession()
@@ -172,6 +179,26 @@ class CompanionEngine(
             scheduleSync = SyncStatus(lastSuccess = cachedSchedule?.syncedAt),
             readingSync = SyncStatus(),
         )
+        if (wasMonitoring) safeNotify(NotificationEvent.MonitoringStopped(MonitoringStopReason.DISARMED))
+        return CommandResult.Completed(_state.value)
+    }
+
+    private suspend fun signOut(): CommandResult {
+        val wasMonitoring = currentMonitor().active
+        credentials = null
+        identity = null
+        authenticated = false
+        gateway.resetSession()
+        openNotified.clear()
+        autoAttempts.clear()
+        autoFailureNotified.clear()
+        autoTargetSessionIds.clear()
+        successfulMarks.clear()
+        marking.clear()
+        clearCaches()
+        val now = clock.now()
+        val today = now.atZone(LMS_ZONE).toLocalDate()
+        _state.value = CompanionState(now = now, today = today)
         if (wasMonitoring) safeNotify(NotificationEvent.MonitoringStopped(MonitoringStopReason.DISARMED))
         return CommandResult.Completed(_state.value)
     }
@@ -204,10 +231,18 @@ class CompanionEngine(
             val drafts = buildSessions(todayEvents, cohorts)
             var markabilityError: EngineError? = null
             val markMap = if (!includeMarkability) {
-                // Preserve the last known open state long enough for mark() to perform its
-                // location-gated live revalidation without a pre-gate LMS markability call.
+                val monitor = currentMonitor()
+                // Manual fallback stays available during an armed window while mark() keeps the
+                // authoritative LMS check behind the Attendance Location Gate.
                 _state.value.sessions.mapNotNull { session ->
-                    session.nid?.let { nid -> nid to Markability(markable = session.markable) }
+                    session.nid?.let { nid ->
+                        val targeted = monitor.targetSessionIds.isEmpty() || nid in monitor.targetSessionIds
+                        nid to Markability(
+                            markable = session.markable ||
+                                (monitor.active && monitor.mode == MonitoringMode.AUTO_MARK && targeted &&
+                                    isInsideAutoAttendanceWindow(session, now)),
+                        )
+                    }
                 }.toMap()
             } else if (drafts.any { it.nid != null }) {
                 try {
@@ -513,9 +548,7 @@ class CompanionEngine(
             if (status.mode == MonitoringMode.AUTO_MARK) {
                 if (status.targetSessionIds.isNotEmpty() && nid !in status.targetSessionIds) continue
                 val now = clock.now()
-                if (now.isBefore(session.start.minus(AUTO_ATTENDANCE_LEAD)) ||
-                    !now.isBefore(session.end.plus(AUTO_ATTENDANCE_GRACE))
-                ) continue
+                if (!isInsideAutoAttendanceWindow(session, now)) continue
                 val attempts = autoAttempts[nid] ?: 0
                 if (attempts < MAX_AUTO_ATTEMPTS && nid !in successfulMarks) {
                     val result = mark(nid, automatic = true)
@@ -534,6 +567,10 @@ class CompanionEngine(
         }
         publishMonitorAttempts()
     }
+
+    private fun isInsideAutoAttendanceWindow(session: CompanionSession, now: Instant): Boolean =
+        !now.isBefore(session.start.minus(AUTO_ATTENDANCE_LEAD)) &&
+            now.isBefore(session.end.plus(AUTO_ATTENDANCE_GRACE))
 
     private fun replaceScheduleDate(
         schedule: List<CompanionSession>,
@@ -624,12 +661,27 @@ class CompanionEngine(
         val session = _state.value.sessions.firstOrNull { it.nid == sessionId }
             ?: return reject(EngineError.InvalidCommand("Unknown session: $sessionId"))
         if (session.marked || sessionId in successfulMarks) {
+            safeRecordAttendance(
+                AttendanceTelemetryEvent(
+                    method = if (automatic) "auto" else "manual",
+                    sessionId = sessionId,
+                    sessionLabel = session.name,
+                    outcome = "present",
+                    gateAllowed = null,
+                    gateReason = null,
+                    lmsMarkable = null,
+                ),
+            )
             return CommandResult.AlreadyMarked(sessionId, _state.value)
         }
         if (!marking.add(sessionId)) {
             return reject(EngineError.InvalidCommand("A mark for $sessionId is already in progress."))
         }
 
+        var gateAllowed: Boolean? = null
+        var gateReason: LocationGateReason? = null
+        var lmsMarkable: Boolean? = null
+        var telemetryOutcome = "unknown"
         try {
             val locationDecision = try {
                 attendanceLocationGate.evaluate(clock.now())
@@ -641,7 +693,10 @@ class CompanionEngine(
                     reason = LocationGateReason.MISSING_EVIDENCE,
                 )
             }
+            gateAllowed = locationDecision.allowsMark
+            gateReason = locationDecision.reason
             if (!locationDecision.allowsMark) {
+                telemetryOutcome = "blocked"
                 val error = EngineError.AttendanceLocationDenied(
                     locationDecision.reason ?: LocationGateReason.MISSING_EVIDENCE,
                 )
@@ -655,13 +710,16 @@ class CompanionEngine(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                telemetryOutcome = "failed"
                 val mapped = mapError(error)
                 _state.value = stateNow().copy(error = mapped, sync = _state.value.sync.copy(error = mapped))
                 if (automatic) notifyAutomaticFailureOnce(session, mapped)
                 else safeNotify(NotificationEvent.MarkFailed(session, mapped))
                 return CommandResult.Rejected(mapped, _state.value)
             }
-            if (markMap[sessionId]?.markable != true) {
+            lmsMarkable = markMap[sessionId]?.markable == true
+            if (lmsMarkable != true) {
+                telemetryOutcome = "blocked"
                 val error = EngineError.MarkWindowClosed(sessionId)
                 _state.value = stateNow().copy(error = error)
                 return CommandResult.Rejected(error, _state.value)
@@ -672,12 +730,14 @@ class CompanionEngine(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                telemetryOutcome = "failed"
                 val mapped = EngineError.MarkRejected(sessionId, error.message ?: "The LMS rejected the mark.")
                 _state.value = stateNow().copy(error = mapped)
                 if (automatic) notifyAutomaticFailureOnce(session, mapped)
                 return CommandResult.Rejected(mapped, _state.value)
             }
             if (!detail.marked) {
+                telemetryOutcome = "failed"
                 val error = EngineError.MarkRejected(
                     sessionId,
                     "The LMS accepted the request but still reports you as unmarked.",
@@ -688,6 +748,7 @@ class CompanionEngine(
             }
 
             successfulMarks += sessionId
+            telemetryOutcome = "present"
             detailCache[sessionId] = CacheEntry(clock.now(), detail)
             val updated = session.copy(
                 marked = true,
@@ -728,7 +789,26 @@ class CompanionEngine(
             safeNotify(NotificationEvent.MarkedPresent(updated, automatic))
             return CommandResult.Marked(sessionId, automatic, _state.value)
         } finally {
+            safeRecordAttendance(
+                AttendanceTelemetryEvent(
+                    method = if (automatic) "auto" else "manual",
+                    sessionId = sessionId,
+                    sessionLabel = session.name,
+                    outcome = telemetryOutcome,
+                    gateAllowed = gateAllowed,
+                    gateReason = gateReason,
+                    lmsMarkable = lmsMarkable,
+                ),
+            )
             marking.remove(sessionId)
+        }
+    }
+
+    private suspend fun safeRecordAttendance(event: AttendanceTelemetryEvent) {
+        try {
+            attendanceTelemetry.record(event)
+        } catch (error: Throwable) {
+            diagnostics.log("attendance_telemetry_failed", mapOf("outcome" to event.outcome), error)
         }
     }
 
@@ -861,6 +941,7 @@ class CompanionEngine(
 
 private fun commandName(command: Command): String = when (command) {
     is Command.ConfigureCredentials -> "configure_credentials"
+    Command.SignOut -> "sign_out"
     Command.RefreshToday -> "refresh_today"
     is Command.RefreshSchedule -> "refresh_schedule"
     Command.RefreshReadings -> "refresh_readings"

@@ -4,10 +4,14 @@ import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.SystemClock
+import android.content.Intent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.isdm.companion.CompanionApplication
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -41,5 +45,16 @@ class MonitoringServiceContractTest {
         }
 
         assertFalse(app.requestedPermissions.orEmpty().contains("android.permission.FOREGROUND_SERVICE_DATA_SYNC"))
+    }
+
+    @Test
+    fun stoppingTheCurrentMonitorKeepsFutureAutoAttendanceEnabled() {
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as CompanionApplication
+        app.autoAttendanceStore.setEnabled(true)
+
+        app.startService(Intent(app, MonitoringService::class.java).setAction(MonitoringService.ACTION_STOP))
+        SystemClock.sleep(250)
+
+        assertTrue(app.autoAttendanceStore.isEnabled())
     }
 }

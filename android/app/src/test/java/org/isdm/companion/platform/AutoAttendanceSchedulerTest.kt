@@ -2,6 +2,7 @@ package org.isdm.companion.platform
 
 import org.isdm.companion.engine.CompanionSession
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
@@ -62,6 +63,47 @@ class AutoAttendanceSchedulerTest {
         assertEquals(2, windows.size)
         assertTrue(windows.all { it.targetSessionIds == setOf("101", "202") })
         assertTrue(windows.all { it.stopAt == Instant.parse("2026-08-10T05:15:00Z") })
+    }
+
+    @Test
+    fun `partial alarm installation rolls back every installed window`() {
+        val windows = listOf(
+            session("101", "2026-08-10T03:30:00Z", "2026-08-10T04:45:00Z"),
+            session("202", "2026-08-10T05:00:00Z", "2026-08-10T06:00:00Z"),
+        ).let { autoAttendanceWindows(it, Instant.parse("2026-08-10T03:00:00Z")) }
+        val installed = mutableListOf<Int>()
+        val cancelled = mutableListOf<Int>()
+
+        val outcome = installAutoAttendanceWindowsAtomically(
+            windows = windows,
+            install = { window ->
+                if (installed.isNotEmpty()) error("alarm manager failure")
+                installed += window.requestId
+            },
+            cancel = { cancelled.add(it) },
+        )
+
+        assertNotNull(outcome.error)
+        assertEquals(installed, cancelled)
+        assertTrue(outcome.rollbackFailedIds.isEmpty())
+    }
+
+    @Test
+    fun `failed alarm rollback remains tracked for later cleanup`() {
+        val windows = listOf(
+            session("101", "2026-08-10T03:30:00Z", "2026-08-10T04:45:00Z"),
+            session("202", "2026-08-10T05:00:00Z", "2026-08-10T06:00:00Z"),
+        ).let { autoAttendanceWindows(it, Instant.parse("2026-08-10T03:00:00Z")) }
+
+        val outcome = installAutoAttendanceWindowsAtomically(
+            windows = windows,
+            install = { window ->
+                if (window == windows.last()) error("alarm manager failure")
+            },
+            cancel = { false },
+        )
+
+        assertEquals(setOf(windows.first().requestId), outcome.rollbackFailedIds)
     }
 
     private fun session(id: String?, start: String, end: String) = CompanionSession(

@@ -9,6 +9,64 @@ import org.junit.Test
 
 class LmsReadingParserTest {
     @Test
+    fun `live WID card and reading retain their LMS labels`() {
+        val course = parseCourses(
+            """
+            <div class="course-card">
+              <div class="course-image-wrapper">
+                <a href="/course/details?cat_id=70966" class="course-link">
+                  <img alt="B10 - T1 - WID" title="B10 - T1 - WID">
+                </a>
+              </div>
+              <div class="course-details">
+                <a href="/course/details?cat_id=70966" class="button btn-primary">
+                  <div class="course-actions">GO TO COURSE</div>
+                </a>
+                <h4 class="course-title">Term 1</h4>
+                <p class="course-description" title="WID">WID</p>
+              </div>
+            </div>
+            """.trimIndent(),
+            "https://lms.isdm.org.in/",
+        ).single()
+
+        val section = parseReadingSections(
+            """
+            <a href="/course/details?cat_id=70966&amp;course_id=1296239" title="Course Readings">
+              Course Readings
+            </a>
+            """.trimIndent(),
+            course,
+            "https://lms.isdm.org.in/",
+        ).single()
+
+        val reading = parseReadingItems(
+            """
+            <div class="single_content_description_wrapper">
+              <div class="single_content_title"
+                   title="Poor Economics - A Radical thinking of way to fight Global Poverty"
+                   cat_title="B10 - T1 - WID"
+                   chapter_title="Course Readings"
+                   topic_title="B10_T1_WID_Session1_Mandatory Readings">
+                Poor Economics - A Radical thinking of way to fight Global Poverty
+              </div>
+              <a href="/subtopic/view?sid=1296239&amp;vid=1298304&amp;cid=1296859&amp;cat_id=70966">
+                <div class="start_course_button" content_type="Document">View</div>
+              </a>
+            </div>
+            """.trimIndent(),
+            course,
+            section,
+            "https://lms.isdm.org.in/",
+        ).single()
+
+        assertEquals("Poor Economics - A Radical thinking of way to fight Global Poverty", reading.title)
+        assertEquals("B10 - T1 - WID", course.name)
+        assertEquals(1, reading.sessionNumber)
+        assertTrue(reading.mandatory)
+    }
+
+    @Test
     fun `course links are identified and deduplicated by cat id`() {
         val courses = parseCourses(
             """

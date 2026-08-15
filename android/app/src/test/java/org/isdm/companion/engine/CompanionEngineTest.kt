@@ -132,6 +132,25 @@ class CompanionEngineTest {
     }
 
     @Test
+    fun `attendance outcome is recorded for successful and blocked decisions`() = runBlocking {
+        val telemetry = RecordingAttendanceTelemetry()
+        val blocked = engine(locationGate = deniedLocationGate(), attendanceTelemetry = telemetry)
+        configureAndRefresh(blocked)
+        blocked.dispatch(Command.Mark("1285348"))
+
+        assertEquals("blocked", telemetry.events.single().outcome)
+        assertEquals(LocationGateReason.OUTSIDE_CAMPUS_ZONE, telemetry.events.single().gateReason)
+
+        telemetry.events.clear()
+        val successful = engine(attendanceTelemetry = telemetry)
+        configureAndRefresh(successful)
+        successful.dispatch(Command.Mark("1285348"))
+
+        assertEquals("present", telemetry.events.single().outcome)
+        assertEquals("manual", telemetry.events.single().method)
+    }
+
+    @Test
     fun `manual mark denied by the Attendance Location Gate makes no LMS marking calls`() = runBlocking {
         val engine = engine(locationGate = deniedLocationGate())
         configureAndRefresh(engine)
@@ -229,6 +248,21 @@ class CompanionEngineTest {
     }
 
     @Test
+    fun `automatic monitoring keeps a live attendance session open for manual fallback`() = runBlocking {
+        clock.current = Instant.parse("2026-08-08T04:50:00Z") // 10:20 IST
+        gateway.markabilityMap["1285348"] = Markability(markable = false)
+        val engine = engine()
+        configureAndRefresh(engine)
+        engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK, targetSessionId = "1285348"))
+
+        clock.current = Instant.parse("2026-08-08T05:01:00Z") // 10:31 IST
+        engine.dispatch(Command.MonitorTick)
+
+        assertEquals(SessionState.OPEN, engine.state.value.sessions.single().state)
+        assertTrue(engine.state.value.sessions.single().markable)
+    }
+
+    @Test
     fun `successful automatic mark stops its monitoring window`() = runBlocking {
         val engine = engine()
         configureAndRefresh(engine)
@@ -310,6 +344,35 @@ class CompanionEngineTest {
     }
 
     @Test
+    fun `reconfiguring the same saved login preserves an active attendance window`() = runBlocking {
+        val engine = engine()
+        configureAndRefresh(engine)
+        engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK, targetSessionId = "1285348"))
+
+        engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
+
+        assertTrue(engine.state.value.monitor.active)
+        assertEquals(setOf("1285348"), engine.state.value.monitor.targetSessionIds)
+        assertEquals(1, engine.state.value.sessions.size)
+    }
+
+    @Test
+    fun `sign out clears the live LMS session and attendance monitor`() = runBlocking {
+        val engine = engine()
+        configureAndRefresh(engine)
+        engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK, targetSessionId = "1285348"))
+
+        engine.dispatch(Command.SignOut)
+
+        assertFalse(engine.state.value.credentialsConfigured)
+        assertEquals(null, engine.state.value.identity)
+        assertTrue(engine.state.value.sessions.isEmpty())
+        assertTrue(engine.state.value.scheduleSessions.isEmpty())
+        assertFalse(engine.state.value.monitor.active)
+        assertEquals(2, gateway.resetSessionCalls)
+    }
+
+    @Test
     fun `schedule refresh retains today separately and loads a rolling range`() = runBlocking {
         gateway.events += CalendarEvent(
             nid = "event-2",
@@ -375,6 +438,7 @@ class CompanionEngineTest {
     private fun engine(
         locationGate: AttendanceLocationGatePort = AllowAttendanceLocationGate,
         diagnostics: DiagnosticsLogger = NoopDiagnosticsLogger,
+        attendanceTelemetry: AttendanceTelemetryPort = NoopAttendanceTelemetry,
     ) = CompanionEngine(
         gateway,
         clock,
@@ -382,6 +446,7 @@ class CompanionEngineTest {
         readingDoneStore = doneStore,
         attendanceLocationGate = locationGate,
         diagnostics = diagnostics,
+        attendanceTelemetry = attendanceTelemetry,
     )
 
     private fun deniedLocationGate() = AttendanceLocationGatePort {
@@ -394,6 +459,13 @@ class CompanionEngineTest {
     private suspend fun configureAndRefresh(engine: CompanionEngine) {
         engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
         engine.dispatch(Command.RefreshToday)
+    }
+}
+
+private class RecordingAttendanceTelemetry : AttendanceTelemetryPort {
+    val events = mutableListOf<AttendanceTelemetryEvent>()
+    override suspend fun record(event: AttendanceTelemetryEvent) {
+        events += event
     }
 }
 
@@ -428,6 +500,7 @@ private class FakeGateway : LmsGateway {
     var markabilityCalls = 0
     var calendarCalls = 0
     var classroomCalls = 0
+    var resetSessionCalls = 0
 
     override suspend fun login(credentials: Credentials): Identity = Identity("1042", "Student")
 
@@ -464,6 +537,10 @@ private class FakeGateway : LmsGateway {
         val updated = old.copy(marked = true, status = "Present")
         details[nid] = updated
         return updated
+    }
+
+    override fun resetSession() {
+        resetSessionCalls++
     }
 }
 

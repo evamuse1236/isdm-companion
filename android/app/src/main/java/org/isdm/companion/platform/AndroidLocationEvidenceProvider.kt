@@ -27,6 +27,10 @@ class AndroidLocationEvidenceProvider(
     private val locationManager: LocationManager = context.getSystemService(LocationManager::class.java),
 ) {
     private val appContext = context.applicationContext
+    @Volatile
+    private var lastObservedEvidence: LocationEvidence? = null
+
+    fun latestEvidence(): LocationEvidence? = lastObservedEvidence
 
     /** The most accurate recent last-known sample, resolving an accuracy tie by recency. */
     fun bestRecentLastKnownEvidence(
@@ -43,7 +47,7 @@ class AndroidLocationEvidenceProvider(
                     compareBy<LocationEvidence> { it.accuracyMeters }
                         .thenByDescending { it.observedAt },
                 )
-        }.getOrNull()
+        }.getOrNull().also { evidence -> if (evidence != null) lastObservedEvidence = evidence }
     }
 
     /**
@@ -73,7 +77,7 @@ class AndroidLocationEvidenceProvider(
                     if (continuation.isActive) continuation.resume(null)
                 }
             }
-        }
+        }.also { evidence -> if (evidence != null) lastObservedEvidence = evidence }
     }
 
     private fun hasLocationPermission(): Boolean =

@@ -24,18 +24,16 @@ class AutoAttendanceStore(context: Context) {
 
     fun isEnabled(): Boolean = preferences.getBoolean(KEY_ENABLED, true)
 
-    fun setEnabled(enabled: Boolean) {
-        preferences.edit().putBoolean(KEY_ENABLED, enabled).apply()
-    }
+    fun setEnabled(enabled: Boolean): Boolean =
+        preferences.edit().putBoolean(KEY_ENABLED, enabled).commit()
 
     fun scheduledIds(): Set<Int> = preferences.getStringSet(KEY_ALARM_IDS, emptySet())
         .orEmpty()
         .mapNotNull(String::toIntOrNull)
         .toSet()
 
-    fun setScheduledIds(ids: Set<Int>) {
-        preferences.edit().putStringSet(KEY_ALARM_IDS, ids.map(Int::toString).toSet()).apply()
-    }
+    fun setScheduledIds(ids: Set<Int>): Boolean =
+        preferences.edit().putStringSet(KEY_ALARM_IDS, ids.map(Int::toString).toSet()).commit()
 
     private companion object {
         const val FILE_NAME = "auto_attendance"
@@ -72,25 +70,47 @@ class AutoAttendanceScheduler(
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
 
     fun schedule(sessions: List<CompanionSession>, now: Instant): AutoAttendanceScheduleResult {
-        cancel()
+        val existingAlarmsCancelled = cancel()
         val result = when {
+            !existingAlarmsCancelled -> AutoAttendanceScheduleResult.Failed(
+                IllegalStateException("Could not cancel previously scheduled alarms"),
+            )
             !store.isEnabled() -> AutoAttendanceScheduleResult.Disabled
             !hasAttendanceLocationAccess() -> AutoAttendanceScheduleResult.LocationPermissionRequired
             !canScheduleExactAlarms() -> AutoAttendanceScheduleResult.ExactAlarmPermissionRequired
             else -> {
                 val windows = autoAttendanceWindows(sessions, now)
-                try {
-                    windows.forEach { window ->
-                        alarmManager.setExactAndAllowWhileIdle(
-                            AlarmManager.RTC_WAKEUP,
-                            window.alarmAt.toEpochMilli(),
-                            pendingIntent(window.requestId, window.targetSessionIds, window.stopAt),
-                        )
+                val previouslyUncancelledIds = store.scheduledIds()
+                val intendedIds = windows.mapTo(mutableSetOf()) { it.requestId }
+                if (!store.setScheduledIds(previouslyUncancelledIds + intendedIds)) {
+                    AutoAttendanceScheduleResult.Failed(
+                        IllegalStateException("Could not persist alarm IDs before scheduling"),
+                    )
+                } else {
+                    val outcome = installAutoAttendanceWindowsAtomically(
+                        windows = windows,
+                        install = { window ->
+                            alarmManager.setExactAndAllowWhileIdle(
+                                AlarmManager.RTC_WAKEUP,
+                                window.alarmAt.toEpochMilli(),
+                                pendingIntent(window.requestId, window.targetSessionIds, window.stopAt),
+                            )
+                        },
+                        cancel = ::cancelAlarm,
+                    )
+                    if (outcome.error == null) {
+                        AutoAttendanceScheduleResult.Scheduled(windows)
+                    } else {
+                        val tracked = store.setScheduledIds(previouslyUncancelledIds + outcome.rollbackFailedIds)
+                        val error = if (tracked) {
+                            outcome.error
+                        } else {
+                            IllegalStateException("Could not persist alarm IDs after rollback").apply {
+                                addSuppressed(outcome.error)
+                            }
+                        }
+                        AutoAttendanceScheduleResult.Failed(error)
                     }
-                    store.setScheduledIds(windows.mapTo(mutableSetOf()) { it.requestId })
-                    AutoAttendanceScheduleResult.Scheduled(windows)
-                } catch (error: RuntimeException) {
-                    AutoAttendanceScheduleResult.Failed(error)
                 }
             }
         }
@@ -112,22 +132,33 @@ class AutoAttendanceScheduler(
         return result
     }
 
-    fun cancel() {
+    fun cancel(): Boolean {
         val scheduledIds = store.scheduledIds()
-        scheduledIds.forEach { requestId ->
-            val intent = alarmIntent(requestId, targetSessionIds = emptySet(), stopAt = Instant.EPOCH)
-            PendingIntent.getBroadcast(
-                appContext,
-                requestId,
-                intent,
-                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
-            )?.let(alarmManager::cancel)
-        }
-        store.setScheduledIds(emptySet())
+        val remainingIds = scheduledIds.filterNotTo(mutableSetOf(), ::cancelAlarm)
+        val tracked = store.setScheduledIds(remainingIds)
         if (scheduledIds.isNotEmpty()) {
-            diagnostics.log("auto_attendance_alarms_cancelled", mapOf("alarms" to scheduledIds.size.toString()))
+            diagnostics.log(
+                "auto_attendance_alarms_cancelled",
+                mapOf(
+                    "alarms" to (scheduledIds.size - remainingIds.size).toString(),
+                    "remaining" to remainingIds.size.toString(),
+                ),
+            )
         }
+        return remainingIds.isEmpty() && tracked
     }
+
+    private fun cancelAlarm(requestId: Int): Boolean = runCatching {
+        val intent = alarmIntent(requestId, targetSessionIds = emptySet(), stopAt = Instant.EPOCH)
+        PendingIntent.getBroadcast(
+            appContext,
+            requestId,
+            intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        )?.let(alarmManager::cancel)
+    }.onFailure { error ->
+        diagnostics.log("auto_attendance_alarm_cancel_failed", error = error)
+    }.isSuccess
 
     private fun hasAttendanceLocationAccess(): Boolean {
         val precise = ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -155,6 +186,29 @@ class AutoAttendanceScheduler(
 
     private companion object {
         const val ACTION_AUTO_ATTENDANCE = "org.isdm.companion.AUTO_ATTENDANCE_ALARM"
+    }
+}
+
+internal data class AlarmInstallationOutcome(
+    val error: RuntimeException? = null,
+    val rollbackFailedIds: Set<Int> = emptySet(),
+)
+
+internal fun installAutoAttendanceWindowsAtomically(
+    windows: List<AutoAttendanceWindow>,
+    install: (AutoAttendanceWindow) -> Unit,
+    cancel: (Int) -> Boolean,
+): AlarmInstallationOutcome {
+    val installed = mutableListOf<Int>()
+    return try {
+        windows.forEach { window ->
+            install(window)
+            installed += window.requestId
+        }
+        AlarmInstallationOutcome()
+    } catch (error: RuntimeException) {
+        val rollbackFailedIds = installed.filterNotTo(mutableSetOf(), cancel)
+        AlarmInstallationOutcome(error, rollbackFailedIds)
     }
 }
 

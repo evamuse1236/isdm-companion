@@ -9,7 +9,11 @@ import org.isdm.companion.domain.AttendanceLocationGate
 import org.isdm.companion.domain.AttendanceLocationGateDecision
 import org.isdm.companion.domain.LocationGateReason
 import org.isdm.companion.engine.AttendanceLocationGatePort
+import org.isdm.companion.engine.AttendanceTelemetryEvent
+import org.isdm.companion.engine.AttendanceTelemetryPort
 import org.isdm.companion.engine.CompanionEngine
+import org.isdm.companion.engine.CachedSchedule
+import org.isdm.companion.engine.DiagnosticsLogger
 import org.isdm.companion.platform.AndroidNotifier
 import org.isdm.companion.platform.AndroidDiagnosticsLogger
 import org.isdm.companion.platform.AndroidLocationEvidenceProvider
@@ -17,7 +21,10 @@ import org.isdm.companion.platform.AutoAttendanceScheduler
 import org.isdm.companion.platform.AutoAttendanceStore
 import org.isdm.companion.platform.CompanionLocalStore
 import org.isdm.companion.platform.CompanionSyncWorker
+import org.isdm.companion.platform.BetaDiagnosticsLogger
+import org.isdm.companion.platform.BetaManager
 import org.isdm.companion.platform.SecureCredentialStore
+import org.isdm.companion.platform.StoredCredentials
 
 class CompanionApplication : Application() {
     lateinit var credentialStore: SecureCredentialStore
@@ -29,7 +36,10 @@ class CompanionApplication : Application() {
     lateinit var lmsAdapter: RealLmsAdapter
         private set
 
-    lateinit var diagnostics: AndroidDiagnosticsLogger
+    lateinit var diagnostics: DiagnosticsLogger
+        private set
+
+    lateinit var betaManager: BetaManager
         private set
 
     lateinit var autoAttendanceStore: AutoAttendanceStore
@@ -43,14 +53,24 @@ class CompanionApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        diagnostics = AndroidDiagnosticsLogger(this)
         credentialStore = SecureCredentialStore(this)
         autoAttendanceStore = AutoAttendanceStore(this)
+        betaManager = BetaManager.create(this, autoAttendanceStore::isEnabled)
+        diagnostics = BetaDiagnosticsLogger(AndroidDiagnosticsLogger(this), betaManager)
         autoAttendanceScheduler = AutoAttendanceScheduler(this, autoAttendanceStore, diagnostics)
         localStore = CompanionLocalStore(this)
+        val savedCredentials = credentialStore.load()
+        restoreAutoAttendanceOnProcessStart(
+            enabled = autoAttendanceStore.isEnabled(),
+            credentials = savedCredentials,
+            selectAccount = localStore::selectAccount,
+            loadSchedule = localStore::loadSchedule,
+            schedule = { cached -> autoAttendanceScheduler.schedule(cached.sessions, Instant.now()) },
+        )
         lmsAdapter = RealLmsAdapter()
+        val locationEvidenceProvider = AndroidLocationEvidenceProvider(this)
         val locationGate = AndroidAttendanceLocationGatePort(
-            evidenceProvider = AndroidLocationEvidenceProvider(this),
+            evidenceProvider = locationEvidenceProvider,
             diagnostics = diagnostics,
         )
         engine = CompanionEngine(
@@ -60,6 +80,10 @@ class CompanionApplication : Application() {
             cacheStore = localStore,
             diagnostics = diagnostics,
             attendanceLocationGate = locationGate,
+            attendanceTelemetry = AndroidBetaAttendanceTelemetry(
+                betaManager = betaManager,
+                evidenceProvider = locationEvidenceProvider,
+            ),
             facultyDirectory = lmsAdapter,
         )
         AndroidNotifier.createChannels(this)
@@ -71,7 +95,7 @@ class CompanionApplication : Application() {
                 "auto_attendance_enabled" to autoAttendanceStore.isEnabled().toString(),
                 "build_type" to BuildConfig.BUILD_TYPE,
                 "device_model" to Build.MODEL,
-                "saved_login" to (credentialStore.load() != null).toString(),
+                "saved_login" to (savedCredentials != null).toString(),
                 "version_code" to BuildConfig.VERSION_CODE.toString(),
                 "version_name" to BuildConfig.VERSION_NAME,
             ),
@@ -79,10 +103,40 @@ class CompanionApplication : Application() {
     }
 }
 
+private class AndroidBetaAttendanceTelemetry(
+    private val betaManager: BetaManager,
+    private val evidenceProvider: AndroidLocationEvidenceProvider,
+) : AttendanceTelemetryPort {
+    override suspend fun record(event: AttendanceTelemetryEvent) {
+        betaManager.queueAttendance(
+            method = event.method,
+            sessionId = event.sessionId,
+            sessionLabel = event.sessionLabel,
+            outcome = event.outcome,
+            gateAllowed = event.gateAllowed,
+            gateReason = event.gateReason?.name,
+            lmsMarkable = event.lmsMarkable,
+            evidence = evidenceProvider.latestEvidence(),
+        )
+    }
+}
+
+internal fun restoreAutoAttendanceOnProcessStart(
+    enabled: Boolean,
+    credentials: StoredCredentials?,
+    selectAccount: (String) -> Unit,
+    loadSchedule: () -> CachedSchedule?,
+    schedule: (CachedSchedule) -> Unit,
+) {
+    if (!enabled || credentials == null) return
+    selectAccount(credentials.email)
+    loadSchedule()?.let(schedule)
+}
+
 /** Android boundary that never exposes raw location to the engine or diagnostic logs. */
 private class AndroidAttendanceLocationGatePort(
     private val evidenceProvider: AndroidLocationEvidenceProvider,
-    private val diagnostics: AndroidDiagnosticsLogger,
+    private val diagnostics: DiagnosticsLogger,
     private val gate: AttendanceLocationGate = AttendanceLocationGate(),
 ) : AttendanceLocationGatePort {
     override suspend fun evaluate(now: Instant): AttendanceLocationGateDecision {

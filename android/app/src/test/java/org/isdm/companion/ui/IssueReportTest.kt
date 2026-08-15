@@ -7,6 +7,30 @@ import org.junit.Test
 
 class IssueReportTest {
     @Test
+    fun betaEnrollmentRequiresInviteSectionAndExplicitConsent() {
+        assertFalse(isBetaEnrollmentValid("", "Section A", consented = true))
+        assertFalse(isBetaEnrollmentValid("BLUE-MANGO", "", consented = true))
+        assertFalse(isBetaEnrollmentValid("BLUE-MANGO", "Section A", consented = false))
+        assertTrue(isBetaEnrollmentValid("BLUE-MANGO", "Section A", consented = true))
+    }
+
+    @Test
+    fun directReportAcceptsOnlySupportedCategoriesAndText() {
+        assertTrue(isBetaReportValid("issue", "Schedule is missing"))
+        assertTrue(isBetaReportValid("suggestion", "Show my PLC"))
+        assertFalse(isBetaReportValid("other", "Something"))
+        assertFalse(isBetaReportValid("issue", "  "))
+    }
+
+    @Test
+    fun reportTitleUsesCategoryAndFirstMeaningfulLine() {
+        assertEquals(
+            "Suggestion: Show PLC sessions separately",
+            betaReportTitle("suggestion", "\n Show PLC sessions separately\nMore details"),
+        )
+    }
+
+    @Test
     fun issueDescriptionMustContainNonWhitespaceText() {
         assertFalse(hasIssueDescription("   \n\t"))
         assertTrue(hasIssueDescription("Schedule does not refresh"))

@@ -57,6 +57,24 @@ object NoopDiagnosticsLogger : DiagnosticsLogger {
     override fun log(event: String, attributes: Map<String, String>, error: Throwable?) = Unit
 }
 
+data class AttendanceTelemetryEvent(
+    val method: String,
+    val sessionId: String,
+    val sessionLabel: String,
+    val outcome: String,
+    val gateAllowed: Boolean?,
+    val gateReason: LocationGateReason?,
+    val lmsMarkable: Boolean?,
+)
+
+fun interface AttendanceTelemetryPort {
+    suspend fun record(event: AttendanceTelemetryEvent)
+}
+
+object NoopAttendanceTelemetry : AttendanceTelemetryPort {
+    override suspend fun record(event: AttendanceTelemetryEvent) = Unit
+}
+
 /**
  * The only network seam the engine knows about. Implementations own HTTP, cookies, HTML
  * parsing, and the LMS's login/session details.
@@ -278,6 +296,7 @@ sealed interface NotificationEvent {
 
 sealed interface Command {
     data class ConfigureCredentials(val email: String, val password: String) : Command
+    data object SignOut : Command
     data object RefreshToday : Command
     data class RefreshSchedule(val days: Int = 14) : Command
     data object RefreshReadings : Command

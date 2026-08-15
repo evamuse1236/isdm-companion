@@ -56,8 +56,10 @@ internal fun parseReadingItems(
         val vid = url.queryParameter("vid")?.takeIf(::isNumericId) ?: continue
         val cid = url.queryParameter("cid")?.takeIf(::isNumericId) ?: continue
         if (catId != course.catId || sid != section.sid) continue
-        val title = anchor.readableLabel()
+        val titleElement = anchor.readingItemTitleElement()
+        val title = anchor.readingItemLabel(titleElement)
         if (title.isBlank()) continue
+        val topicLabel = titleElement?.attr("topic_title")?.trim().orEmpty()
         items.putIfAbsent(
             vid,
             ReadingItem(
@@ -69,9 +71,11 @@ internal fun parseReadingItems(
                 courseName = course.name,
                 sectionName = section.name,
                 sourceUrl = sourceUrl,
-                sessionNumber = readingSessionNumber(title, section.name),
+                sessionNumber = readingSessionNumber(title, section.name)
+                    ?: readingSessionNumber("", topicLabel.replace('_', ' ')),
                 progress = progressAround(anchor),
-                mandatory = section.name.contains("mandatory", ignoreCase = true),
+                mandatory = section.name.contains("mandatory", ignoreCase = true) ||
+                    topicLabel.contains("mandatory", ignoreCase = true),
             ),
         )
     }
@@ -91,14 +95,27 @@ private fun Element.readableLabel(): String =
 
 private fun Element.courseLabel(): String {
     val direct = readableLabel()
-    if (!direct.isGenericCourseAction()) return direct
-    val labelled = listOf(attr("aria-label"), attr("title"))
+    if (direct.isNotBlank() && !direct.isGenericCourseAction()) return direct
+    val labelled = listOf(
+        attr("aria-label"),
+        attr("title"),
+        selectFirst("img[alt]")?.attr("alt").orEmpty(),
+        selectFirst("img[title]")?.attr("title").orEmpty(),
+    )
         .map { it.trim().replace(Regex("\\s+"), " ") }
         .firstOrNull { it.isNotBlank() && !it.isGenericCourseAction() }
     if (labelled != null) return labelled
 
-    for (container in parents().take(6)) {
-        if (container.tagName() == "body" || container.tagName() == "html") break
+    val containers = parents().take(6)
+        .takeWhile { it.tagName() != "body" && it.tagName() != "html" }
+    val imageLabel = containers.asSequence()
+        .flatMap { it.select("img[alt], img[title]").asSequence() }
+        .flatMap { image -> sequenceOf(image.attr("alt"), image.attr("title")) }
+        .map { it.trim().replace(Regex("\\s+"), " ") }
+        .firstOrNull { it.isUsefulCourseLabel() }
+    if (imageLabel != null) return imageLabel
+
+    for (container in containers) {
         val heading = container.select("h1, h2, h3, h4, h5, .course-title, .title, .field-name-title")
             .asSequence()
             .map { it.text().trim().replace(Regex("\\s+"), " ") }
@@ -112,6 +129,21 @@ private fun Element.courseLabel(): String {
     }
     return direct
 }
+
+private fun Element.readingItemTitleElement(): Element? =
+    parents().asSequence()
+        .take(5)
+        .mapNotNull { it.selectFirst(".single_content_title") }
+        .firstOrNull()
+
+private fun Element.readingItemLabel(titleElement: Element?): String {
+    val direct = readableLabel()
+    if (direct.isNotBlank() && !direct.isGenericReadingAction()) return direct
+    return titleElement?.readableLabel().orEmpty().ifBlank { direct }
+}
+
+private fun String.isGenericReadingAction(): Boolean =
+    matches(Regex("(?i)\\s*(?:view|open|read|start|resume|download)\\s*"))
 
 private fun String.isGenericCourseAction(): Boolean =
     matches(Regex("(?i)\\s*(?:go to|open|view) course\\s*"))

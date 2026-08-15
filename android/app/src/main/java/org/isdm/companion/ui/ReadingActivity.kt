@@ -1,6 +1,8 @@
 package org.isdm.companion.ui
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -71,7 +73,11 @@ class ReadingActivity : ComponentActivity() {
                         sourceUrl = trustedSourceUrl,
                         onClose = ::finish,
                         onWebView = { webView = it },
-                        onExternalUrl = { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) },
+                        onExternalUrl = {
+                            if (!openExternalUrlSafely(this@ReadingActivity, it)) {
+                                app.diagnostics.log("reading_external_open_failed")
+                            }
+                        },
                     )
                 }
             }
@@ -81,6 +87,9 @@ class ReadingActivity : ComponentActivity() {
     override fun onDestroy() {
         webView?.apply {
             stopLoading()
+            loadUrl("about:blank")
+            clearHistory()
+            removeAllViews()
             destroy()
         }
         webView = null
@@ -96,6 +105,15 @@ class ReadingActivity : ComponentActivity() {
             return uri.scheme == "https" && uri.host.equals(LMS_HOST, ignoreCase = true)
         }
     }
+}
+
+internal fun openExternalUrlSafely(context: Context, value: String): Boolean = try {
+    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(value)))
+    true
+} catch (_: ActivityNotFoundException) {
+    false
+} catch (_: SecurityException) {
+    false
 }
 
 @SuppressLint("SetJavaScriptEnabled")

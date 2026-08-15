@@ -13,7 +13,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.isdm.companion.CompanionApplication
 import org.isdm.companion.engine.Command
 import org.isdm.companion.engine.CommandResult
@@ -22,6 +25,10 @@ import org.isdm.companion.engine.EngineError
 import org.isdm.companion.engine.ReadingItem
 import org.isdm.companion.domain.LocationGateReason
 import org.isdm.companion.platform.AutoAttendanceScheduleResult
+import org.isdm.companion.platform.BetaApiException
+import org.isdm.companion.platform.CompanionSyncWorker
+import org.isdm.companion.platform.clearLmsBrowserSessionAndWait
+import java.time.Instant
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import org.isdm.companion.platform.MonitoringService
@@ -38,6 +45,18 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _autoAttendanceEnabled = MutableStateFlow(app.autoAttendanceStore.isEnabled())
     val autoAttendanceEnabled = _autoAttendanceEnabled.asStateFlow()
+
+    private val _betaEnrolled = MutableStateFlow(app.betaManager.isEnrolled)
+    val betaEnrolled = _betaEnrolled.asStateFlow()
+
+    private val _betaEnrolling = MutableStateFlow(false)
+    val betaEnrolling = _betaEnrolling.asStateFlow()
+
+    private val _reportSending = MutableStateFlow(false)
+    val reportSending = _reportSending.asStateFlow()
+
+    private val _signingOut = MutableStateFlow(false)
+    val signingOut = _signingOut.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -69,6 +88,87 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 else -> Unit
             }
         }
+    }
+
+    fun enrollBeta(
+        inviteCode: String,
+        section: String,
+        plc: String?,
+        consented: Boolean,
+        onSuccess: () -> Unit,
+    ) {
+        if (!isBetaEnrollmentValid(inviteCode, section, consented) || _betaEnrolling.value) return
+        _betaEnrolling.value = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { app.betaManager.enroll(inviteCode, section, plc) }
+            }.onSuccess { installation ->
+                _betaEnrolled.value = true
+                if (app.autoAttendanceStore.setEnabled(true)) _autoAttendanceEnabled.value = true
+                _message.value = "${installation.testerCode} joined the beta. Sign in to the LMS next."
+                onSuccess()
+            }.onFailure { error ->
+                app.diagnostics.log("beta_enrollment_failed", error = error)
+                _message.value = when ((error as? BetaApiException)?.code) {
+                    "invalid_invite" -> "That invite code is not valid."
+                    "invite_already_claimed" -> "That invite code has already been used."
+                    else -> "Could not join the beta. Check the internet connection and try again."
+                }
+            }
+            _betaEnrolling.value = false
+        }
+    }
+
+    fun submitBetaReport(
+        category: String,
+        description: String,
+        images: List<Uri>,
+        onSuccess: () -> Unit,
+    ) {
+        if (!isBetaReportValid(category, description) || _reportSending.value) return
+        _reportSending.value = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    app.betaManager.submitReport(
+                        category = category,
+                        title = betaReportTitle(category, description),
+                        description = description,
+                        imageUris = images,
+                    )
+                }
+            }.onSuccess { result ->
+                app.diagnostics.log(
+                    "beta_report_sent",
+                    mapOf(
+                        "category" to category,
+                        "attachment_count" to result.attachmentsUploaded.toString(),
+                    ),
+                )
+                _message.value = "Sent to the beta dashboard."
+                onSuccess()
+            }.onFailure { error ->
+                app.diagnostics.log("beta_report_failed", mapOf("category" to category), error)
+                _message.value = error.message?.takeIf { it.contains("5 MB") }
+                    ?: "Could not send the report. Check the internet connection and try again."
+            }
+            _reportSending.value = false
+        }
+    }
+
+    fun hasScheduleFeedback(date: java.time.LocalDate, sessionCount: Int): Boolean =
+        app.betaManager.hasScheduleFeedback(date.toString(), sessionCount)
+
+    fun confirmSchedule(date: java.time.LocalDate, correct: Boolean, note: String?) {
+        val sessions = state.value.scheduleSessions.filter { it.start.atZone(org.isdm.companion.engine.LMS_ZONE).toLocalDate() == date }
+        app.betaManager.queueScheduleFeedback(
+            status = if (correct) "confirmed" else "mismatch",
+            selectedDate = date.toString(),
+            sessionCount = sessions.size,
+            note = note?.trim()?.takeIf(String::isNotEmpty),
+            detectedCohorts = sessions.mapNotNullTo(mutableSetOf()) { it.cohort },
+        )
+        _message.value = "Thanks — schedule feedback queued."
     }
 
     fun refresh() {
@@ -141,22 +241,63 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setAutoAttendance(enabled: Boolean) {
-        app.autoAttendanceStore.setEnabled(enabled)
+        if (!app.autoAttendanceStore.setEnabled(enabled)) {
+            _autoAttendanceEnabled.value = app.autoAttendanceStore.isEnabled()
+            _message.value = "Android could not save the auto-attendance setting. Try again."
+            return
+        }
         _autoAttendanceEnabled.value = enabled
         app.diagnostics.log("auto_attendance_preference_changed", mapOf("enabled" to enabled.toString()))
         if (!enabled) {
-            app.autoAttendanceScheduler.cancel()
+            val alarmsCancelled = app.autoAttendanceScheduler.cancel()
             stopMonitoring()
-            _message.value = "Auto attendance is off."
+            _message.value = if (alarmsCancelled) {
+                "Auto attendance is off."
+            } else {
+                "Auto attendance is off. Android could not remove every pending alarm, but they will be ignored."
+            }
             return
         }
         scheduleAutoAttendance(showMessage = true)
     }
 
-    fun clearCredentials() {
-        setAutoAttendance(false)
-        app.credentialStore.clear()
-        _message.value = "Saved LMS login removed."
+    fun signOut() {
+        if (_signingOut.value) return
+        _signingOut.value = true
+        viewModelScope.launch {
+            val failures = runCatching {
+                withContext(NonCancellable) {
+                    val failed = mutableListOf<String>()
+                    if (!app.autoAttendanceStore.setEnabled(false)) failed += "auto-attendance setting"
+                    _autoAttendanceEnabled.value = false
+                    if (!app.autoAttendanceScheduler.cancel()) failed += "pending alarms"
+                    app.stopService(Intent(app, MonitoringService::class.java))
+
+                    val backgroundWorkStopped = withContext(Dispatchers.IO) {
+                        runCatching {
+                            CompanionSyncWorker.cancelAll(app).forEach { operation -> operation.result.get() }
+                        }.isSuccess
+                    }
+                    if (!backgroundWorkStopped) failed += "background sync"
+                    if (!app.credentialStore.clear()) failed += "saved LMS login"
+                    if (app.engine.dispatch(Command.SignOut) !is CommandResult.Completed) failed += "live LMS session"
+                    if (!clearLmsBrowserSessionAndWait()) failed += "browser session"
+                    if (backgroundWorkStopped && app.credentialStore.load() == null) {
+                        CompanionSyncWorker.schedule(app)
+                    }
+                    failed
+                }
+            }.getOrElse { error ->
+                app.diagnostics.log("sign_out_failed", error = error)
+                listOf("unexpected cleanup error")
+            }
+            _message.value = if (failures.isEmpty()) {
+                "Signed out. Saved LMS login and browser session removed."
+            } else {
+                "Sign-out incomplete (${failures.joinToString()}). Try again before closing the app."
+            }
+            _signingOut.value = false
+        }
     }
 
     fun clearMessage() {
@@ -184,7 +325,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun scheduleAutoAttendance(showMessage: Boolean) {
-        val result = app.autoAttendanceScheduler.schedule(state.value.scheduleSessions, state.value.now)
+        val result = app.autoAttendanceScheduler.schedule(state.value.scheduleSessions, Instant.now())
         when (result) {
             AutoAttendanceScheduleResult.Disabled -> Unit
             AutoAttendanceScheduleResult.LocationPermissionRequired -> {

@@ -52,6 +52,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -135,7 +137,7 @@ class MainActivity : ComponentActivity() {
         )
         if (pendingAutoAttendance) {
             pendingAutoAttendance = false
-            viewModel.setAutoAttendance(granted)
+            viewModel.setAutoAttendance(true)
         }
     }
 
@@ -187,6 +189,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        savedInstanceState?.let { restored ->
+            val pending = readPendingActivityActions(restored)
+            pendingMarkSessionId = pending.markSessionId
+            pendingMarkFromIntent = pending.markFromIntent
+            pendingAutoAttendance = pending.autoAttendance
+        }
         diagnostics.log("main_activity_created", mapOf("restored" to (savedInstanceState != null).toString()))
         setContent {
             MaterialTheme(colorScheme = companionColors(), typography = companionTypography) {
@@ -198,18 +206,6 @@ class MainActivity : ComponentActivity() {
                         startActivity(
                             Intent(this, ReadingActivity::class.java)
                                 .putExtra(ReadingActivity.EXTRA_SOURCE_URL, url),
-                        )
-                    },
-                    onShareIssue = { description, images ->
-                        startActivity(
-                            Intent.createChooser(
-                                createIssueReportShareIntent(description, images),
-                                "Share issue report",
-                            ),
-                        )
-                        diagnostics.log(
-                            "issue_report_shared",
-                            mapOf("attachment_count" to images.size.toString()),
                         )
                     },
                 )
@@ -231,9 +227,25 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        writePendingActivityActions(
+            outState,
+            PendingActivityActions(
+                markSessionId = pendingMarkSessionId,
+                markFromIntent = pendingMarkFromIntent,
+                autoAttendance = pendingAutoAttendance,
+            ),
+        )
+        super.onSaveInstanceState(outState)
+    }
+
     private fun handleIntent(intent: Intent?) {
         val nid = intent?.getStringExtra(EXTRA_MARK_NID) ?: return
         intent.removeExtra(EXTRA_MARK_NID)
+        if (!isTrustedAttendanceIntentTarget(intent.component?.className)) {
+            diagnostics.log("attendance_intent_rejected", mapOf("reason" to "exported_component"))
+            return
+        }
         requestMark(nid, fromIntent = true)
     }
 
@@ -338,6 +350,31 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+internal fun isTrustedAttendanceIntentTarget(componentClassName: String?): Boolean =
+    componentClassName == MainActivity::class.java.name
+
+internal data class PendingActivityActions(
+    val markSessionId: String?,
+    val markFromIntent: Boolean,
+    val autoAttendance: Boolean,
+)
+
+internal fun writePendingActivityActions(bundle: Bundle, actions: PendingActivityActions) {
+    bundle.putString(PENDING_MARK_SESSION_ID, actions.markSessionId)
+    bundle.putBoolean(PENDING_MARK_FROM_INTENT, actions.markFromIntent)
+    bundle.putBoolean(PENDING_AUTO_ATTENDANCE, actions.autoAttendance)
+}
+
+internal fun readPendingActivityActions(bundle: Bundle): PendingActivityActions = PendingActivityActions(
+    markSessionId = bundle.getString(PENDING_MARK_SESSION_ID),
+    markFromIntent = bundle.getBoolean(PENDING_MARK_FROM_INTENT),
+    autoAttendance = bundle.getBoolean(PENDING_AUTO_ATTENDANCE),
+)
+
+private const val PENDING_MARK_SESSION_ID = "pending_mark_session_id"
+private const val PENDING_MARK_FROM_INTENT = "pending_mark_from_intent"
+private const val PENDING_AUTO_ATTENDANCE = "pending_auto_attendance"
+
 private enum class Destination { SCHEDULE, READINGS }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -347,18 +384,22 @@ private fun CompanionScreen(
     onAutoAttendance: (Boolean) -> Unit,
     onMarkAttendance: (String) -> Unit,
     onOpenReading: (String) -> Unit,
-    onShareIssue: (String, List<android.net.Uri>) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val initializing by viewModel.initializing.collectAsStateWithLifecycle()
+    val signingOut by viewModel.signingOut.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val autoAttendanceEnabled by viewModel.autoAttendanceEnabled.collectAsStateWithLifecycle()
+    val betaEnrolled by viewModel.betaEnrolled.collectAsStateWithLifecycle()
+    val betaEnrolling by viewModel.betaEnrolling.collectAsStateWithLifecycle()
+    val reportSending by viewModel.reportSending.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var destination by rememberSaveable { mutableStateOf(Destination.SCHEDULE) }
     var selectedDate by rememberSaveable { mutableStateOf(state.today) }
     var selectedSession by remember { mutableStateOf<Session?>(null) }
     var selectedReading by remember { mutableStateOf<ReadingItem?>(null) }
     var issueReportOpen by rememberSaveable { mutableStateOf(false) }
+    var signOutOpen by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.today) {
         if (selectedDate < state.scheduleStart || selectedDate >= state.scheduleEndExclusive) {
@@ -376,7 +417,7 @@ private fun CompanionScreen(
         containerColor = Paper,
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            if (!initializing && state.identity != null) {
+            if (!initializing && !signingOut && state.identity != null) {
                 SmallFloatingActionButton(
                     onClick = { issueReportOpen = true },
                     containerColor = Teal,
@@ -391,10 +432,20 @@ private fun CompanionScreen(
         },
     ) { padding ->
         when {
-            initializing -> Box(
+            initializing || signingOut -> Box(
                 Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator(color = Teal) }
+
+            !betaEnrolled -> BetaEnrollmentContent(
+                enrolling = betaEnrolling,
+                onEnroll = { inviteCode, section, plc, consented ->
+                    viewModel.enrollBeta(inviteCode, section, plc, consented) {
+                        onAutoAttendance(true)
+                    }
+                },
+                modifier = Modifier.padding(padding),
+            )
 
             state.identity == null -> LoginContent(
                 state = state,
@@ -431,6 +482,14 @@ private fun CompanionScreen(
                             },
                             onSession = { selectedSession = it },
                             onMark = onMarkAttendance,
+                            onSignOut = { signOutOpen = true },
+                            scheduleFeedbackRecorded = viewModel.hasScheduleFeedback(
+                                selectedDate,
+                                state.scheduleSessions.count { it.start.atZone(IST).toLocalDate() == selectedDate },
+                            ),
+                            onScheduleFeedback = { correct, note ->
+                                viewModel.confirmSchedule(selectedDate, correct, note)
+                            },
                         )
                     } else {
                         ReadingsContent(
@@ -460,9 +519,29 @@ private fun CompanionScreen(
     if (issueReportOpen) {
         IssueReportSheet(
             onDismiss = { issueReportOpen = false },
-            onShare = { description, images ->
-                issueReportOpen = false
-                onShareIssue(description, images)
+            sending = reportSending,
+            onSend = { category, description, images ->
+                viewModel.submitBetaReport(category, description, images) {
+                    issueReportOpen = false
+                }
+            },
+        )
+    }
+    if (signOutOpen) {
+        AlertDialog(
+            onDismissRequest = { signOutOpen = false },
+            title = { Text("Sign out?") },
+            text = { Text("This removes your saved LMS login and browser session from this phone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        signOutOpen = false
+                        viewModel.signOut()
+                    },
+                ) { Text("Sign out") }
+            },
+            dismissButton = {
+                TextButton(onClick = { signOutOpen = false }) { Text("Cancel") }
             },
         )
     }
@@ -550,11 +629,16 @@ private fun ScheduleContent(
     onStepDate: (Int) -> Unit,
     onSession: (Session) -> Unit,
     onMark: (String) -> Unit,
+    onSignOut: () -> Unit,
+    scheduleFeedbackRecorded: Boolean,
+    onScheduleFeedback: (Boolean, String?) -> Unit,
 ) {
     val source = state.scheduleSessions.ifEmpty { state.sessions }
     val sessions = source.filter { it.start.atZone(IST).toLocalDate() == selectedDate }
     val focus = sessions.firstOrNull { it.state == SessionState.OPEN }
         ?: sessions.firstOrNull { it.state == SessionState.UPCOMING }
+    var mismatchOpen by rememberSaveable(selectedDate) { mutableStateOf(false) }
+    var mismatchNote by rememberSaveable(selectedDate) { mutableStateOf("") }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -567,6 +651,41 @@ private fun ScheduleContent(
                 canNext = selectedDate.plusDays(1) < state.scheduleEndExclusive,
                 onStep = onStepDate,
             )
+        }
+        if (sessions.isNotEmpty() && !scheduleFeedbackRecorded) {
+            item {
+                Column(
+                    Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                        .clip(RoundedCornerShape(16.dp)).border(1.dp, Line, RoundedCornerShape(16.dp))
+                        .background(Color.White).padding(16.dp),
+                ) {
+                    Text("Is this your section and PLC day?", color = Ink, fontWeight = FontWeight.ExtraBold)
+                    Spacer(Modifier.height(5.dp))
+                    Text("Check the sessions below against your LMS schedule.", color = Muted, fontSize = 12.sp)
+                    if (mismatchOpen) {
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = mismatchNote,
+                            onValueChange = { mismatchNote = it },
+                            label = { Text("What's missing or incorrect?") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 2,
+                        )
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { mismatchOpen = false }) { Text("Cancel") }
+                            Button(
+                                onClick = { onScheduleFeedback(false, mismatchNote) },
+                                enabled = mismatchNote.isNotBlank(),
+                            ) { Text("Send") }
+                        }
+                    } else {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            TextButton(onClick = { mismatchOpen = true }) { Text("Wrong section or PLC") }
+                            Button(onClick = { onScheduleFeedback(true, null) }) { Text("Looks right") }
+                        }
+                    }
+                }
+            }
         }
         if (state.scheduleSync.inProgress && source.isEmpty()) {
             item { Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Teal) } }
@@ -592,6 +711,12 @@ private fun ScheduleContent(
         }
         state.scheduleSync.error?.let { error ->
             item { InlineError("Schedule may be stale. ${errorText(error)}") }
+        }
+        item {
+            TextButton(
+                onClick = onSignOut,
+                modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
+            ) { Text("Sign out", color = Muted) }
         }
     }
 }
@@ -1069,6 +1194,104 @@ private fun EmptyState(title: String, body: String) {
 @Composable
 private fun InlineError(text: String) {
     Text(text, Modifier.fillMaxWidth().padding(14.dp).background(Butter, RoundedCornerShape(14.dp)).padding(13.dp), color = Ink, fontSize = 12.sp)
+}
+
+@Composable
+private fun BetaEnrollmentContent(
+    enrolling: Boolean,
+    onEnroll: (String, String, String?, Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var inviteCode by rememberSaveable { mutableStateOf("") }
+    var section by rememberSaveable { mutableStateOf("") }
+    var plc by rememberSaveable { mutableStateOf("") }
+    var consented by rememberSaveable { mutableStateOf(false) }
+    var attempted by rememberSaveable { mutableStateOf(false) }
+    val valid = isBetaEnrollmentValid(inviteCode, section, consented)
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(24.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        item {
+            Box(Modifier.size(14.dp).background(ButterStrong, RoundedCornerShape(5.dp)))
+            Spacer(Modifier.height(18.dp))
+            Text("Join the one-week beta", fontSize = 30.sp, lineHeight = 32.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
+            Spacer(Modifier.height(8.dp))
+            Text("Invitation first. Your LMS sign-in is next.", color = Muted, lineHeight = 21.sp)
+            Spacer(Modifier.height(24.dp))
+            OutlinedTextField(
+                value = inviteCode,
+                onValueChange = { inviteCode = it.uppercase(Locale.ROOT) },
+                label = { Text("Invite code") },
+                singleLine = true,
+                enabled = !enrolling,
+                isError = attempted && inviteCode.isBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = section,
+                onValueChange = { section = it },
+                label = { Text("Section") },
+                placeholder = { Text("e.g. Section A") },
+                singleLine = true,
+                enabled = !enrolling,
+                isError = attempted && section.isBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = plc,
+                onValueChange = { plc = it },
+                label = { Text("PLC or group (optional)") },
+                placeholder = { Text("e.g. PLC 4") },
+                singleLine = true,
+                enabled = !enrolling,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+            )
+            Spacer(Modifier.height(18.dp))
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White)
+                    .border(1.dp, Line, RoundedCornerShape(16.dp)).padding(16.dp),
+            ) {
+                Text("What this beta sends", color = Ink, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.height(8.dp))
+                Text("• App events, device model, section/PLC, schedule feedback and attendance outcomes.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("• Exact location only when an attendance decision is made.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("• Screenshots only when you select and send them.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("• Your LMS password and reusable cookies stay on this phone.", color = Ink, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold)
+            }
+            Row(
+                Modifier.fillMaxWidth().clickable(enabled = !enrolling) { consented = !consented }.padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = consented, onCheckedChange = { consented = it }, enabled = !enrolling)
+                Text("I understand and agree to this one-week beta data collection.", color = Ink, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+            if (attempted && !valid) {
+                Text("Invite code, section, and consent are required.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+            }
+            Button(
+                onClick = {
+                    attempted = true
+                    if (valid) onEnroll(inviteCode.trim(), section.trim(), plc.trim().takeIf(String::isNotEmpty), consented)
+                },
+                enabled = !enrolling,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = TealDeep),
+            ) {
+                if (enrolling) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                else Text("Continue to LMS login", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
 }
 
 @Composable
