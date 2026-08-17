@@ -1,0 +1,12 @@
+interface:
+  display_name: "ISDM Beta Release"
+  short_description: "Build, verify, and deliver Android betas"
+  default_prompt: "Use $isdm-beta-release to verify and safely distribute the next ISDM Companion Android beta."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "whatsmeow"
+      description: "Resolve tester chats and perform approved WhatsApp sends"
+    - type: "mcp"
+      value: "supabase"
+      description: "Reconcile the live beta roster and installation state"
