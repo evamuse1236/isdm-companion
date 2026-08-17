@@ -304,9 +304,12 @@ more useful than a passive timetable.
 The domain already computes `MARKED`, `OPEN`, `UPCOMING`, `MISSED`, `DONE`, and `NO_ATTENDANCE`
 (`android/app/src/main/java/org/isdm/companion/domain/Schedule.kt:224-233`), while the desktop week
 service already returns a seven-day structure (`src/service.js:153-163`). A calendar/week summary
-could show marked, missed, and schedule-only counts and link to the relevant session detail. This is
-read-only and avoids guessing at an institution-wide attendance percentage, which the current LMS
-contract does not expose.
+could show marked, missed, and schedule-only counts and link to the relevant session detail.
+
+The authenticated `/manage/classroom/attendance` page now exposes a separate LMS-owned summary
+with total, present, absent, upcoming, and present percentage. Companion displays that percentage
+without recomputing it. The LMS currently includes upcoming sessions in its total, so the UI must
+show the counts and explain that denominator.
 
 ### 3. Session detail sheet (medium value, low effort)
 

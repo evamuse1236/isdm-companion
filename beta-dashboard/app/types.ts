@@ -3,6 +3,9 @@ export type BetaInstallation = {
   installation_id: string | null;
   consent_version: string | null;
   consented_at: string | null;
+  support_name: string | null;
+  profile_confirmed_at: string | null;
+  support_name_deleted_at: string | null;
   self_section: string | null;
   self_plc: string | null;
   manufacturer: string | null;
@@ -84,6 +87,12 @@ export type ReportAttachment = {
   signed_url: string | null;
 };
 
+export type ReliabilitySummary = {
+  failures: number;
+  cancellations: number;
+  recorded_exits: number;
+};
+
 export type DashboardData = {
   generated_at: string;
   config: {
@@ -95,6 +104,7 @@ export type DashboardData = {
   };
   installations: BetaInstallation[];
   events: BetaEvent[];
+  reliability: ReliabilitySummary;
   schedule_confirmations: ScheduleConfirmation[];
   attendance_decisions: AttendanceDecision[];
   reports: IssueReport[];
@@ -114,6 +124,9 @@ export function emptyDashboard(): DashboardData {
     installation_id: null,
     consent_version: null,
     consented_at: null,
+    support_name: null,
+    profile_confirmed_at: null,
+    support_name_deleted_at: null,
     self_section: null,
     self_plc: null,
     manufacturer: null,
@@ -142,6 +155,7 @@ export function emptyDashboard(): DashboardData {
     },
     installations,
     events: [],
+    reliability: { failures: 0, cancellations: 0, recorded_exits: 0 },
     schedule_confirmations: [],
     attendance_decisions: [],
     reports: [],

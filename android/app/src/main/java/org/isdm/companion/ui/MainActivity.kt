@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -97,12 +99,18 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import org.isdm.companion.CompanionApplication
 import org.isdm.companion.R
 import org.isdm.companion.engine.CompanionState
@@ -113,8 +121,11 @@ import org.isdm.companion.engine.ReadingItem
 import org.isdm.companion.engine.Session
 import org.isdm.companion.engine.SessionState
 import org.isdm.companion.engine.planCourseReadings
+import org.isdm.companion.engine.defaultReadingCourseId
 import org.isdm.companion.domain.LocationGateReason
+import org.isdm.companion.platform.BetaProfile
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -138,6 +149,8 @@ class MainActivity : ComponentActivity() {
         if (pendingAutoAttendance) {
             pendingAutoAttendance = false
             viewModel.setAutoAttendance(true)
+            viewModel.markSetupExplained()
+            publishSetupPermissions()
         }
     }
 
@@ -161,8 +174,10 @@ class MainActivity : ComponentActivity() {
             pendingMarkFromIntent = false
             if (pendingAutoAttendance) {
                 pendingAutoAttendance = false
-                viewModel.setAutoAttendance(true)
+                viewModel.setAutoAttendance(false)
+                viewModel.markSetupExplained()
             }
+            publishSetupPermissions()
             viewModel.showMessage("Attendance is locked until Precise location is allowed.")
         }
     }
@@ -185,6 +200,16 @@ class MainActivity : ComponentActivity() {
             mapOf("background_location_granted" to hasBackgroundLocationAccess().toString()),
         )
         finishAutoAttendancePermissionFlow()
+    }
+
+    private val exactAlarmSettings = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        diagnostics.log(
+            "permission_settings_returned",
+            mapOf("exact_alarms_granted" to canScheduleExactAlarms().toString()),
+        )
+        finishExactAlarmPermissionFlow()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -212,8 +237,10 @@ class MainActivity : ComponentActivity() {
             }
         }
         handleIntent(intent)
-        val autoAttendanceEnabled = (application as CompanionApplication).autoAttendanceStore.isEnabled()
-        if (savedInstanceState == null && autoAttendanceEnabled && pendingMarkSessionId == null) {
+        val companionApp = application as CompanionApplication
+        val autoAttendanceEnabled = companionApp.autoAttendanceStore.isEnabled()
+        val setupReadyToResume = companionApp.betaManager.setupExplained && !companionApp.betaManager.shouldShowTour
+        if (savedInstanceState == null && autoAttendanceEnabled && setupReadyToResume && pendingMarkSessionId == null) {
             lifecycleScope.launch {
                 viewModel.initializing.filter { !it }.first()
                 if (pendingMarkSessionId == null) requestAutoAttendance(true)
@@ -225,6 +252,18 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        publishSetupPermissions()
+        val app = application as CompanionApplication
+        if (!pendingAutoAttendance && app.autoAttendanceStore.isEnabled() &&
+            (!hasBackgroundLocationAccess() || !canScheduleExactAlarms())
+        ) {
+            viewModel.setAutoAttendance(false)
+            viewModel.showMessage("Needs attention: automatic attendance stopped because required Android access was removed.")
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -253,6 +292,12 @@ class MainActivity : ComponentActivity() {
         if (!enabled) {
             pendingAutoAttendance = false
             viewModel.setAutoAttendance(false)
+            return
+        }
+        if (!viewModel.hasDetectedSectionForAutomaticAttendance()) {
+            viewModel.setAutoAttendance(false)
+            viewModel.markSetupExplained()
+            viewModel.showMessage("Needs attention: the LMS must detect your Section before automatic attendance can run.")
             return
         }
         pendingAutoAttendance = true
@@ -321,8 +366,31 @@ class MainActivity : ComponentActivity() {
         if (!pendingAutoAttendance) return
         if (!hasBackgroundLocationAccess()) {
             pendingAutoAttendance = false
-            viewModel.setAutoAttendance(true)
-            viewModel.showMessage("Auto attendance is on but locked until Location is set to Allow all the time.")
+            viewModel.setAutoAttendance(false)
+            viewModel.markSetupExplained()
+            publishSetupPermissions()
+            viewModel.showMessage("Needs attention: set Location to Allow all the time before automatic attendance can run.")
+            return
+        }
+        if (!canScheduleExactAlarms()) {
+            diagnostics.log("permission_settings_opened", mapOf("permission" to "exact_alarms"))
+            viewModel.showMessage("Allow precise alarms so attendance checks can start at class time.")
+            exactAlarmSettings.launch(
+                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")),
+            )
+            return
+        }
+        finishExactAlarmPermissionFlow()
+    }
+
+    private fun finishExactAlarmPermissionFlow() {
+        if (!pendingAutoAttendance) return
+        if (!canScheduleExactAlarms()) {
+            pendingAutoAttendance = false
+            viewModel.setAutoAttendance(false)
+            viewModel.markSetupExplained()
+            publishSetupPermissions()
+            viewModel.showMessage("Needs attention: precise alarms are required for automatic attendance.")
             return
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -333,6 +401,8 @@ class MainActivity : ComponentActivity() {
         } else {
             pendingAutoAttendance = false
             viewModel.setAutoAttendance(true)
+            viewModel.markSetupExplained()
+            publishSetupPermissions()
         }
     }
 
@@ -344,6 +414,21 @@ class MainActivity : ComponentActivity() {
             Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
                 ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
             )
+
+    private fun canScheduleExactAlarms(): Boolean =
+        (application as CompanionApplication).autoAttendanceScheduler.canScheduleExactAlarms()
+
+    private fun publishSetupPermissions() {
+        viewModel.updateSetupPermissions(
+            BetaSetupPermissions(
+                preciseLocation = hasPreciseLocationAccess(),
+                backgroundLocation = hasBackgroundLocationAccess(),
+                exactAlarms = canScheduleExactAlarms(),
+                notifications = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+            ),
+        )
+    }
 
     companion object {
         const val EXTRA_MARK_NID = "mark_nid"
@@ -375,7 +460,7 @@ private const val PENDING_MARK_SESSION_ID = "pending_mark_session_id"
 private const val PENDING_MARK_FROM_INTENT = "pending_mark_from_intent"
 private const val PENDING_AUTO_ATTENDANCE = "pending_auto_attendance"
 
-private enum class Destination { SCHEDULE, READINGS }
+private enum class Destination { SCHEDULE, READINGS, PROFILE }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -392,14 +477,34 @@ private fun CompanionScreen(
     val autoAttendanceEnabled by viewModel.autoAttendanceEnabled.collectAsStateWithLifecycle()
     val betaEnrolled by viewModel.betaEnrolled.collectAsStateWithLifecycle()
     val betaEnrolling by viewModel.betaEnrolling.collectAsStateWithLifecycle()
+    val betaTourRequired by viewModel.betaTourRequired.collectAsStateWithLifecycle()
+    val betaProfile by viewModel.betaProfile.collectAsStateWithLifecycle()
+    val setupExplained by viewModel.setupExplained.collectAsStateWithLifecycle()
+    val setupPermissions by viewModel.setupPermissions.collectAsStateWithLifecycle()
     val reportSending by viewModel.reportSending.collectAsStateWithLifecycle()
+    val attendanceFeedback by viewModel.attendanceFeedback.collectAsStateWithLifecycle()
+    val releaseNotes by viewModel.releaseNotes.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val rootView = LocalView.current
     var destination by rememberSaveable { mutableStateOf(Destination.SCHEDULE) }
     var selectedDate by rememberSaveable { mutableStateOf(state.today) }
     var selectedSession by remember { mutableStateOf<Session?>(null) }
     var selectedReading by remember { mutableStateOf<ReadingItem?>(null) }
     var issueReportOpen by rememberSaveable { mutableStateOf(false) }
     var signOutOpen by rememberSaveable { mutableStateOf(false) }
+    val currentDetected = detectedProfileCohorts(state)
+    val detectionLoaded = state.scheduleSync.lastSuccess != null
+    val confirmedDetectionCurrent = betaProfile != null && if (detectionLoaded) {
+        currentDetected.first.isNotEmpty() && betaProfile?.detectedSections == currentDetected.first &&
+            betaProfile?.detectedGroups == currentDetected.second
+    } else {
+        betaProfile?.detectedSections?.isNotEmpty() == true
+    }
+    val setupStatus = betaSetupStatus(
+        consented = betaProfile != null,
+        profileKnown = confirmedDetectionCurrent,
+        permissions = setupPermissions,
+    )
 
     LaunchedEffect(state.today) {
         if (selectedDate < state.scheduleStart || selectedDate >= state.scheduleEndExclusive) {
@@ -412,12 +517,20 @@ private fun CompanionScreen(
             viewModel.clearMessage()
         }
     }
+    LaunchedEffect(attendanceFeedback?.token) {
+        attendanceFeedback?.let {
+            performAttendanceHaptic(rootView, it.success)
+            viewModel.consumeAttendanceFeedback(it.token)
+        }
+    }
 
     Scaffold(
         containerColor = Paper,
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            if (!initializing && !signingOut && state.identity != null) {
+            val mainExperienceVisible = !initializing && !signingOut && !betaTourRequired &&
+                state.identity != null && betaEnrolled && betaProfile != null && setupExplained
+            if (mainExperienceVisible) {
                 SmallFloatingActionButton(
                     onClick = { issueReportOpen = true },
                     containerColor = Teal,
@@ -437,19 +550,53 @@ private fun CompanionScreen(
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator(color = Teal) }
 
-            !betaEnrolled -> BetaEnrollmentContent(
-                enrolling = betaEnrolling,
-                onEnroll = { inviteCode, section, plc, consented ->
-                    viewModel.enrollBeta(inviteCode, section, plc, consented) {
-                        onAutoAttendance(true)
-                    }
-                },
+            betaTourRequired -> BetaTourContent(
+                onFinish = viewModel::finishTour,
                 modifier = Modifier.padding(padding),
             )
 
             state.identity == null -> LoginContent(
                 state = state,
                 onSignIn = viewModel::signIn,
+                modifier = Modifier.padding(padding),
+            )
+
+            !betaEnrolled -> BetaEnrollmentContent(
+                enrolling = betaEnrolling,
+                detectedName = state.identity?.displayName.orEmpty(),
+                detectedSections = detectedProfileCohorts(state).first,
+                detectedGroups = detectedProfileCohorts(state).second,
+                onEnroll = { inviteCode, name, section, plc, detectedSections, detectedGroups, consented ->
+                    viewModel.enrollBeta(inviteCode, name, section, plc, detectedSections, detectedGroups, consented) {
+                        Unit
+                    }
+                },
+                modifier = Modifier.padding(padding),
+            )
+
+            betaProfile == null || profileDetectionChanged(betaProfile, currentDetected, detectionLoaded) -> BetaProfileContent(
+                initialName = if (betaProfile == null) state.identity?.displayName.orEmpty() else betaProfile?.supportName.orEmpty(),
+                initialSection = betaProfile?.selfSection
+                    ?: currentDetected.first.firstOrNull()?.let { "Section $it" }.orEmpty(),
+                initialGroup = betaProfile?.selfPlc
+                    ?: currentDetected.second.firstOrNull()?.let { "Group $it" }.orEmpty(),
+                detectedSections = detectedProfileCohorts(state).first,
+                detectedGroups = detectedProfileCohorts(state).second,
+                supportNameRequired = betaProfile == null,
+                onSave = { name, section, group ->
+                    viewModel.updateBetaProfile(
+                        name, section, group,
+                        detectedProfileCohorts(state).first,
+                        detectedProfileCohorts(state).second,
+                    ) {}
+                },
+                modifier = Modifier.padding(padding),
+            )
+
+            !setupExplained -> AutoAttendanceEducation(
+                onContinue = {
+                    onAutoAttendance(true)
+                },
                 modifier = Modifier.padding(padding),
             )
 
@@ -490,13 +637,38 @@ private fun CompanionScreen(
                             onScheduleFeedback = { correct, note ->
                                 viewModel.confirmSchedule(selectedDate, correct, note)
                             },
+                            setupStatus = setupStatus,
+                            autoAttendanceEnabled = autoAttendanceEnabled,
+                            onOpenProfile = { destination = Destination.PROFILE },
                         )
-                    } else {
+                    } else if (current == Destination.READINGS) {
                         ReadingsContent(
                             state = state,
                             onReading = { selectedReading = it },
                             onFacultyProfile = { onOpenReading(it.sourceUrl) },
                             onToggleDone = viewModel::toggleReadingDone,
+                        )
+                    } else {
+                        ProfileContent(
+                            state = state,
+                            profile = betaProfile,
+                            autoAttendanceEnabled = autoAttendanceEnabled,
+                            setupStatus = setupStatus,
+                            detectedSections = detectedProfileCohorts(state).first,
+                            detectedGroups = detectedProfileCohorts(state).second,
+                            onAutoAttendance = onAutoAttendance,
+                            onSaveProfile = { name, section, group ->
+                                viewModel.updateBetaProfile(
+                                    name, section, group,
+                                    detectedProfileCohorts(state).first,
+                                    detectedProfileCohorts(state).second,
+                                ) {}
+                            },
+                            onDeleteName = { viewModel.deleteBetaSupportName {} },
+                            onReopenTour = viewModel::reopenTour,
+                            onRefreshAttendance = viewModel::refreshAttendance,
+                            onShowReleaseNotes = viewModel::showReleaseNotes,
+                            onSignOut = { signOutOpen = true },
                         )
                     }
                 }
@@ -545,6 +717,20 @@ private fun CompanionScreen(
             },
         )
     }
+    releaseNotes?.let { notes ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissReleaseNotes,
+            title = { Text("What’s new in ${notes.versionName}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    notes.items.forEach { item -> Text("• $item", lineHeight = 20.sp) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissReleaseNotes) { Text("Got it") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -582,8 +768,14 @@ private fun CompanionHeader(
                 fontWeight = FontWeight.Bold,
             )
         }
-        val syncing = state.sync.inProgress || state.scheduleSync.inProgress || state.readingSync.inProgress
-        val latest = listOfNotNull(state.sync.lastSuccess, state.scheduleSync.lastSuccess, state.readingSync.lastSuccess).maxOrNull()
+        val syncing = state.sync.inProgress || state.scheduleSync.inProgress ||
+            state.readingSync.inProgress || state.attendanceSync.inProgress
+        val latest = listOfNotNull(
+            state.sync.lastSuccess,
+            state.scheduleSync.lastSuccess,
+            state.readingSync.lastSuccess,
+            state.attendanceSync.lastSuccess,
+        ).maxOrNull()
         Row(
             Modifier.clip(RoundedCornerShape(10.dp)).clickable(enabled = !syncing, onClick = onRefresh).padding(5.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -612,7 +804,11 @@ private fun DestinationTabs(destination: Destination, onChange: (Destination) ->
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    if (item == Destination.SCHEDULE) "Schedule" else "Readings",
+                    when (item) {
+                        Destination.SCHEDULE -> "Schedule"
+                        Destination.READINGS -> "Readings"
+                        Destination.PROFILE -> "Profile"
+                    },
                     color = if (active) Color.White else Muted,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
@@ -632,11 +828,21 @@ private fun ScheduleContent(
     onSignOut: () -> Unit,
     scheduleFeedbackRecorded: Boolean,
     onScheduleFeedback: (Boolean, String?) -> Unit,
+    setupStatus: BetaSetupStatus,
+    autoAttendanceEnabled: Boolean,
+    onOpenProfile: () -> Unit,
 ) {
     val source = state.scheduleSessions.ifEmpty { state.sessions }
     val sessions = source.filter { it.start.atZone(IST).toLocalDate() == selectedDate }
-    val focus = sessions.firstOrNull { it.state == SessionState.OPEN }
-        ?: sessions.firstOrNull { it.state == SessionState.UPCOMING }
+    var clockNow by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            clockNow = Instant.now()
+            delay(1_000)
+        }
+    }
+    val highlights = scheduleHighlights(source, selectedDate, state.today, clockNow)
+        .associate { it.session to it.kind }
     var mismatchOpen by rememberSaveable(selectedDate) { mutableStateOf(false) }
     var mismatchNote by rememberSaveable(selectedDate) { mutableStateOf("") }
 
@@ -650,6 +856,23 @@ private fun ScheduleContent(
                 canPrevious = selectedDate > state.scheduleStart,
                 canNext = selectedDate.plusDays(1) < state.scheduleEndExclusive,
                 onStep = onStepDate,
+            )
+        }
+        item {
+            val label = when {
+                !setupStatus.canEnableAutomaticAttendance -> "Setup check · Needs attention"
+                autoAttendanceEnabled -> "Setup check · Ready"
+                else -> "Setup check · Automatic attendance off"
+            }
+            val needsAttention = !setupStatus.canEnableAutomaticAttendance
+            Text(
+                label,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                    .background(if (!needsAttention) Mint else Butter, RoundedCornerShape(12.dp))
+                    .clickable(enabled = needsAttention, onClick = onOpenProfile).padding(11.dp),
+                color = if (!needsAttention) Green else Ink,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
             )
         }
         if (sessions.isNotEmpty() && !scheduleFeedbackRecorded) {
@@ -700,8 +923,8 @@ private fun ScheduleContent(
                         if (index > 0) HorizontalDivider(color = Line)
                         SessionRow(
                             session = session,
-                            focus = session === focus,
-                            now = state.now,
+                            highlight = highlights[session],
+                            now = clockNow,
                             onOpen = { onSession(session) },
                             onMark = onMark,
                         )
@@ -754,11 +977,12 @@ private fun DateArrow(forward: Boolean, enabled: Boolean, onClick: () -> Unit) {
 @Composable
 private fun SessionRow(
     session: Session,
-    focus: Boolean,
+    highlight: ScheduleHighlightKind?,
     now: java.time.Instant,
     onOpen: () -> Unit,
     onMark: (String) -> Unit,
 ) {
+    val focus = highlight != null
     val background by animateColorAsState(if (focus) Blush else Color.White, label = "session focus")
     val past = session.state == SessionState.DONE || session.state == SessionState.MISSED
     Row(
@@ -777,13 +1001,16 @@ private fun SessionRow(
                     val minutes = Duration.between(now, session.start).toMinutes().coerceAtLeast(0)
                     Text(
                         buildAnnotatedString {
+                            withStyle(SpanStyle(color = BlushAccent, fontWeight = FontWeight.ExtraBold)) {
+                                append(if (highlight == ScheduleHighlightKind.HAPPENING_NOW) "Happening now · " else "Up next · ")
+                            }
                             withStyle(SpanStyle(fontWeight = FontWeight.ExtraBold)) { append(session.name) }
-                            if (session.state == SessionState.UPCOMING) {
+                            if (highlight == ScheduleHighlightKind.UP_NEXT) {
                                 append(" starts in ")
                                 withStyle(SpanStyle(color = BlushAccent, fontWeight = FontWeight.ExtraBold)) { append(formatSessionCountdown(minutes)) }
                                 append(".")
                             } else {
-                                append(" is in session.")
+                                append(" is in session until ${TIME_FORMAT.format(session.end.atZone(IST))}.")
                             }
                         },
                         fontSize = 18.sp,
@@ -792,6 +1019,9 @@ private fun SessionRow(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(session.metaLine(), fontSize = 11.sp, color = BlushInk.copy(alpha = .66f), fontWeight = FontWeight.SemiBold)
+                    if (session.endEstimated) {
+                        Text("Estimated end", fontSize = 10.sp, color = BlushAccent, fontWeight = FontWeight.Bold)
+                    }
                     AnimatedVisibility(
                         visible = session.state == SessionState.OPEN && session.nid != null,
                         enter = fadeIn() + slideInVertically { it / 2 },
@@ -836,11 +1066,19 @@ private fun ReadingsContent(
     onFacultyProfile: (FacultyProfile) -> Unit,
     onToggleDone: (String) -> Unit,
 ) {
-    val expandedCourses = remember { mutableStateListOf<String>() }
+    var expandedCourseId by rememberSaveable { mutableStateOf<String?>(null) }
+    var initialCourseChosen by rememberSaveable { mutableStateOf(false) }
     val expandedSections = remember { mutableStateListOf<String>() }
     val readingsByCourse = state.readings.groupBy { it.catId }
     val profilesByCourse = state.facultyProfiles.groupBy { it.courseCatId }
     val courseIds = (readingsByCourse.keys + profilesByCourse.keys).distinct()
+    val initialScheduleReady = state.scheduleSync.lastSuccess != null || state.scheduleSync.error != null
+    LaunchedEffect(courseIds, state.scheduleSessions, initialScheduleReady) {
+        if (!initialCourseChosen && courseIds.isNotEmpty() && initialScheduleReady) {
+            expandedCourseId = defaultReadingCourseId(state.readings, state.scheduleSessions, Instant.now())
+            initialCourseChosen = true
+        }
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
@@ -866,10 +1104,10 @@ private fun ReadingsContent(
                     sessions = state.scheduleSessions,
                     now = state.now,
                     design = index % 4,
-                    expanded = courseId in expandedCourses,
+                    expanded = courseId == expandedCourseId,
                     expandedSections = expandedSections,
                     onToggleCourse = {
-                        if (courseId in expandedCourses) expandedCourses.remove(courseId) else expandedCourses.add(courseId)
+                        expandedCourseId = if (expandedCourseId == courseId) null else courseId
                     },
                     onToggleSection = { id ->
                         if (id in expandedSections) expandedSections.remove(id) else expandedSections.add(id)
@@ -932,8 +1170,12 @@ private fun CourseReadingCard(
                         color = Ink.copy(alpha = .72f),
                         fontSize = 11.sp,
                     )
+                    readings.firstOrNull { !it.done }?.let { preview ->
+                        Spacer(Modifier.height(5.dp))
+                        Text("Next: ${preview.title}", color = Ink.copy(alpha = .62f), fontSize = 10.sp, maxLines = 1)
+                    }
                     Spacer(Modifier.height(10.dp))
-                    Text(if (expanded) "−  Less" else "+  Expand", color = colors.accent, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(if (expanded) "⌃  Collapse" else "⌄  Open", color = colors.accent, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
                 }
                 CourseArtwork(design, colors.shape, Modifier.align(Alignment.BottomEnd).size(110.dp, 88.dp))
             }
@@ -1046,8 +1288,15 @@ private fun ReadingRow(
     onReading: (ReadingItem) -> Unit,
     onToggleDone: (String) -> Unit,
 ) {
+    val view = LocalView.current
+    val rowBackground by animateColorAsState(
+        if (reading.done) DonePurpleSoft else Color.Transparent,
+        label = "reading done",
+    )
     Row(
-        Modifier.fillMaxWidth().clickable { onReading(reading) }.alpha(if (reading.done) .56f else 1f).padding(vertical = 12.dp, horizontal = 3.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(rowBackground)
+            .clickable { onReading(reading) }.padding(vertical = 12.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -1058,15 +1307,18 @@ private fun ReadingRow(
                     Text("Mandatory", Modifier.background(colors.panel, RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 3.dp), color = colors.accent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
                 if (reading.done) {
-                    Text("Done", Modifier.background(DoneSoft, RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 3.dp), color = Green, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text("Done", Modifier.background(DonePurple, RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 3.dp), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
                 Text(reading.progress.label, color = Muted, fontSize = 10.sp)
             }
         }
         Box(
-            Modifier.size(34.dp).clip(CircleShape).background(if (reading.done) Green else Color.White)
-                .border(1.5.dp, if (reading.done) Green else Muted.copy(alpha = .55f), CircleShape)
-                .clickable { onToggleDone(reading.vid) },
+            Modifier.size(34.dp).clip(CircleShape).background(if (reading.done) DonePurple else Color.White)
+                .border(1.5.dp, if (reading.done) DonePurple else Muted.copy(alpha = .55f), CircleShape)
+                .clickable {
+                    performReadingHaptic(view)
+                    onToggleDone(reading.vid)
+                },
             contentAlignment = Alignment.Center,
         ) {
             androidx.compose.material3.Icon(Icons.Default.Check, contentDescription = if (reading.done) "Undo Done" else "Mark Done", tint = if (reading.done) Color.White else Color.Transparent, modifier = Modifier.size(18.dp))
@@ -1128,6 +1380,7 @@ private fun ReadingSheet(
     onDownload: (ReadingItem) -> Unit,
     onToggleDone: (String) -> Unit,
 ) {
+    val view = LocalView.current
     val design = reading.catId.hashCode().mod(4)
     val colors = COURSE_COLORS[design]
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color.White, shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)) {
@@ -1162,7 +1415,10 @@ private fun ReadingSheet(
                         Text("Download", color = Ink)
                     }
                 }
-                Button(onClick = { onToggleDone(reading.vid) }, modifier = Modifier.fillMaxWidth().padding(top = 9.dp), colors = ButtonDefaults.buttonColors(containerColor = if (reading.done) Soft else Teal)) {
+                Button(onClick = {
+                    performReadingHaptic(view)
+                    onToggleDone(reading.vid)
+                }, modifier = Modifier.fillMaxWidth().padding(top = 9.dp), colors = ButtonDefaults.buttonColors(containerColor = if (reading.done) Soft else Teal)) {
                     Text(if (reading.done) "Undo Done" else "Mark Done", color = if (reading.done) Ink else Color.White)
                 }
                 TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp)) { Text("Close reading", color = Muted) }
@@ -1197,17 +1453,246 @@ private fun InlineError(text: String) {
 }
 
 @Composable
+private fun BetaTourContent(onFinish: () -> Unit, modifier: Modifier = Modifier) {
+    var page by rememberSaveable { mutableStateOf(0) }
+    val pages = listOf(
+        "Welcome" to "Companion keeps your schedule, attendance and readings together. This short tour appears once for this app experience.",
+        "Automatic attendance" to "Precise location proves you are on campus. Allow all the time lets Android check during class. Precise alarms start the check on time.",
+        "Alerts and privacy" to "Notifications tell you when a class opens and whether marking worked. They are helpful but optional. Your LMS password stays on this phone.",
+    )
+    Column(modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
+        Text("${page + 1} of ${pages.size}", color = Teal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Spacer(Modifier.height(14.dp))
+        AnimatedContent(
+            targetState = page,
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            label = "tour page",
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        ) { shownPage ->
+            val (title, body) = pages[shownPage]
+            Column {
+                Text(title, color = Ink, fontSize = 31.sp, lineHeight = 34.sp, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.height(12.dp))
+                Text(body, color = Muted, fontSize = 16.sp, lineHeight = 24.sp)
+            }
+        }
+        Spacer(Modifier.height(30.dp))
+        Button(
+            onClick = { if (page == pages.lastIndex) onFinish() else page += 1 },
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = TealDeep),
+        ) { Text(if (page == pages.lastIndex) "Continue" else "Next", fontWeight = FontWeight.Bold) }
+        if (page > 0) {
+            TextButton(onClick = { page -= 1 }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Back") }
+        }
+        TextButton(onClick = onFinish, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Skip tour") }
+    }
+}
+
+@Composable
+private fun AutoAttendanceEducation(onContinue: () -> Unit, modifier: Modifier = Modifier) {
+    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.Center) {
+        item {
+            Text("Enable automatic attendance", fontSize = 29.sp, lineHeight = 32.sp, color = Ink, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(12.dp))
+            Text("Android will ask in this order:", color = Muted, fontSize = 15.sp)
+            Spacer(Modifier.height(18.dp))
+            PermissionExplanation("1", "Precise location", "Needed for both manual and automatic attendance inside the campus zone.")
+            PermissionExplanation("2", "Allow all the time", "Lets the phone check automatically while the app is closed.")
+            PermissionExplanation("3", "Precise alarms", "Lets the check start at the class time.")
+            PermissionExplanation("4", "Notifications", "Optional alerts for attendance windows and results.")
+            Spacer(Modifier.height(18.dp))
+            Text("If a required permission is refused or later removed, automatic attendance stops and shows Needs attention. Manual features remain available.", color = Ink, fontSize = 12.sp, lineHeight = 18.sp)
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onContinue, modifier = Modifier.fillMaxWidth().height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = TealDeep)) {
+                Text("Continue and enable", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PermissionExplanation(number: String, title: String, body: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
+        Box(Modifier.size(30.dp).background(Mint, CircleShape), contentAlignment = Alignment.Center) { Text(number, color = Teal, fontWeight = FontWeight.Bold) }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Ink, fontWeight = FontWeight.ExtraBold)
+            Text(body, color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
+        }
+    }
+}
+
+@Composable
+private fun BetaProfileContent(
+    initialName: String,
+    initialSection: String,
+    initialGroup: String,
+    detectedSections: Set<String>,
+    detectedGroups: Set<String>,
+    supportNameRequired: Boolean,
+    onSave: (String, String?, String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var name by rememberSaveable(initialName) { mutableStateOf(initialName) }
+    var section by rememberSaveable(initialSection) { mutableStateOf(initialSection) }
+    var group by rememberSaveable(initialGroup) { mutableStateOf(initialGroup) }
+    Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+        Text("Confirm your beta profile", color = Ink, fontSize = 28.sp, lineHeight = 31.sp, fontWeight = FontWeight.ExtraBold)
+        Spacer(Modifier.height(8.dp))
+        Text("The LMS detected ${detectedCohortSummary(detectedSections, detectedGroups)}.", color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+        Spacer(Modifier.height(18.dp))
+        OutlinedTextField(name, { name = it }, label = { Text("Name for beta support") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(section, { section = it }, label = { Text("Section") }, placeholder = { Text("Section A") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(group, { group = it }, label = { Text("PLC or Group") }, placeholder = { Text("Group 4") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(10.dp))
+        Text("Corrections help the beta owner support you. They never override the LMS schedule or decide attendance.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+        Spacer(Modifier.height(18.dp))
+        Button(
+            onClick = { onSave(name.trim(), section.trim().takeIf(String::isNotEmpty), group.trim().takeIf(String::isNotEmpty)) },
+            enabled = section.isNotBlank() && (!supportNameRequired || name.isNotBlank()),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = TealDeep),
+        ) { Text("Confirm profile", fontWeight = FontWeight.Bold) }
+        if (detectedSections.isEmpty()) Text("Automatic attendance needs a Section detected from your LMS schedule. You can still use manual features.", color = MaterialTheme.colorScheme.error, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+    }
+}
+
+@Composable
+private fun ProfileContent(
+    state: CompanionState,
+    profile: BetaProfile?,
+    autoAttendanceEnabled: Boolean,
+    setupStatus: BetaSetupStatus,
+    detectedSections: Set<String>,
+    detectedGroups: Set<String>,
+    onAutoAttendance: (Boolean) -> Unit,
+    onSaveProfile: (String, String?, String?) -> Unit,
+    onDeleteName: () -> Unit,
+    onReopenTour: () -> Unit,
+    onRefreshAttendance: () -> Unit,
+    onShowReleaseNotes: () -> Unit,
+    onSignOut: () -> Unit,
+) {
+    var name by rememberSaveable(profile?.supportName) { mutableStateOf(profile?.supportName.orEmpty()) }
+    var section by rememberSaveable(profile?.selfSection) { mutableStateOf(profile?.selfSection.orEmpty()) }
+    var group by rememberSaveable(profile?.selfPlc) { mutableStateOf(profile?.selfPlc.orEmpty()) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Text("Profile", color = Ink, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold) }
+        item {
+            Column(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(16.dp)) {
+                Text("Total attendance", color = Ink, fontWeight = FontWeight.ExtraBold)
+                val summary = state.attendanceSummary
+                when {
+                    summary != null -> {
+                        val percentage = summary.presentPercentage.stripTrailingZeros().toPlainString()
+                        Text("$percentage%", color = TealDeep, fontSize = 36.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            "${summary.present} present out of ${summary.total} total LMS sessions",
+                            color = Ink,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "The LMS currently includes ${summary.upcoming} upcoming sessions in this total.",
+                            color = Muted,
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp,
+                        )
+                    }
+                    state.attendanceSync.inProgress -> Text("Updating from the LMS…", color = Muted)
+                    else -> Text("Attendance is unavailable right now.", color = Muted)
+                }
+                TextButton(
+                    onClick = onRefreshAttendance,
+                    enabled = !state.attendanceSync.inProgress,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (state.attendanceSync.inProgress) "Updating…" else "Update attendance") }
+            }
+        }
+        item {
+            Column(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(16.dp)) {
+                val statusLabel = when {
+                    !setupStatus.canEnableAutomaticAttendance -> "Needs attention"
+                    autoAttendanceEnabled -> "Ready"
+                    else -> "Off"
+                }
+                Text("Automatic attendance · $statusLabel", color = if (statusLabel == "Ready") Green else BlushAccent, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    "Required: Precise location, Allow all the time and precise alarms. " +
+                        if (setupStatus.notificationsAvailable) "Notifications are ready." else "Notifications are optional and currently off.",
+                    color = Muted,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                )
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .clickable { onAutoAttendance(!autoAttendanceEnabled) }
+                        .semantics { contentDescription = "Automatic attendance, $statusLabel" }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(if (autoAttendanceEnabled) "Turn off" else "Turn on", color = Ink, fontWeight = FontWeight.Bold)
+                    Switch(checked = autoAttendanceEnabled, onCheckedChange = null)
+                }
+            }
+        }
+        item {
+            Column(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(16.dp)) {
+                Text("Beta Profile", color = Ink, fontWeight = FontWeight.ExtraBold)
+                Text("LMS detected: ${detectedCohortSummary(detectedSections, detectedGroups)}", color = Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(name, { name = it }, label = { Text("Support name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(section, { section = it }, label = { Text("Section") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(group, { group = it }, label = { Text("PLC or Group") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Button(onClick = { onSaveProfile(name, section, group) }, enabled = section.isNotBlank(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Save profile") }
+                TextButton(onClick = onDeleteName, modifier = Modifier.fillMaxWidth()) { Text("Delete my support name") }
+            }
+        }
+        item { TextButton(onClick = onShowReleaseNotes, modifier = Modifier.fillMaxWidth()) { Text("What’s new") } }
+        item { TextButton(onClick = onReopenTour, modifier = Modifier.fillMaxWidth()) { Text("View tour again") } }
+        item { TextButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text("Sign out", color = Muted) } }
+    }
+}
+
+private fun detectedProfileCohorts(state: CompanionState): Pair<Set<String>, Set<String>> {
+    val sections = state.detectedCohorts.sections.toCollection(linkedSetOf())
+    val groups = state.detectedCohorts.groups.toCollection(linkedSetOf())
+    return sections to groups
+}
+
+private fun detectedCohortSummary(sections: Set<String>, groups: Set<String>): String {
+    val labels = sections.map { "Section $it" } + groups.map { "Group $it" }
+    return labels.ifEmpty { listOf("no Section or Group") }.joinToString()
+}
+
+private fun profileDetectionChanged(
+    profile: BetaProfile?,
+    detected: Pair<Set<String>, Set<String>>,
+    detectionLoaded: Boolean,
+): Boolean {
+    if (profile == null || !detectionLoaded) return false
+    return profile.detectedSections != detected.first || profile.detectedGroups != detected.second
+}
+
+@Composable
 private fun BetaEnrollmentContent(
     enrolling: Boolean,
-    onEnroll: (String, String, String?, Boolean) -> Unit,
+    detectedName: String,
+    detectedSections: Set<String>,
+    detectedGroups: Set<String>,
+    onEnroll: (String, String, String, String?, Set<String>, Set<String>, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var inviteCode by rememberSaveable { mutableStateOf("") }
-    var section by rememberSaveable { mutableStateOf("") }
-    var plc by rememberSaveable { mutableStateOf("") }
+    var supportName by rememberSaveable(detectedName) { mutableStateOf(detectedName) }
+    var section by rememberSaveable(detectedSections) { mutableStateOf(detectedSections.firstOrNull()?.let { "Section $it" }.orEmpty()) }
+    var plc by rememberSaveable(detectedGroups) { mutableStateOf(detectedGroups.firstOrNull()?.let { "Group $it" }.orEmpty()) }
     var consented by rememberSaveable { mutableStateOf(false) }
     var attempted by rememberSaveable { mutableStateOf(false) }
-    val valid = isBetaEnrollmentValid(inviteCode, section, consented)
+    val valid = isBetaEnrollmentValid(inviteCode, section, consented) && supportName.isNotBlank()
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -1219,7 +1704,7 @@ private fun BetaEnrollmentContent(
             Spacer(Modifier.height(18.dp))
             Text("Join the one-week beta", fontSize = 30.sp, lineHeight = 32.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
             Spacer(Modifier.height(8.dp))
-            Text("Invitation first. Your LMS sign-in is next.", color = Muted, lineHeight = 21.sp)
+            Text("Your LMS sign-in is ready. Confirm the detected details below.", color = Muted, lineHeight = 21.sp)
             Spacer(Modifier.height(24.dp))
             OutlinedTextField(
                 value = inviteCode,
@@ -1228,6 +1713,16 @@ private fun BetaEnrollmentContent(
                 singleLine = true,
                 enabled = !enrolling,
                 isError = attempted && inviteCode.isBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = supportName,
+                onValueChange = { supportName = it },
+                label = { Text("Name for beta support") },
+                singleLine = true,
+                enabled = !enrolling,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
             )
@@ -1262,6 +1757,7 @@ private fun BetaEnrollmentContent(
                 Text("What this beta sends", color = Ink, fontWeight = FontWeight.ExtraBold)
                 Spacer(Modifier.height(8.dp))
                 Text("• App events, device model, section/PLC, schedule feedback and attendance outcomes.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("• Your support name, visible only to the beta owner and deleted 30 days after the beta ends.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
                 Text("• Exact location only when an attendance decision is made.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
                 Text("• Screenshots only when you select and send them.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
                 Text("• Your LMS password and reusable cookies stay on this phone.", color = Ink, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold)
@@ -1274,13 +1770,13 @@ private fun BetaEnrollmentContent(
                 Text("I understand and agree to this one-week beta data collection.", color = Ink, fontSize = 12.sp, lineHeight = 17.sp)
             }
             if (attempted && !valid) {
-                Text("Invite code, section, and consent are required.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                Text("Invite code, name, Section, and consent are required.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                 Spacer(Modifier.height(8.dp))
             }
             Button(
                 onClick = {
                     attempted = true
-                    if (valid) onEnroll(inviteCode.trim(), section.trim(), plc.trim().takeIf(String::isNotEmpty), consented)
+                    if (valid) onEnroll(inviteCode.trim(), supportName.trim(), section.trim(), plc.trim().takeIf(String::isNotEmpty), detectedSections, detectedGroups, consented)
                 },
                 enabled = !enrolling,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -1288,7 +1784,7 @@ private fun BetaEnrollmentContent(
                 colors = ButtonDefaults.buttonColors(containerColor = TealDeep),
             ) {
                 if (enrolling) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                else Text("Continue to LMS login", fontWeight = FontWeight.Bold)
+                else Text("Join beta", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -1320,6 +1816,21 @@ private fun LoginContent(state: CompanionState, onSignIn: (String, String) -> Un
 
 private fun Session.metaLine(): String = listOfNotNull(room, floorLabel, trainer).joinToString(" · ").ifBlank { "Details not posted" }
 private fun Session.placeLine(): String = listOfNotNull(room, floorLabel).joinToString(" · ").ifBlank { "Location not posted" }
+
+private fun performAttendanceHaptic(view: View, success: Boolean) {
+    val feedback = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        if (success) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.REJECT
+    } else if (success) {
+        HapticFeedbackConstants.LONG_PRESS
+    } else {
+        HapticFeedbackConstants.KEYBOARD_TAP
+    }
+    view.performHapticFeedback(feedback)
+}
+
+private fun performReadingHaptic(view: View) {
+    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+}
 
 private val SessionState.label: String
     get() = when (this) {
@@ -1385,6 +1896,8 @@ private val Line = Color(0xFFDCE5E2)
 private val Soft = Color(0xFFE4ECE9)
 private val Green = Color(0xFF28755A)
 private val DoneSoft = Color(0xFFDFF1E8)
+private val DonePurple = Color(0xFF7151A1)
+private val DonePurpleSoft = Color(0xFFF0EAF8)
 private val Blush = Color(0xFFE8BFDD)
 private val BlushInk = Color(0xFF2C2630)
 private val BlushAccent = Color(0xFFB45558)

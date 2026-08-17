@@ -93,4 +93,49 @@ class BetaApiClientTest {
         assertEquals("b4661dc9-bc38-477e-bd09-95ce32d7d2d4", events.getJSONObject(0).getString("event_id"))
         assertTrue(events.getJSONObject(0).getJSONObject("payload").has("build_type"))
     }
+
+    @Test
+    fun `tester updates the confirmed beta profile`() {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"support_name":"Asha Rao","self_section":"Section B","self_plc":"PLC 4","detected_sections":["B"],"detected_groups":["4"]}""",
+            ),
+        )
+        val installation = BetaInstallation("T-03", "ba9f5ff7-b439-4efc-b9ba-24df4df6e65f", "token")
+
+        val profile = api.updateProfile(
+            installation,
+            BetaProfileUpdate(
+                supportName = "Asha Rao",
+                selfSection = "Section B",
+                selfPlc = "PLC 4",
+                detectedSections = setOf("B"),
+                detectedGroups = setOf("4"),
+                consentVersion = "beta-2026-08-16-profile",
+                confirmedAt = Instant.parse("2026-08-16T10:00:00Z"),
+            ),
+        )
+
+        assertEquals("Asha Rao", profile.supportName)
+        val request = server.takeRequest()
+        assertEquals("/profile", request.path)
+        assertEquals("ba9f5ff7-b439-4efc-b9ba-24df4df6e65f", request.getHeader("x-installation-id"))
+        val body = JSONObject(request.body.readUtf8())
+        assertEquals("Asha Rao", body.getString("support_name"))
+        assertEquals("beta-2026-08-16-profile", body.getString("consent_version"))
+        assertEquals("B", body.getJSONArray("detected_sections").getString(0))
+        assertEquals("4", body.getJSONArray("detected_groups").getString(0))
+    }
+
+    @Test
+    fun `tester can delete the support name early`() {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"deleted":true}"""))
+        val installation = BetaInstallation("T-03", "ba9f5ff7-b439-4efc-b9ba-24df4df6e65f", "token")
+
+        api.deleteSupportName(installation)
+
+        val request = server.takeRequest()
+        assertEquals("/profile-delete", request.path)
+        assertEquals("token", request.getHeader("x-install-token"))
+    }
 }

@@ -65,6 +65,26 @@ class CompanionEngineTest {
     }
 
     @Test
+    fun `attendance refresh stores the LMS summary without recalculating it`() = runBlocking {
+        gateway.attendance = AttendanceSummary(
+            total = 14,
+            present = 3,
+            absent = 0,
+            upcoming = 11,
+            presentPercentage = java.math.BigDecimal("21.43"),
+        )
+        val engine = engine()
+        engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
+
+        val result = engine.dispatch(Command.RefreshAttendance)
+
+        assertTrue(result is CommandResult.Completed)
+        assertEquals(gateway.attendance, engine.state.value.attendanceSummary)
+        assertEquals(1, gateway.attendanceCalls)
+        assertEquals(start, engine.state.value.attendanceSync.lastSuccess)
+    }
+
+    @Test
     fun `command diagnostics retain timing and attendance state without session identifiers`() = runBlocking {
         val diagnostics = RecordingDiagnosticsLogger()
         val engine = engine(diagnostics = diagnostics)
@@ -116,7 +136,8 @@ class CompanionEngineTest {
 
     @Test
     fun `manual mark revalidates markability and is idempotent after confirmation`() = runBlocking {
-        val engine = engine()
+        val telemetry = RecordingAttendanceTelemetry()
+        val engine = engine(attendanceTelemetry = telemetry)
         configureAndRefresh(engine)
         gateway.markabilityCalls = 0
 
@@ -129,6 +150,7 @@ class CompanionEngineTest {
         val second = engine.dispatch(Command.Mark("1285348"))
         assertTrue(second is CommandResult.AlreadyMarked)
         assertEquals(1, gateway.markPresentCalls)
+        assertEquals("already_marked", telemetry.events.last().result)
     }
 
     @Test
@@ -148,6 +170,25 @@ class CompanionEngineTest {
 
         assertEquals("present", telemetry.events.single().outcome)
         assertEquals("manual", telemetry.events.single().method)
+        assertEquals("marked_present", telemetry.events.single().result)
+    }
+
+    @Test
+    fun `reading refresh retries one transient course failure before replacing the cache`() = runBlocking {
+        val course = LmsCourse("12", "State, Market and Society")
+        gateway.courseRows += course
+        gateway.readingRows[course.catId] = mutableListOf(
+            ReadingItem("501", "91", "7", "12", "Seeing Like a State", course.name, "Mandatory Reading", "https://lms/501"),
+        )
+        gateway.readingFailuresRemaining = 1
+        val engine = engine()
+        engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
+
+        val result = engine.dispatch(Command.RefreshReadings)
+
+        assertTrue(result is CommandResult.Completed)
+        assertEquals(2, gateway.readingCalls)
+        assertEquals(listOf("501"), engine.state.value.readings.map { it.vid })
     }
 
     @Test
@@ -501,12 +542,23 @@ private class FakeGateway : LmsGateway {
     var calendarCalls = 0
     var classroomCalls = 0
     var resetSessionCalls = 0
+    var readingCalls = 0
+    var readingFailuresRemaining = 0
+    var attendance = AttendanceSummary(0, 0, 0, 0, java.math.BigDecimal.ZERO)
+    var attendanceCalls = 0
 
     override suspend fun login(credentials: Credentials): Identity = Identity("1042", "Student")
 
     override suspend fun courses(): List<LmsCourse> = courseRows.toList()
 
-    override suspend fun readings(course: LmsCourse): List<ReadingItem> = readingRows[course.catId].orEmpty()
+    override suspend fun readings(course: LmsCourse): List<ReadingItem> {
+        readingCalls++
+        if (readingFailuresRemaining > 0) {
+            readingFailuresRemaining--
+            throw IOException("temporary reading network failure")
+        }
+        return readingRows[course.catId].orEmpty()
+    }
 
     override suspend fun calendar(start: LocalDate, endExclusive: LocalDate): List<CalendarEvent> {
         calendarCalls++
@@ -525,6 +577,11 @@ private class FakeGateway : LmsGateway {
     override suspend fun markability(): Map<String, Markability> {
         markabilityCalls++
         return markabilityMap.toMap()
+    }
+
+    override suspend fun attendanceSummary(): AttendanceSummary {
+        attendanceCalls++
+        return attendance
     }
 
     override suspend fun markPresent(nid: String): ClassroomDetail {

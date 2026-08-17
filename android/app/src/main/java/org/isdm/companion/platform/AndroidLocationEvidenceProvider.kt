@@ -25,6 +25,7 @@ class AndroidLocationEvidenceProvider(
     context: Context,
     private val clock: Clock = Clock.systemUTC(),
     private val locationManager: LocationManager = context.getSystemService(LocationManager::class.java),
+    private val diagnostics: org.isdm.companion.engine.DiagnosticsLogger = org.isdm.companion.engine.NoopDiagnosticsLogger,
 ) {
     private val appContext = context.applicationContext
     @Volatile
@@ -51,16 +52,20 @@ class AndroidLocationEvidenceProvider(
     }
 
     /**
-     * Requests one fresh fix from Android's best enabled provider. This is available on the app's
-     * API 26 minimum and deliberately does not request permission itself.
+     * Requests one high-accuracy fix from Android's best enabled provider. A cold GPS fix can
+     * legitimately take longer than ten seconds, so the default covers the measured Vivo delay.
+     * If the request times out, providers are queried again because another app or the platform
+     * may have refreshed the last-known sample while this request was waiting.
      */
-    suspend fun currentEvidence(timeout: Duration = CURRENT_FIX_TIMEOUT): LocationEvidence? {
+    suspend fun currentEvidence(timeout: Duration = LOCATION_ACQUISITION_POLICY.timeout): LocationEvidence? {
         if (!hasLocationPermission()) return null
+        val fallbackBeforeRequest = bestRecentLastKnownEvidence()
         val provider = runCatching {
-            locationManager.getBestProvider(Criteria(), true)
-        }.getOrNull() ?: return bestRecentLastKnownEvidence()
+            locationManager.getBestProvider(highAccuracyLocationCriteria(), true)
+        }.getOrNull() ?: return fallbackBeforeRequest
+        val startedAt = android.os.SystemClock.elapsedRealtime()
 
-        return withTimeoutOrNull(timeout.toMillis()) {
+        val fresh = withTimeoutOrNull(timeout.toMillis()) {
             suspendCancellableCoroutine { continuation ->
                 val listener = object : LocationListener {
                     override fun onLocationChanged(location: Location) {
@@ -77,7 +82,22 @@ class AndroidLocationEvidenceProvider(
                     if (continuation.isActive) continuation.resume(null)
                 }
             }
-        }.also { evidence -> if (evidence != null) lastObservedEvidence = evidence }
+        }
+        val evidence = fresh ?: bestRecentLastKnownEvidence() ?: fallbackBeforeRequest
+        diagnostics.log(
+            "location_evidence_acquired",
+            mapOf(
+                "elapsed_ms" to (android.os.SystemClock.elapsedRealtime() - startedAt).toString(),
+                "outcome" to when {
+                    fresh != null -> "fresh"
+                    evidence != null -> "recent_cache"
+                    else -> "unavailable"
+                },
+                "provider" to provider,
+            ),
+        )
+        if (evidence != null) lastObservedEvidence = evidence
+        return evidence
     }
 
     private fun hasLocationPermission(): Boolean =
@@ -90,7 +110,22 @@ class AndroidLocationEvidenceProvider(
     }
 }
 
-private val CURRENT_FIX_TIMEOUT: Duration = Duration.ofSeconds(10)
+internal data class LocationAcquisitionPolicy(
+    val requireFineAccuracy: Boolean,
+    val preferHighPower: Boolean,
+    val timeout: Duration,
+)
+
+internal val LOCATION_ACQUISITION_POLICY = LocationAcquisitionPolicy(
+    requireFineAccuracy = true,
+    preferHighPower = true,
+    timeout = Duration.ofSeconds(30),
+)
+
+internal fun highAccuracyLocationCriteria(): Criteria = Criteria().apply {
+    if (LOCATION_ACQUISITION_POLICY.requireFineAccuracy) accuracy = Criteria.ACCURACY_FINE
+    if (LOCATION_ACQUISITION_POLICY.preferHighPower) powerRequirement = Criteria.POWER_HIGH
+}
 
 private fun Location.toLocationEvidence() = LocationEvidence(
     latitude = latitude,

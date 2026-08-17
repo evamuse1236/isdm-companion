@@ -27,6 +27,13 @@ class CompanionSyncWorker(
     override suspend fun doWork(): Result {
         val app = applicationContext as CompanionApplication
         app.diagnostics.log("background_sync_started", mapOf("attempt" to runAttemptCount.toString()))
+        if (runAttemptCount >= MAX_BACKGROUND_SYNC_ATTEMPTS) {
+            app.diagnostics.log(
+                "background_sync_retry_exhausted",
+                mapOf("attempt" to runAttemptCount.toString()),
+            )
+            return Result.success()
+        }
         val credentials = app.credentialStore.load()
         if (credentials == null) {
             app.diagnostics.log("background_sync_skipped", mapOf("reason" to "credentials_missing"))
@@ -59,15 +66,19 @@ class CompanionSyncWorker(
     }
 
     private fun failureResult(app: CompanionApplication, error: EngineError): Result {
-        val terminal = error is EngineError.AuthenticationFailed
+        val retry = shouldRetryBackgroundSync(error, runAttemptCount)
         app.diagnostics.log(
             "background_sync_failed",
             mapOf(
                 "error" to error.javaClass.simpleName,
-                "retry" to (!terminal).toString(),
+                "retry" to retry.toString(),
             ),
         )
-        return if (terminal) Result.failure() else Result.retry()
+        return when {
+            error is EngineError.AuthenticationFailed -> Result.failure()
+            retry -> Result.retry()
+            else -> Result.success()
+        }
     }
 
     companion object {
@@ -119,6 +130,13 @@ class CompanionReadingSyncWorker(
     override suspend fun doWork(): Result {
         val app = applicationContext as CompanionApplication
         app.diagnostics.log("background_reading_sync_started", mapOf("attempt" to runAttemptCount.toString()))
+        if (runAttemptCount >= MAX_BACKGROUND_SYNC_ATTEMPTS) {
+            app.diagnostics.log(
+                "background_reading_sync_retry_exhausted",
+                mapOf("attempt" to runAttemptCount.toString()),
+            )
+            return Result.success()
+        }
         val credentials = app.credentialStore.load()
         if (credentials == null) {
             app.diagnostics.log("background_reading_sync_skipped", mapOf("reason" to "credentials_missing"))
@@ -139,12 +157,16 @@ class CompanionReadingSyncWorker(
         }
         val result = app.engine.dispatch(Command.RefreshReadings)
         if (result is CommandResult.Rejected) {
-            val terminal = result.error is EngineError.AuthenticationFailed
+            val retry = shouldRetryBackgroundSync(result.error, runAttemptCount)
             app.diagnostics.log(
                 "background_reading_sync_failed",
-                mapOf("error" to result.error.javaClass.simpleName, "retry" to (!terminal).toString()),
+                mapOf("error" to result.error.javaClass.simpleName, "retry" to retry.toString()),
             )
-            return if (terminal) Result.failure() else Result.retry()
+            return when {
+                result.error is EngineError.AuthenticationFailed -> Result.failure()
+                retry -> Result.retry()
+                else -> Result.success()
+            }
         }
         app.diagnostics.log("background_reading_sync_finished")
         return Result.success()
@@ -188,3 +210,7 @@ internal fun readingSyncDeferralDelay(
 
 private val CLASS_GUARD: Duration = Duration.ofMinutes(30)
 private val MINIMUM_READING_DEFERRAL: Duration = Duration.ofMinutes(1)
+private const val MAX_BACKGROUND_SYNC_ATTEMPTS = 3
+
+internal fun shouldRetryBackgroundSync(error: EngineError, runAttemptCount: Int): Boolean =
+    error !is EngineError.AuthenticationFailed && runAttemptCount < MAX_BACKGROUND_SYNC_ATTEMPTS

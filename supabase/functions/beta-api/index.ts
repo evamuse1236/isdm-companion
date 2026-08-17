@@ -1,4 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2.112.3";
+import { deriveSyncUpdate } from "./telemetry.ts";
+import {
+  deleteBetaSupportName,
+  updateBetaProfile,
+  type BetaProfileDeleteStore,
+  type BetaProfileRecord,
+  type BetaProfileStore,
+} from "./profile.ts";
 
 const supabaseUrl = requiredEnv("SUPABASE_URL");
 const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -24,6 +32,8 @@ Deno.serve(async (request) => {
     if (route === "config" && request.method === "GET") return configResponse(installation);
     if (route === "auto-preflight" && request.method === "POST") return autoPreflight(installation);
     if (route === "events" && request.method === "POST") return ingestEvents(request, installation);
+    if (route === "profile" && request.method === "POST") return updateBetaProfile(request, installation, profileStore);
+    if (route === "profile-delete" && request.method === "POST") return deleteBetaSupportName(installation, profileDeleteStore);
     if (route === "schedule" && request.method === "POST") return recordSchedule(request, installation);
     if (route === "attendance" && request.method === "POST") return recordAttendance(request, installation);
     if (route === "report" && request.method === "POST") return recordReport(request, installation);
@@ -43,6 +53,38 @@ type Installation = {
   app_version_code: number | null;
 };
 
+const profileStore: BetaProfileStore = {
+  async saveProfile(testerCode: string, profile: BetaProfileRecord): Promise<BetaProfileRecord> {
+    const { data, error } = await db.from("beta_installations").update({
+      support_name: profile.support_name,
+      self_section: profile.self_section,
+      self_plc: profile.self_plc,
+      detected_sections: profile.detected_sections,
+      detected_groups: profile.detected_groups,
+      consent_version: profile.consent_version,
+      consented_at: profile.consented_at,
+      profile_confirmed_at: profile.profile_confirmed_at,
+      support_name_deleted_at: null,
+      updated_at: new Date().toISOString(),
+    }).eq("tester_code", testerCode)
+      .select("support_name, self_section, self_plc, detected_sections, detected_groups, consent_version, consented_at, profile_confirmed_at")
+      .single();
+    if (error) throw error;
+    return data as BetaProfileRecord;
+  },
+};
+
+const profileDeleteStore: BetaProfileDeleteStore = {
+  async deleteSupportName(testerCode: string): Promise<void> {
+    const { error } = await db.from("beta_installations").update({
+      support_name: null,
+      support_name_deleted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("tester_code", testerCode);
+    if (error) throw error;
+  },
+};
+
 async function enroll(request: Request): Promise<Response> {
   const body = await readJson(request);
   const inviteCode = requiredString(body.invite_code, 64).toUpperCase();
@@ -58,7 +100,7 @@ async function enroll(request: Request): Promise<Response> {
     .maybeSingle();
   if (lookupError) throw lookupError;
   if (!invite) return json({ error: "invalid_invite" }, 404);
-  if (invite.installation_id) return json({ error: "invite_already_claimed" }, 409);
+  const reclaimed = Boolean(invite.installation_id);
 
   const installationId = crypto.randomUUID();
   const installToken = randomToken();
@@ -82,14 +124,14 @@ async function enroll(request: Request): Promise<Response> {
       last_seen_at: now,
       updated_at: now,
     })
-    .eq("tester_code", invite.tester_code)
-    .is("installation_id", null);
+    .eq("tester_code", invite.tester_code);
   if (error) throw error;
 
   return json({
     tester_code: invite.tester_code,
     installation_id: installationId,
     install_token: installToken,
+    reclaimed,
   }, 201);
 }
 
@@ -148,7 +190,9 @@ async function ingestEvents(request: Request, installation: Installation): Promi
   const { error } = await db.from("beta_events").upsert(rows, { onConflict: "event_id", ignoreDuplicates: true });
   if (error) throw error;
 
-  await db.from("beta_installations").update({
+  const syncUpdate = deriveSyncUpdate(rows);
+
+  const { error: installationError } = await db.from("beta_installations").update({
     last_seen_at: new Date().toISOString(),
     manufacturer: optionalString(body.manufacturer, 120),
     model: optionalString(body.model, 160),
@@ -156,10 +200,10 @@ async function ingestEvents(request: Request, installation: Installation): Promi
     app_version: optionalString(body.app_version, 80),
     app_version_code: optionalInteger(body.app_version_code),
     auto_attendance_enabled: optionalBoolean(body.auto_attendance_enabled),
-    last_sync_status: optionalString(body.last_sync_status, 80),
-    last_sync_at: optionalIsoDate(body.last_sync_at),
+    ...syncUpdate,
     updated_at: new Date().toISOString(),
   }).eq("tester_code", installation.tester_code);
+  if (installationError) throw installationError;
 
   return json({ accepted: rows.length });
 }

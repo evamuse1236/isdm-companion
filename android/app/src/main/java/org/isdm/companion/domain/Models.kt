@@ -66,6 +66,7 @@ data class Session(
     val floor: Double? = null,
     val floorLabel: String? = null,
     val detailError: String? = null,
+    val endEstimated: Boolean = false,
 ) {
     val sessionNumber: Int?
         get() = session

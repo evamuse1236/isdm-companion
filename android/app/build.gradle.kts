@@ -12,8 +12,8 @@ android {
         applicationId = "org.isdm.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0-beta"
+        versionCode = 4
+        versionName = "0.4.0-beta"
 
         buildConfigField(
             "String",
@@ -75,7 +75,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jsoup:jsoup:1.18.1")
     implementation("androidx.security:security-crypto:1.1.0")
-    implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

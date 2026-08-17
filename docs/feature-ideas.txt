@@ -1,0 +1,25 @@
+ISDM Companion - Feature Ideas
+================================
+
+Onboarding and permissions
+--------------------------
+- Make it much clearer that location access must be set to "Allow all the time."
+- Clearly explain that notifications also need to be enabled.
+- Explain why these permissions are needed and how they help the app work.
+
+Profile and setup
+-----------------
+- Make the PLC and section selection options easier to understand.
+- Let people change their PLC and section later from their profile if they made
+  a mistake during setup or if their details change.
+- Collect people's names to make debugging and support easier.
+
+Readings
+--------
+- Let people mark readings as done without making the completed readings
+  disappear.
+
+Delight and feedback
+--------------------
+- Add more small, fun animations to make the app feel lovely to use.
+- Explore adding sounds, haptic feedback, or both for important interactions.

@@ -68,6 +68,39 @@ class BetaManager(
     val isEnrolled: Boolean
         get() = installation != null
 
+    val shouldShowTour: Boolean
+        get() = uiPreferences.getInt(KEY_TOUR_VERSION, 0) < TOUR_VERSION
+
+    val profile: BetaProfile?
+        get() {
+            if (!uiPreferences.getBoolean(KEY_PROFILE_CONFIRMED, false)) return null
+            return BetaProfile(
+                supportName = uiPreferences.getString(KEY_PROFILE_NAME, null),
+                selfSection = uiPreferences.getString(KEY_PROFILE_SECTION, null),
+                selfPlc = uiPreferences.getString(KEY_PROFILE_PLC, null),
+                detectedSections = uiPreferences.getStringSet(KEY_DETECTED_SECTIONS, emptySet()).orEmpty(),
+                detectedGroups = uiPreferences.getStringSet(KEY_DETECTED_GROUPS, emptySet()).orEmpty(),
+            )
+        }
+
+    val setupExplained: Boolean
+        get() = uiPreferences.getBoolean(KEY_SETUP_EXPLAINED, false)
+
+    val automaticAttendanceSetupReady: Boolean
+        get() = setupExplained && !shouldShowTour && profile != null
+
+    fun markTourSeen() {
+        uiPreferences.edit().putInt(KEY_TOUR_VERSION, TOUR_VERSION).apply()
+    }
+
+    fun reopenTour() {
+        uiPreferences.edit().putInt(KEY_TOUR_VERSION, 0).apply()
+    }
+
+    fun markSetupExplained() {
+        uiPreferences.edit().putBoolean(KEY_SETUP_EXPLAINED, true).apply()
+    }
+
     fun enroll(inviteCode: String, section: String, plc: String?): BetaInstallation {
         val installation = api.enroll(
             BetaEnrollment(
@@ -82,6 +115,26 @@ class BetaManager(
         log("beta_enrolled", mapOf("tester_code" to installation.testerCode))
         scheduleUpload(context)
         return installation
+    }
+
+    fun updateProfile(update: BetaProfileUpdate): BetaProfile {
+        val current = installation ?: throw BetaApiException(401, "not_enrolled")
+        val saved = api.updateProfile(current, update)
+        uiPreferences.edit()
+            .putBoolean(KEY_PROFILE_CONFIRMED, true)
+            .putNullable(KEY_PROFILE_NAME, saved.supportName)
+            .putNullable(KEY_PROFILE_SECTION, saved.selfSection)
+            .putNullable(KEY_PROFILE_PLC, saved.selfPlc)
+            .putStringSet(KEY_DETECTED_SECTIONS, saved.detectedSections)
+            .putStringSet(KEY_DETECTED_GROUPS, saved.detectedGroups)
+            .apply()
+        return saved
+    }
+
+    fun deleteSupportName() {
+        val current = installation ?: throw BetaApiException(401, "not_enrolled")
+        api.deleteSupportName(current)
+        uiPreferences.edit().remove(KEY_PROFILE_NAME).putBoolean(KEY_PROFILE_CONFIRMED, true).apply()
     }
 
     fun log(event: String, attributes: Map<String, String> = emptyMap(), error: Throwable? = null) {
@@ -143,6 +196,7 @@ class BetaManager(
         sessionId: String,
         sessionLabel: String,
         outcome: String,
+        result: String,
         gateAllowed: Boolean?,
         gateReason: String?,
         lmsMarkable: Boolean?,
@@ -165,7 +219,21 @@ class BetaManager(
                 "gate_reason" to gateReason,
                 "lms_markable" to lmsMarkable,
                 "outcome" to outcome,
-                "details" to mapOf("location_is_mock" to evidence?.isMock),
+                "details" to mapOf(
+                    "location_is_mock" to evidence?.isMock,
+                    "result" to result,
+                ),
+            ),
+        )
+    }
+
+    fun queueLmsDiagnostic(endpointLabel: String, httpStatus: Int?, failureType: String) {
+        queue(
+            "lms-diagnostic",
+            mapOf(
+                "endpoint_label" to endpointLabel.take(120),
+                "http_status" to httpStatus,
+                "diagnostic" to mapOf("failure_type" to failureType.take(80)),
             ),
         )
     }
@@ -245,9 +313,18 @@ class BetaManager(
     )
 
     companion object {
-        const val CONSENT_VERSION = "beta-2026-08-15"
+        const val CONSENT_VERSION = "beta-2026-08-16-profile"
+        const val TOUR_VERSION = 1
         const val MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
         private const val UPLOAD_WORK = "beta-telemetry-upload"
+        private const val KEY_TOUR_VERSION = "tour_version"
+        private const val KEY_PROFILE_NAME = "profile_name"
+        private const val KEY_PROFILE_CONFIRMED = "profile_confirmed"
+        private const val KEY_PROFILE_SECTION = "profile_section"
+        private const val KEY_PROFILE_PLC = "profile_plc"
+        private const val KEY_DETECTED_SECTIONS = "detected_sections"
+        private const val KEY_DETECTED_GROUPS = "detected_groups"
+        private const val KEY_SETUP_EXPLAINED = "setup_explained"
 
         fun create(context: Context, autoAttendanceEnabled: () -> Boolean): BetaManager {
             val plainPreferences = context.getSharedPreferences("beta_upload_queue", Context.MODE_PRIVATE)
@@ -271,6 +348,9 @@ class BetaManager(
         }
     }
 }
+
+private fun SharedPreferences.Editor.putNullable(key: String, value: String?): SharedPreferences.Editor =
+    if (value == null) remove(key) else putString(key, value)
 
 class BetaUploadWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {

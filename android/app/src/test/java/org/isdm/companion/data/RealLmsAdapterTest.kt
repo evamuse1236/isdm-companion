@@ -1,5 +1,6 @@
 package org.isdm.companion.data
 
+import java.time.Instant
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -13,6 +14,122 @@ import org.junit.Test
 import org.isdm.companion.engine.Credentials
 
 class RealLmsAdapterTest {
+    @Test
+    fun `attendance summary uses the LMS totals and percentage`() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.method == "GET" && request.path == "/user/login" -> MockResponse()
+                    .setHeader("Set-Cookie", "SESSattendance=trusted; Path=/; HttpOnly")
+                    .setBody(loginForm())
+                request.method == "POST" && request.path == "/user/login" -> MockResponse()
+                    .setResponseCode(302).setHeader("Location", "/home")
+                request.method == "GET" && request.path == "/home" -> MockResponse()
+                    .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
+                request.method == "GET" && request.path == "/manage/classroom/attendance" -> MockResponse()
+                    .setBody(
+                        """
+                        <div id="classroom_attendance_summary">
+                          <div class="cas-stat">
+                            <div class="cas-stat-label">Total Sessions</div>
+                            <div class="cas-stat-value cas-total">14</div>
+                            <div class="cas-stat-sub">All Sessions</div>
+                          </div>
+                          <div class="cas-stat">
+                            <div class="cas-stat-label">Present</div>
+                            <div class="cas-stat-value cas-present">3</div>
+                            <div class="cas-stat-sub">21.43%</div>
+                          </div>
+                          <div class="cas-stat">
+                            <div class="cas-stat-label">Absent</div>
+                            <div class="cas-stat-value cas-absent">0</div>
+                            <div class="cas-stat-sub">0.00%</div>
+                          </div>
+                          <div class="cas-stat">
+                            <div class="cas-stat-label">Upcoming</div>
+                            <div class="cas-stat-value cas-upcoming">11</div>
+                            <div class="cas-stat-sub">78.57%</div>
+                          </div>
+                        </div>
+                        """.trimIndent(),
+                    )
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+
+        try {
+            val summary = RealLmsAdapter("student@example.com", "secret", server.url("/").toString())
+                .attendanceSummary()
+
+            assertEquals(14, summary.total)
+            assertEquals(3, summary.present)
+            assertEquals(0, summary.absent)
+            assertEquals(11, summary.upcoming)
+            assertEquals("21.43", summary.presentPercentage.toPlainString())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `LMS diagnostics reduce request paths to safe endpoint labels`() {
+        assertEquals("calendar", lmsEndpointLabel("/calendar/json"))
+        assertEquals("course_details", lmsEndpointLabel("/course/details"))
+        assertEquals("classroom", lmsEndpointLabel("/classroom/1285348/view"))
+        assertEquals("other", lmsEndpointLabel("/unexpected/private/path"))
+    }
+
+    @Test
+    fun `HTTP failures report only endpoint status and failure type`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(503).setBody("private LMS response"))
+        server.start()
+        val diagnostics = mutableListOf<Triple<String, Int?, String>>()
+        val adapter = RealLmsAdapter(
+            baseUrl = server.url("/").toString(),
+            lmsDiagnosticReporter = LmsDiagnosticReporter { endpoint, status, failureType ->
+                diagnostics += Triple(endpoint, status, failureType)
+            },
+        )
+        try {
+            runCatching { adapter.login(Credentials("student@example.com", "secret")) }
+
+            assertEquals(listOf(Triple("login", 503, "http")), diagnostics)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun classroomDetailProvidesTheLmsEndTime() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.method == "GET" && request.path == "/user/login" -> MockResponse()
+                    .setHeader("Set-Cookie", "SESSdetail=trusted; Path=/; HttpOnly")
+                    .setBody(loginForm())
+                request.method == "POST" && request.path == "/user/login" -> MockResponse()
+                    .setResponseCode(302).setHeader("Location", "/home")
+                request.method == "GET" && request.path == "/home" -> MockResponse()
+                    .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
+                request.method == "GET" && request.path == "/classroom/1285348/view" -> MockResponse()
+                    .setBody(classroom(marked = false))
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+
+        try {
+            val detail = RealLmsAdapter("student@example.com", "secret", server.url("/").toString())
+                .classroom("1285348")
+
+            assertEquals(Instant.parse("2026-08-16T06:30:00Z"), detail.end)
+        } finally {
+            server.shutdown()
+        }
+    }
+
     @Test
     fun readingDownloadResolvesTheSignedNativePdfUrl() = runBlocking {
         val server = MockWebServer()
@@ -331,6 +448,7 @@ class RealLmsAdapterTest {
         <table><tbody>
           <tr><td class="col-1">Title</td><td class="mid">:</td><td class="col-2">Attendance - Bricolage</td></tr>
           <tr><td class="col-1">Location</td><td class="mid">:</td><td class="col-2">Majlis</td></tr>
+          <tr><td class="col-1">End Date &amp; Time</td><td class="mid">:</td><td class="col-2">2026-08-16 12:00:00</td></tr>
           <tr><td class="col-1">Attendance Marked (For me)</td><td class="mid">:</td><td class="col-2">${if (marked) "Yes" else "No"}</td></tr>
           <tr><td class="col-1">Status</td><td class="mid">:</td><td class="col-2">${if (marked) "Present" else "Not Marked"}</td></tr>
         </tbody></table>

@@ -30,17 +30,27 @@ async function isAdmin(request: Request): Promise<boolean> {
 }
 
 async function dashboard(): Promise<Response> {
-  const [config, installations, events, schedules, attendance, reports, attachments, audit] = await Promise.all([
+  const todayIst = startOfTodayIst();
+  const [config, installations, events, schedules, attendance, reports, attachments, audit, failures, cancellations, exits] = await Promise.all([
     db.from("beta_config").select("auto_attendance_blocked, minimum_version_code, beta_starts_at, beta_ends_at, updated_at").eq("singleton", true).single(),
-    db.from("beta_installations").select("tester_code, installation_id, consent_version, consented_at, self_section, self_plc, manufacturer, model, android_version, app_version, app_version_code, detected_sections, detected_groups, schedule_status, auto_attendance_enabled, last_sync_status, last_sync_at, first_seen_at, last_seen_at, claimed_at").order("tester_code"),
+    db.from("beta_installations").select("tester_code, installation_id, consent_version, consented_at, support_name, profile_confirmed_at, support_name_deleted_at, self_section, self_plc, manufacturer, model, android_version, app_version, app_version_code, detected_sections, detected_groups, schedule_status, auto_attendance_enabled, last_sync_status, last_sync_at, first_seen_at, last_seen_at, claimed_at").order("tester_code"),
     db.from("beta_events").select("id, tester_code, event_type, occurred_at, payload, received_at").order("occurred_at", { ascending: false }).limit(300),
     db.from("beta_schedule_confirmations").select("id, tester_code, confirmed_at, status, selected_date, app_session_count, note, snapshot").order("confirmed_at", { ascending: false }).limit(100),
     db.from("beta_attendance_decisions").select("id, tester_code, occurred_at, method, session_label, latitude, longitude, accuracy_m, location_age_ms, distance_m, gate_allowed, gate_reason, lms_markable, outcome, suspected_incorrect, details").order("occurred_at", { ascending: false }).limit(200),
     db.from("beta_issue_reports").select("id, tester_code, category, title, description, status, owner_note, linked_attendance_id, app_context, created_at, updated_at").order("created_at", { ascending: false }).limit(200),
     db.from("beta_report_attachments").select("id, report_id, storage_path, content_type, size_bytes, created_at").order("created_at", { ascending: false }).limit(400),
     db.from("beta_control_audit").select("id, action, reason, actor_label, created_at").order("created_at", { ascending: false }).limit(20),
+    db.from("beta_events").select("id", { count: "exact", head: true })
+      .gte("occurred_at", todayIst)
+      .in("event_type", ["command_crashed", "background_sync_failed", "background_reading_sync_failed"]),
+    db.from("beta_events").select("id", { count: "exact", head: true })
+      .gte("occurred_at", todayIst)
+      .eq("event_type", "command_cancelled"),
+    db.from("beta_events").select("id", { count: "exact", head: true })
+      .gte("occurred_at", todayIst)
+      .eq("event_type", "previous_process_exit"),
   ]);
-  for (const result of [config, installations, events, schedules, attendance, reports, attachments, audit]) {
+  for (const result of [config, installations, events, schedules, attendance, reports, attachments, audit, failures, cancellations, exits]) {
     if (result.error) throw result.error;
   }
 
@@ -54,12 +64,28 @@ async function dashboard(): Promise<Response> {
     config: config.data,
     installations: installations.data ?? [],
     events: events.data ?? [],
+    reliability: {
+      failures: failures.count ?? 0,
+      cancellations: cancellations.count ?? 0,
+      recorded_exits: exits.count ?? 0,
+    },
     schedule_confirmations: schedules.data ?? [],
     attendance_decisions: attendance.data ?? [],
     reports: reports.data ?? [],
     attachments: signedAttachments,
     control_audit: audit.data ?? [],
   });
+}
+
+function startOfTodayIst(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value;
+  return new Date(`${part("year")}-${part("month")}-${part("day")}T00:00:00+05:30`).toISOString();
 }
 
 async function updateControl(request: Request): Promise<Response> {

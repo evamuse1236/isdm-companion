@@ -205,16 +205,18 @@ fun buildSessions(events: Iterable<CalendarEvent>, cohorts: Cohorts): List<Sessi
         .asSequence()
         .filter { !it.nid.isNullOrEmpty() || it.mine }
         .map {
+            val resolvedEnd = it.end ?: it.start.plusSeconds(DEFAULT_SESSION_DURATION_SECONDS)
             Session(
                 name = it.name,
                 cohort = it.cohort,
                 session = it.session,
                 start = it.start,
-                end = it.end,
+                end = resolvedEnd,
                 nid = it.nid,
                 eventNid = it.eventNid,
                 subject = it.subject,
                 trainer = it.trainer,
+                endEstimated = it.end == null,
             )
         }
         .sortedWith(compareBy<Session> { it.startMs }.thenBy { it.name })
@@ -233,3 +235,5 @@ fun sessionState(row: Session, now: Instant): SessionState {
 }
 
 fun sessionState(row: Session, nowMs: Long): SessionState = sessionState(row, Instant.ofEpochMilli(nowMs))
+
+private const val DEFAULT_SESSION_DURATION_SECONDS = 90L * 60L

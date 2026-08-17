@@ -5,6 +5,7 @@ import android.os.Build
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import org.isdm.companion.data.RealLmsAdapter
+import org.isdm.companion.data.LmsDiagnosticReporter
 import org.isdm.companion.domain.AttendanceLocationGate
 import org.isdm.companion.domain.AttendanceLocationGateDecision
 import org.isdm.companion.domain.LocationGateReason
@@ -17,6 +18,7 @@ import org.isdm.companion.engine.DiagnosticsLogger
 import org.isdm.companion.platform.AndroidNotifier
 import org.isdm.companion.platform.AndroidDiagnosticsLogger
 import org.isdm.companion.platform.AndroidLocationEvidenceProvider
+import org.isdm.companion.platform.AndroidProcessExitReporter
 import org.isdm.companion.platform.AutoAttendanceScheduler
 import org.isdm.companion.platform.AutoAttendanceStore
 import org.isdm.companion.platform.CompanionLocalStore
@@ -57,18 +59,30 @@ class CompanionApplication : Application() {
         autoAttendanceStore = AutoAttendanceStore(this)
         betaManager = BetaManager.create(this, autoAttendanceStore::isEnabled)
         diagnostics = BetaDiagnosticsLogger(AndroidDiagnosticsLogger(this), betaManager)
+        AndroidProcessExitReporter(this, diagnostics).reportPreviousExits()
         autoAttendanceScheduler = AutoAttendanceScheduler(this, autoAttendanceStore, diagnostics)
         localStore = CompanionLocalStore(this)
         val savedCredentials = credentialStore.load()
+        val setupReady = betaManager.automaticAttendanceSetupReady &&
+            autoAttendanceScheduler.hasRequiredSystemAccess()
+        if (autoAttendanceStore.isEnabled() && !setupReady) {
+            autoAttendanceStore.setEnabled(false)
+            autoAttendanceScheduler.cancel()
+        }
         restoreAutoAttendanceOnProcessStart(
             enabled = autoAttendanceStore.isEnabled(),
+            setupReady = setupReady,
             credentials = savedCredentials,
             selectAccount = localStore::selectAccount,
             loadSchedule = localStore::loadSchedule,
             schedule = { cached -> autoAttendanceScheduler.schedule(cached.sessions, Instant.now()) },
         )
-        lmsAdapter = RealLmsAdapter()
-        val locationEvidenceProvider = AndroidLocationEvidenceProvider(this)
+        lmsAdapter = RealLmsAdapter(
+            lmsDiagnosticReporter = LmsDiagnosticReporter { endpointLabel, httpStatus, failureType ->
+                betaManager.queueLmsDiagnostic(endpointLabel, httpStatus, failureType)
+            },
+        )
+        val locationEvidenceProvider = AndroidLocationEvidenceProvider(this, diagnostics = diagnostics)
         val locationGate = AndroidAttendanceLocationGatePort(
             evidenceProvider = locationEvidenceProvider,
             diagnostics = diagnostics,
@@ -113,6 +127,7 @@ private class AndroidBetaAttendanceTelemetry(
             sessionId = event.sessionId,
             sessionLabel = event.sessionLabel,
             outcome = event.outcome,
+            result = event.result,
             gateAllowed = event.gateAllowed,
             gateReason = event.gateReason?.name,
             lmsMarkable = event.lmsMarkable,
@@ -123,12 +138,13 @@ private class AndroidBetaAttendanceTelemetry(
 
 internal fun restoreAutoAttendanceOnProcessStart(
     enabled: Boolean,
+    setupReady: Boolean,
     credentials: StoredCredentials?,
     selectAccount: (String) -> Unit,
     loadSchedule: () -> CachedSchedule?,
     schedule: (CachedSchedule) -> Unit,
 ) {
-    if (!enabled || credentials == null) return
+    if (!enabled || !setupReady || credentials == null) return
     selectAccount(credentials.email)
     loadSchedule()?.let(schedule)
 }

@@ -26,6 +26,9 @@ import org.isdm.companion.engine.ReadingItem
 import org.isdm.companion.domain.LocationGateReason
 import org.isdm.companion.platform.AutoAttendanceScheduleResult
 import org.isdm.companion.platform.BetaApiException
+import org.isdm.companion.platform.BetaManager
+import org.isdm.companion.platform.BetaProfile
+import org.isdm.companion.platform.BetaProfileUpdate
 import org.isdm.companion.platform.CompanionSyncWorker
 import org.isdm.companion.platform.clearLmsBrowserSessionAndWait
 import java.time.Instant
@@ -35,13 +38,20 @@ import org.isdm.companion.platform.MonitoringService
 
 class CompanionViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as CompanionApplication
+    private val releaseNotesStore = ReleaseNotesStore(app)
     val state = app.engine.state
+
+    private val _releaseNotes = MutableStateFlow(releaseNotesStore.pending())
+    val releaseNotes = _releaseNotes.asStateFlow()
 
     private val _initializing = MutableStateFlow(true)
     val initializing = _initializing.asStateFlow()
 
     private val _message = MutableStateFlow<String?>(null)
     val message = _message.asStateFlow()
+
+    private val _attendanceFeedback = MutableStateFlow<AttendanceFeedback?>(null)
+    val attendanceFeedback = _attendanceFeedback.asStateFlow()
 
     private val _autoAttendanceEnabled = MutableStateFlow(app.autoAttendanceStore.isEnabled())
     val autoAttendanceEnabled = _autoAttendanceEnabled.asStateFlow()
@@ -51,6 +61,18 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _betaEnrolling = MutableStateFlow(false)
     val betaEnrolling = _betaEnrolling.asStateFlow()
+
+    private val _betaTourRequired = MutableStateFlow(app.betaManager.shouldShowTour)
+    val betaTourRequired = _betaTourRequired.asStateFlow()
+
+    private val _betaProfile = MutableStateFlow(app.betaManager.profile)
+    val betaProfile = _betaProfile.asStateFlow()
+
+    private val _setupExplained = MutableStateFlow(app.betaManager.setupExplained)
+    val setupExplained = _setupExplained.asStateFlow()
+
+    private val _setupPermissions = MutableStateFlow(BetaSetupPermissions(false, false, false, false))
+    val setupPermissions = _setupPermissions.asStateFlow()
 
     private val _reportSending = MutableStateFlow(false)
     val reportSending = _reportSending.asStateFlow()
@@ -92,8 +114,11 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun enrollBeta(
         inviteCode: String,
+        supportName: String,
         section: String,
         plc: String?,
+        detectedSections: Set<String>,
+        detectedGroups: Set<String>,
         consented: Boolean,
         onSuccess: () -> Unit,
     ) {
@@ -101,21 +126,100 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         _betaEnrolling.value = true
         viewModelScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) { app.betaManager.enroll(inviteCode, section, plc) }
-            }.onSuccess { installation ->
+                withContext(Dispatchers.IO) {
+                    val installation = app.betaManager.enroll(inviteCode, section, plc)
+                    val profile = app.betaManager.updateProfile(
+                        BetaProfileUpdate(
+                            supportName = supportName,
+                            selfSection = section,
+                            selfPlc = plc,
+                            detectedSections = detectedSections,
+                            detectedGroups = detectedGroups,
+                            consentVersion = BetaManager.CONSENT_VERSION,
+                            confirmedAt = Instant.now(),
+                        ),
+                    )
+                    installation to profile
+                }
+            }.onSuccess { (installation, profile) ->
                 _betaEnrolled.value = true
-                if (app.autoAttendanceStore.setEnabled(true)) _autoAttendanceEnabled.value = true
-                _message.value = "${installation.testerCode} joined the beta. Sign in to the LMS next."
+                _betaProfile.value = profile
+                _message.value = "${installation.testerCode} joined the beta."
                 onSuccess()
             }.onFailure { error ->
+                if (app.betaManager.isEnrolled) _betaEnrolled.value = true
                 app.diagnostics.log("beta_enrollment_failed", error = error)
                 _message.value = when ((error as? BetaApiException)?.code) {
                     "invalid_invite" -> "That invite code is not valid."
                     "invite_already_claimed" -> "That invite code has already been used."
-                    else -> "Could not join the beta. Check the internet connection and try again."
+                    else -> if (app.betaManager.isEnrolled) {
+                        "The beta was joined, but the profile could not be saved. Confirm it again."
+                    } else {
+                        "Could not join the beta. Check the internet connection and try again."
+                    }
                 }
             }
             _betaEnrolling.value = false
+        }
+    }
+
+    fun finishTour() {
+        app.betaManager.markTourSeen()
+        _betaTourRequired.value = false
+    }
+
+    fun reopenTour() {
+        app.betaManager.reopenTour()
+        _betaTourRequired.value = true
+    }
+
+    fun markSetupExplained() {
+        app.betaManager.markSetupExplained()
+        _setupExplained.value = true
+    }
+
+    fun updateBetaProfile(
+        supportName: String,
+        section: String?,
+        plc: String?,
+        detectedSections: Set<String>,
+        detectedGroups: Set<String>,
+        onSuccess: () -> Unit,
+    ) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    app.betaManager.updateProfile(
+                        BetaProfileUpdate(
+                            supportName.trim(),
+                            section?.trim()?.takeIf(String::isNotEmpty),
+                            plc?.trim()?.takeIf(String::isNotEmpty),
+                            detectedSections,
+                            detectedGroups,
+                            BetaManager.CONSENT_VERSION,
+                            Instant.now(),
+                        ),
+                    )
+                }
+            }.onSuccess {
+                _betaProfile.value = it
+                _message.value = "Beta profile updated. Your schedule still follows the LMS."
+                onSuccess()
+            }.onFailure {
+                _message.value = "Could not update the beta profile. Try again."
+            }
+        }
+    }
+
+    fun deleteBetaSupportName(onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { app.betaManager.deleteSupportName() } }
+                .onSuccess {
+                    _betaProfile.value = _betaProfile.value?.copy(supportName = null)
+                    _message.value = "Your support name was deleted."
+                    onSuccess()
+                }
+                .onFailure { _message.value = "Could not delete the support name. Try again." }
         }
     }
 
@@ -174,9 +278,34 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun refresh() {
         viewModelScope.launch {
             app.engine.dispatch(Command.RefreshAll)
+            reconcileDetectedCohorts()
             scheduleAutoAttendance(showMessage = false)
         }
     }
+
+    fun refreshAttendance() {
+        viewModelScope.launch { app.engine.dispatch(Command.RefreshAttendance) }
+    }
+
+    fun showReleaseNotes() {
+        _releaseNotes.value = CURRENT_RELEASE_NOTES
+    }
+
+    fun dismissReleaseNotes() {
+        releaseNotesStore.markSeen()
+        _releaseNotes.value = null
+    }
+
+    fun updateSetupPermissions(permissions: BetaSetupPermissions) {
+        _setupPermissions.value = permissions
+    }
+
+    fun consumeAttendanceFeedback(token: Long) {
+        if (_attendanceFeedback.value?.token == token) _attendanceFeedback.value = null
+    }
+
+    fun hasDetectedSectionForAutomaticAttendance(): Boolean =
+        app.betaManager.profile?.detectedSections?.isNotEmpty() == true
 
     fun toggleReadingDone(readingId: String) {
         viewModelScope.launch { app.engine.dispatch(Command.ToggleReadingDone(readingId)) }
@@ -221,7 +350,9 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun mark(sessionId: String) {
         viewModelScope.launch {
-            showMarkError(app.engine.dispatch(Command.Mark(sessionId)))
+            val result = app.engine.dispatch(Command.Mark(sessionId))
+            showMarkError(result)
+            _attendanceFeedback.value = AttendanceFeedback(result is CommandResult.Completed, System.nanoTime())
         }
     }
 
@@ -231,7 +362,9 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             if (state.value.sessions.none { it.nid == sessionId }) {
                 app.engine.dispatch(Command.RefreshToday)
             }
-            showMarkError(app.engine.dispatch(Command.Mark(sessionId)))
+            val result = app.engine.dispatch(Command.Mark(sessionId))
+            showMarkError(result)
+            _attendanceFeedback.value = AttendanceFeedback(result is CommandResult.Completed, System.nanoTime())
         }
     }
 
@@ -241,6 +374,12 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setAutoAttendance(enabled: Boolean) {
+        if (enabled && app.betaManager.profile?.detectedSections.isNullOrEmpty()) {
+            app.autoAttendanceStore.setEnabled(false)
+            _autoAttendanceEnabled.value = false
+            _message.value = "Needs attention: the LMS has not detected your Section. Manual attendance is still available."
+            return
+        }
         if (!app.autoAttendanceStore.setEnabled(enabled)) {
             _autoAttendanceEnabled.value = app.autoAttendanceStore.isEnabled()
             _message.value = "Android could not save the auto-attendance setting. Try again."
@@ -360,10 +499,28 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
 
     private suspend fun refreshScheduleAndReadings() {
         app.engine.dispatch(Command.RefreshSchedule())
+        reconcileDetectedCohorts()
         scheduleAutoAttendance(showMessage = false)
         app.engine.dispatch(Command.RefreshReadings)
+        app.engine.dispatch(Command.RefreshAttendance)
+    }
+
+    private fun reconcileDetectedCohorts() {
+        if (state.value.scheduleSync.lastSuccess == null) return
+        val saved = app.betaManager.profile ?: return
+        val current = state.value.detectedCohorts
+        if (saved.detectedSections != current.sections || saved.detectedGroups != current.groups) {
+            if (_autoAttendanceEnabled.value) setAutoAttendance(false)
+            _message.value = if (current.sections.isEmpty()) {
+                "Needs attention: the LMS no longer detects your Section. Automatic attendance stopped."
+            } else {
+                "Your LMS Section or Group changed. Confirm the beta profile again."
+            }
+        }
     }
 }
+
+data class AttendanceFeedback(val success: Boolean, val token: Long)
 
 internal fun readingDownloadFileName(title: String, suffix: String? = null): String {
     val base = title

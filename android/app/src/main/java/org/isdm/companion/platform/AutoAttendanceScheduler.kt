@@ -22,7 +22,7 @@ import java.time.LocalTime
 class AutoAttendanceStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
-    fun isEnabled(): Boolean = preferences.getBoolean(KEY_ENABLED, true)
+    fun isEnabled(): Boolean = preferences.getBoolean(KEY_ENABLED, false)
 
     fun setEnabled(enabled: Boolean): Boolean =
         preferences.edit().putBoolean(KEY_ENABLED, enabled).commit()
@@ -68,6 +68,8 @@ class AutoAttendanceScheduler(
 
     fun canScheduleExactAlarms(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+
+    fun hasRequiredSystemAccess(): Boolean = hasAttendanceLocationAccess() && canScheduleExactAlarms()
 
     fun schedule(sessions: List<CompanionSession>, now: Instant): AutoAttendanceScheduleResult {
         val existingAlarmsCancelled = cancel()

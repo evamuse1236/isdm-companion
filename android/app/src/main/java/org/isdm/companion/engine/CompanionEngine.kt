@@ -73,6 +73,7 @@ class CompanionEngine(
                 Command.RefreshToday -> refreshToday(allowMonitoringEffects = false)
                 is Command.RefreshSchedule -> refreshSchedule(command.days)
                 Command.RefreshReadings -> refreshReadings()
+                Command.RefreshAttendance -> refreshAttendance()
                 Command.RefreshAll -> refreshAll()
                 is Command.ToggleReadingDone -> toggleReadingDone(command.readingId)
                 is Command.Mark -> mark(command.sessionId, automatic = false)
@@ -178,6 +179,8 @@ class CompanionEngine(
             sync = SyncStatus(),
             scheduleSync = SyncStatus(lastSuccess = cachedSchedule?.syncedAt),
             readingSync = SyncStatus(),
+            attendanceSummary = null,
+            attendanceSync = SyncStatus(),
         )
         if (wasMonitoring) safeNotify(NotificationEvent.MonitoringStopped(MonitoringStopReason.DISARMED))
         return CommandResult.Completed(_state.value)
@@ -262,6 +265,7 @@ class CompanionEngine(
                 today = today,
                 credentialsConfigured = true,
                 identity = identity,
+                detectedCohorts = cohorts,
                 sessions = assembled,
                 scheduleSessions = scheduleSessions,
                 sync = SyncStatus(inProgress = false, lastSuccess = now, error = markabilityError),
@@ -290,7 +294,31 @@ class CompanionEngine(
         if (todayResult is CommandResult.Rejected) return todayResult
         refreshSchedule(DEFAULT_SCHEDULE_DAYS)
         refreshReadings()
+        refreshAttendance()
         return CommandResult.Completed(_state.value)
+    }
+
+    private suspend fun refreshAttendance(): CommandResult {
+        val saved = credentials ?: return reject(EngineError.CredentialsMissing)
+        val now = clock.now()
+        _state.value = stateNow().copy(
+            attendanceSync = _state.value.attendanceSync.copy(inProgress = true, error = null),
+        )
+        return try {
+            authenticateIfNeeded(saved)
+            val summary = gateway.attendanceSummary()
+            _state.value = stateNow().copy(
+                attendanceSummary = summary,
+                attendanceSync = SyncStatus(lastSuccess = now),
+            )
+            CommandResult.Completed(_state.value)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            val mapped = mapError(error)
+            _state.value = stateNow().copy(attendanceSync = SyncStatus(error = mapped))
+            CommandResult.Rejected(mapped, _state.value)
+        }
     }
 
     private suspend fun refreshSchedule(days: Int): CommandResult {
@@ -320,6 +348,7 @@ class CompanionEngine(
             _state.value = stateNow().copy(
                 scheduleStart = start,
                 scheduleEndExclusive = end,
+                detectedCohorts = cohorts,
                 scheduleSessions = scheduleSessions,
                 scheduleSync = SyncStatus(lastSuccess = now),
             )
@@ -348,9 +377,9 @@ class CompanionEngine(
                     async {
                         semaphore.withPermit {
                             CourseContent(
-                                readings = captureFetch { gateway.readings(course) },
+                                readings = captureFetchWithRetry { gateway.readings(course) },
                                 facultyProfiles = facultyDirectory?.let { directory ->
-                                    captureFetch { directory.facultyProfiles(course) }
+                                    captureFetchWithRetry { directory.facultyProfiles(course) }
                                 },
                             )
                         }
@@ -449,6 +478,8 @@ class CompanionEngine(
             marked = marked,
             markable = markable,
             status = detail?.status,
+            end = detail?.end ?: draft.end,
+            endEstimated = detail?.end == null && draft.endEstimated,
         )
         CompanionSession(
             nid = base.nid,
@@ -467,6 +498,7 @@ class CompanionEngine(
             markable = base.markable,
             state = sessionState(base, now),
             lateAfter = base.nid?.let { base.start.plus(lateAfterMinutes, ChronoUnit.MINUTES) },
+            endEstimated = base.endEstimated,
         )
     }
 
@@ -667,6 +699,7 @@ class CompanionEngine(
                     sessionId = sessionId,
                     sessionLabel = session.name,
                     outcome = "present",
+                    result = "already_marked",
                     gateAllowed = null,
                     gateReason = null,
                     lmsMarkable = null,
@@ -682,6 +715,7 @@ class CompanionEngine(
         var gateReason: LocationGateReason? = null
         var lmsMarkable: Boolean? = null
         var telemetryOutcome = "unknown"
+        var telemetryResult = "unknown"
         try {
             val locationDecision = try {
                 attendanceLocationGate.evaluate(clock.now())
@@ -697,6 +731,7 @@ class CompanionEngine(
             gateReason = locationDecision.reason
             if (!locationDecision.allowsMark) {
                 telemetryOutcome = "blocked"
+                telemetryResult = "location_denied"
                 val error = EngineError.AttendanceLocationDenied(
                     locationDecision.reason ?: LocationGateReason.MISSING_EVIDENCE,
                 )
@@ -711,6 +746,7 @@ class CompanionEngine(
                 throw error
             } catch (error: Throwable) {
                 telemetryOutcome = "failed"
+                telemetryResult = "markability_failed"
                 val mapped = mapError(error)
                 _state.value = stateNow().copy(error = mapped, sync = _state.value.sync.copy(error = mapped))
                 if (automatic) notifyAutomaticFailureOnce(session, mapped)
@@ -720,6 +756,7 @@ class CompanionEngine(
             lmsMarkable = markMap[sessionId]?.markable == true
             if (lmsMarkable != true) {
                 telemetryOutcome = "blocked"
+                telemetryResult = "not_markable"
                 val error = EngineError.MarkWindowClosed(sessionId)
                 _state.value = stateNow().copy(error = error)
                 return CommandResult.Rejected(error, _state.value)
@@ -731,6 +768,7 @@ class CompanionEngine(
                 throw error
             } catch (error: Throwable) {
                 telemetryOutcome = "failed"
+                telemetryResult = "mark_failed"
                 val mapped = EngineError.MarkRejected(sessionId, error.message ?: "The LMS rejected the mark.")
                 _state.value = stateNow().copy(error = mapped)
                 if (automatic) notifyAutomaticFailureOnce(session, mapped)
@@ -738,6 +776,7 @@ class CompanionEngine(
             }
             if (!detail.marked) {
                 telemetryOutcome = "failed"
+                telemetryResult = "mark_not_confirmed"
                 val error = EngineError.MarkRejected(
                     sessionId,
                     "The LMS accepted the request but still reports you as unmarked.",
@@ -749,6 +788,7 @@ class CompanionEngine(
 
             successfulMarks += sessionId
             telemetryOutcome = "present"
+            telemetryResult = "marked_present"
             detailCache[sessionId] = CacheEntry(clock.now(), detail)
             val updated = session.copy(
                 marked = true,
@@ -795,6 +835,7 @@ class CompanionEngine(
                     sessionId = sessionId,
                     sessionLabel = session.name,
                     outcome = telemetryOutcome,
+                    result = telemetryResult,
                     gateAllowed = gateAllowed,
                     gateReason = gateReason,
                     lmsMarkable = lmsMarkable,
@@ -899,12 +940,24 @@ class CompanionEngine(
             .sortedBy { it.done }
     }
 
-    private suspend fun <T> captureFetch(block: suspend () -> T): Fetch<T> = try {
-        Fetch(value = block())
-    } catch (error: CancellationException) {
-        throw error
-    } catch (error: Throwable) {
-        Fetch(error = error)
+    private suspend fun <T> captureFetchWithRetry(block: suspend () -> T): Fetch<T> {
+        for (attempt in 1..MAX_COURSE_FETCH_ATTEMPTS) {
+            try {
+                return Fetch(value = block())
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (attempt == MAX_COURSE_FETCH_ATTEMPTS || !isRetryableFetch(error)) {
+                    return Fetch(error = error)
+                }
+            }
+        }
+        error("unreachable")
+    }
+
+    private fun isRetryableFetch(error: Throwable): Boolean {
+        val message = error.message.orEmpty().lowercase()
+        return error is java.io.IOException || "network" in message || "fetch" in message || "timeout" in message
     }
 
     private suspend fun authenticateIfNeeded(saved: Credentials) {
@@ -930,6 +983,7 @@ class CompanionEngine(
 
     private companion object {
         const val DEFAULT_SCHEDULE_DAYS = 14
+        const val MAX_COURSE_FETCH_ATTEMPTS = 2
         const val MAX_SCHEDULE_DAYS = 31
         const val MAX_AUTO_ATTEMPTS = 3
         const val LIVE_CALENDAR_TTL_SECONDS = 60L
@@ -945,6 +999,7 @@ private fun commandName(command: Command): String = when (command) {
     Command.RefreshToday -> "refresh_today"
     is Command.RefreshSchedule -> "refresh_schedule"
     Command.RefreshReadings -> "refresh_readings"
+    Command.RefreshAttendance -> "refresh_attendance"
     Command.RefreshAll -> "refresh_all"
     is Command.ToggleReadingDone -> "toggle_reading_done"
     is Command.Mark -> "mark"

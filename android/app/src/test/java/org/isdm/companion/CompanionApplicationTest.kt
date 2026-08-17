@@ -20,6 +20,7 @@ class CompanionApplicationTest {
 
         restoreAutoAttendanceOnProcessStart(
             enabled = true,
+            setupReady = true,
             credentials = StoredCredentials("student@example.com", "secret"),
             selectAccount = { calls += "select:$it" },
             loadSchedule = { calls += "load"; cached },
@@ -27,5 +28,21 @@ class CompanionApplicationTest {
         )
 
         assertEquals(listOf("select:student@example.com", "load", "schedule:0"), calls)
+    }
+
+    @Test
+    fun `process startup does not restore attendance before updated setup is ready`() {
+        val calls = mutableListOf<String>()
+
+        restoreAutoAttendanceOnProcessStart(
+            enabled = true,
+            setupReady = false,
+            credentials = StoredCredentials("student@example.com", "secret"),
+            selectAccount = { calls += "select:$it" },
+            loadSchedule = { calls += "load"; null },
+            schedule = { calls += "schedule" },
+        )
+
+        assertEquals(emptyList<String>(), calls)
     }
 }

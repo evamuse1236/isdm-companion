@@ -7,6 +7,8 @@ import type {
   DashboardData,
   IssueReport,
 } from "./types";
+import { profileMatchStatus, testerDisplayName } from "./roster";
+import { confirmedPresentCount, reliabilityLabel } from "./metrics";
 
 type Props = {
   initialData: DashboardData;
@@ -84,9 +86,9 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
   const seenToday = claimed.filter((item) => isTodayIst(item.last_seen_at));
   const stale = claimed.filter((item) => seenState(item.last_seen_at, nowMs) === "stale");
   const todayAttendance = data.attendance_decisions.filter((item) => isTodayIst(item.occurred_at));
-  const presentToday = todayAttendance.filter((item) => item.outcome === "present").length;
+  const presentToday = confirmedPresentCount(todayAttendance);
+  const reliability = data.reliability ?? { failures: 0, cancellations: 0, recorded_exits: 0 };
   const triageReports = data.reports.filter((item) => item.status === "new" || item.status === "seen");
-  const crashEvents = data.events.filter((item) => item.event_type.includes("crash") && isTodayIst(item.occurred_at));
   const selectedReport = data.reports.find((item) => item.id === selectedReportId) ?? null;
   const selectedAttendance = data.attendance_decisions.find((item) => item.id === selectedAttendanceId) ?? null;
   const sections = unique(data.installations.map((item) => item.self_section).filter(Boolean) as string[]);
@@ -96,7 +98,7 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
     if (sectionFilter !== "all" && item.self_section !== sectionFilter) return false;
     if (plcFilter !== "all" && item.self_plc !== plcFilter) return false;
     if (seenFilter !== "all" && seenState(item.last_seen_at, nowMs) !== seenFilter) return false;
-    const haystack = `${item.tester_code} ${item.manufacturer ?? ""} ${item.model ?? ""}`.toLowerCase();
+    const haystack = `${item.tester_code} ${item.support_name ?? ""} ${item.manufacturer ?? ""} ${item.model ?? ""}`.toLowerCase();
     return haystack.includes(search.trim().toLowerCase());
   }), [data.installations, sectionFilter, plcFilter, seenFilter, search, nowMs]);
 
@@ -203,7 +205,12 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
         <Pulse label="Marks today" value={`${presentToday} Present`} note={`${todayAttendance.length} decisions`} />
         <Pulse label="Suspected" value={String(suspected.length)} note={suspected.length ? "Requires review" : "Clear"} critical={suspected.length > 0} />
         <Pulse label="Inbox" value={`${triageReports.length} open`} note={`${data.reports.filter((item) => item.category === "suggestion").length} suggestions total`} />
-        <Pulse label="Health" value={`${crashEvents.length} crashes`} note={`${data.events.length} recent events`} />
+        <Pulse
+          label="Reliability"
+          value={reliabilityLabel(reliability)}
+          note={`${reliability.cancellations} cancelled · ${reliability.recorded_exits} exits`}
+          critical={reliability.failures > 0}
+        />
       </section>
 
       <section className="panel roster-panel">
@@ -246,7 +253,7 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
           <table>
             <thead>
               <tr>
-                <th>Code</th><th>Section</th><th>PLC (self)</th><th>Detected cohort</th><th>Phone</th><th>Android / app</th><th>Last seen</th><th>Sync</th><th>Schedule</th><th>Today’s marks</th><th>Auto</th>
+                <th>Code</th><th>Name</th><th>Section</th><th>PLC (self)</th><th>Detected cohort</th><th>Phone</th><th>Android / app</th><th>Last seen</th><th>Sync</th><th>Schedule</th><th>Today’s marks</th><th>Auto</th>
               </tr>
             </thead>
             <tbody>
@@ -355,10 +362,12 @@ function TesterRow({ item, attendance, remoteBlocked, nowMs, onAttendance }: { i
     item.detected_groups.length ? `Group ${item.detected_groups.join(", ")}` : null,
   ].filter(Boolean).join(" · ") || "—";
   const present = attendance.filter((mark) => mark.outcome === "present").length;
+  const profileStatus = profileMatchStatus(item);
   const worst = attendance.find((mark) => mark.suspected_incorrect) ?? attendance.find((mark) => mark.outcome === "failed" || mark.outcome === "blocked") ?? attendance[0];
   return (
     <tr className={!item.installation_id ? "unclaimed" : ""}>
       <td className="mono sticky-code">{item.tester_code}</td>
+      <td><strong>{testerDisplayName(item)}</strong><small className="cell-note">{profileStatus === "confirmed" ? "LMS confirmed" : profileStatus === "mismatch" ? "Profile mismatch" : "LMS cohort missing"}</small></td>
       <td>{item.self_section ?? "—"}</td>
       <td>{item.self_plc ?? "—"}</td>
       <td>{detected}</td>

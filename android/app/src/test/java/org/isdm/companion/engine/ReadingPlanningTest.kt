@@ -37,13 +37,32 @@ class ReadingPlanningTest {
         assertEquals(listOf(4), plan.upcomingSessions.map { it.sessionNumber })
     }
 
-    private fun reading(id: String, sessionNumber: Int?) = ReadingItem(
+    @Test
+    fun `default course follows the nearest matching active or future session`() {
+        val readings = listOf(
+            reading("later-reading", 1, catId = "later", courseName = "Later Course"),
+            reading("next-reading", 1, catId = "next", courseName = "Next Course"),
+        )
+        val sessions = listOf(
+            session("Later Course - Session 1", 1, "2026-08-11T03:30:00Z"),
+            session("Next Course - Session 1", 1, "2026-08-10T03:30:00Z"),
+        )
+
+        assertEquals("next", defaultReadingCourseId(readings, sessions, now))
+    }
+
+    private fun reading(
+        id: String,
+        sessionNumber: Int?,
+        catId: String = "12",
+        courseName: String = "State, Market and Society",
+    ) = ReadingItem(
         vid = id,
         sid = "91",
         cid = "7",
-        catId = "12",
+        catId = catId,
         title = id,
-        courseName = "State, Market and Society",
+        courseName = courseName,
         sectionName = "Course Readings",
         sourceUrl = "https://lms.isdm.org.in/subtopic/view?vid=$id",
         sessionNumber = sessionNumber,

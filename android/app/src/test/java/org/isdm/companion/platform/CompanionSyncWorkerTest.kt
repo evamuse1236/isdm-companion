@@ -1,12 +1,25 @@
 package org.isdm.companion.platform
 
 import org.isdm.companion.engine.CompanionSession
+import org.isdm.companion.engine.EngineError
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Duration
 import java.time.Instant
 
 class CompanionSyncWorkerTest {
+    @Test
+    fun `background sync retries transient failures only three times`() {
+        val error = EngineError.NetworkFailure("temporary")
+
+        assertTrue(shouldRetryBackgroundSync(error, runAttemptCount = 0))
+        assertTrue(shouldRetryBackgroundSync(error, runAttemptCount = 2))
+        assertFalse(shouldRetryBackgroundSync(error, runAttemptCount = 3))
+        assertFalse(shouldRetryBackgroundSync(EngineError.AuthenticationFailed("logged out"), runAttemptCount = 0))
+    }
+
     @Test
     fun `reading sync waits until the current class guard has ended`() {
         val now = Instant.parse("2026-08-14T04:50:00Z")

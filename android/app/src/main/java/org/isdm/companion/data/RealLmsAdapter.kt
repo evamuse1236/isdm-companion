@@ -20,6 +20,7 @@ import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.isdm.companion.engine.CalendarEvent
+import org.isdm.companion.engine.AttendanceSummary
 import org.isdm.companion.engine.ClassroomDetail
 import org.isdm.companion.engine.Credentials
 import org.isdm.companion.engine.FacultyDirectory
@@ -28,7 +29,9 @@ import org.isdm.companion.engine.Identity
 import org.isdm.companion.engine.LmsCourse
 import org.isdm.companion.engine.Markability
 import org.isdm.companion.engine.ReadingItem
+import org.isdm.companion.domain.parseLmsTime
 import java.time.LocalDate
+import java.math.BigDecimal
 import java.io.IOException
 
 /**
@@ -43,6 +46,7 @@ class RealLmsAdapter(
     private val defaultEmail: String? = null,
     private val defaultPassword: String? = null,
     baseUrl: String = DEFAULT_BASE_URL,
+    private val lmsDiagnosticReporter: LmsDiagnosticReporter = NoopLmsDiagnosticReporter,
 ) : LmsGateway, FacultyDirectory {
     private val baseUrl: HttpUrl = baseUrl.trimEnd('/').toHttpUrl()
     private val cookies = SessionCookieJar()
@@ -181,7 +185,13 @@ class RealLmsAdapter(
             course = pick(table, "Courses", "Course"),
             marked = markedRaw?.equals("yes", ignoreCase = true) == true,
             status = pick(table, "Status"),
+            end = parseLmsTime(pick(table, "End Date & Time", "End Date and Time", "End Time")),
         )
+    }
+
+    override suspend fun attendanceSummary(): AttendanceSummary {
+        val page = authed("/manage/classroom/attendance")
+        return parseAttendanceSummary(page.body)
     }
 
     override suspend fun facultyProfiles(course: LmsCourse): List<FacultyProfile> {
@@ -374,10 +384,14 @@ class RealLmsAdapter(
             val response = try {
                 withContext(Dispatchers.IO) { client.newCall(builder.build()).execute() }
             } catch (error: IOException) {
+                lmsDiagnosticReporter.record(lmsEndpointLabel(url.encodedPath), null, "network")
                 throw LmsException("LMS network request failed for $url.", error)
             }
 
             val status = response.code
+            if (status >= 400) {
+                lmsDiagnosticReporter.record(lmsEndpointLabel(url.encodedPath), status, "http")
+            }
             val location = response.header("Location")
             if (status in REDIRECT_STATUSES && location != null) {
                 val next = response.request.url.resolve(location)
@@ -528,4 +542,52 @@ class RealLmsAdapter(
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
         val EMPTY_BODY = ByteArray(0).toRequestBody(null)
     }
+}
+
+internal fun parseAttendanceSummary(html: String): AttendanceSummary {
+    val summary = Jsoup.parse(html).selectFirst("#classroom_attendance_summary")
+        ?: throw LmsProtocolException("The LMS attendance summary was missing.")
+
+    fun count(selector: String, label: String): Int = summary.selectFirst(selector)?.text()
+        ?.trim()?.toIntOrNull()?.takeIf { it >= 0 }
+        ?: throw LmsProtocolException("The LMS $label attendance total was invalid.")
+
+    val percentageText = summary.selectFirst(".cas-present")
+        ?.closest(".cas-stat")
+        ?.selectFirst(".cas-stat-sub")
+        ?.text()
+        ?.trim()
+        ?.removeSuffix("%")
+    val percentage = percentageText?.toBigDecimalOrNull()
+        ?.takeIf { it >= BigDecimal.ZERO && it <= BigDecimal("100") }
+        ?: throw LmsProtocolException("The LMS present attendance percentage was invalid.")
+
+    return AttendanceSummary(
+        total = count(".cas-total", "total"),
+        present = count(".cas-present", "present"),
+        absent = count(".cas-absent", "absent"),
+        upcoming = count(".cas-upcoming", "upcoming"),
+        presentPercentage = percentage,
+    )
+}
+
+fun interface LmsDiagnosticReporter {
+    fun record(endpointLabel: String, httpStatus: Int?, failureType: String)
+}
+
+private object NoopLmsDiagnosticReporter : LmsDiagnosticReporter {
+    override fun record(endpointLabel: String, httpStatus: Int?, failureType: String) = Unit
+}
+
+internal fun lmsEndpointLabel(path: String): String = when {
+    path == "/user/login" -> "login"
+    path == "/home" -> "home"
+    path == "/calendar/json" -> "calendar"
+    path == "/show/all/courses" -> "courses"
+    path == "/course/details" -> "course_details"
+    path.startsWith("/classroom/") -> "classroom"
+    path == "/manage/classroom/attendance" -> "markability"
+    path == "/api/mark/classroomsession/attendance" -> "mark_present"
+    path == "/api/downloadcontent" -> "reading_download"
+    else -> "other"
 }

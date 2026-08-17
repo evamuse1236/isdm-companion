@@ -89,7 +89,7 @@ class ScheduleTest {
     }
 
     @Test
-    fun skipsEventsWithUnparseableStartAndUsesFirstEndWhenRowsMerge() {
+    fun skipsEventsWithUnparseableStartAndEstimatesAMissingEnd() {
         val events = listOf(
             event("bad", "Bad", "/join/webinar", start = "bad"),
             event("batch", "Maths - Section B - Session 2", "/join/webinar", end = null),
@@ -98,8 +98,8 @@ class ScheduleTest {
 
         val row = buildSessions(events, Cohorts(sections = setOf("B"))).single()
         assertEquals("attendance", row.nid)
-        assertNull(row.end)
-        assertEquals(row.startMs, row.endMs)
+        assertEquals(row.start.plusSeconds(90 * 60), row.end)
+        assertTrue(row.endEstimated)
     }
 
     @Test

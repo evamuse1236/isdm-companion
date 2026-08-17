@@ -7,6 +7,8 @@ unchanged.
 ## Current features
 
 - Encrypted LMS credentials stored locally with a key protected by Android Keystore.
+- A Profile screen with the total attendance percentage, counts, and scope reported directly by
+  the LMS attendance page.
 - An account-scoped cached rolling 14-day personalised schedule with room, floor, trainer, and
   attendance state.
 - Read-only aggregation of course reading/resource listing pages, including stable LMS item IDs,
@@ -29,6 +31,8 @@ unchanged.
 - Exact alarms restore a scheduled class window after process death without keeping an all-day
   service alive. Turning the switch off cancels every pending window.
 - A Material-style adaptive launcher icon with round-mask and themed-icon support.
+- Simple in-app release notes shown once after an installed app is updated, with a permanent
+  “What’s new” entry in Profile.
 
 Automated tests use sanitized HTML strings, fixtures, and MockWebServer. They never contact the
 real LMS.
@@ -54,6 +58,18 @@ Install it on an authorised USB-debugging device:
 ```powershell
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
+
+## Beta updates
+
+Every beta release must have a higher `versionCode`, updated release notes, a changelog entry,
+and a Git release commit. Preserve the existing signing identity so Android can update the app in
+place without deleting its data.
+
+For tester delivery, prefer Google Play Internal testing (or Closed testing when the group grows).
+Each tester joins once through the Play opt-in link; later signed App Bundles are delivered through
+Google Play, and devices with Play auto-update enabled update without another APK message. Android
+does not let a normal sideloaded app silently replace itself. A custom downloader can only open the
+system installer, where the user still confirms the update.
 
 ## Private diagnostic log
 

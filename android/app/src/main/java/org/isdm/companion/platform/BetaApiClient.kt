@@ -32,6 +32,24 @@ data class BetaEnrollment(
     val device: BetaDeviceInfo,
 )
 
+data class BetaProfile(
+    val supportName: String?,
+    val selfSection: String?,
+    val selfPlc: String?,
+    val detectedSections: Set<String>,
+    val detectedGroups: Set<String>,
+)
+
+data class BetaProfileUpdate(
+    val supportName: String?,
+    val selfSection: String?,
+    val selfPlc: String?,
+    val detectedSections: Set<String>,
+    val detectedGroups: Set<String>,
+    val consentVersion: String,
+    val confirmedAt: Instant,
+)
+
 data class AutoPreflight(val allowed: Boolean, val reason: String)
 
 data class BetaEvent(
@@ -72,6 +90,32 @@ class BetaApiClient(
     fun autoPreflight(installation: BetaInstallation): AutoPreflight {
         val response = post("auto-preflight", JSONObject(), installation, acceptedStatuses = setOf(200, 423))
         return AutoPreflight(response.optBoolean("allowed", false), response.optString("reason", "unknown"))
+    }
+
+    fun updateProfile(installation: BetaInstallation, update: BetaProfileUpdate): BetaProfile {
+        val response = post(
+            "profile",
+            JSONObject()
+                .putOptional("support_name", update.supportName?.trim()?.takeIf(String::isNotEmpty))
+                .putOptional("self_section", update.selfSection?.trim()?.takeIf(String::isNotEmpty))
+                .putOptional("self_plc", update.selfPlc?.trim()?.takeIf(String::isNotEmpty))
+                .put("detected_sections", JSONArray(update.detectedSections.sorted()))
+                .put("detected_groups", JSONArray(update.detectedGroups.sorted()))
+                .put("consent_version", update.consentVersion)
+                .put("confirmed_at", update.confirmedAt.toString()),
+            installation,
+        )
+        return BetaProfile(
+            supportName = response.optStringOrNull("support_name"),
+            selfSection = response.optStringOrNull("self_section"),
+            selfPlc = response.optStringOrNull("self_plc"),
+            detectedSections = response.optStringSet("detected_sections"),
+            detectedGroups = response.optStringSet("detected_groups"),
+        )
+    }
+
+    fun deleteSupportName(installation: BetaInstallation) {
+        post("profile-delete", JSONObject(), installation)
     }
 
     fun uploadEvents(
@@ -178,4 +222,14 @@ private fun JSONObject.putDevice(device: BetaDeviceInfo): JSONObject =
 
 private fun JSONObject.putOptional(key: String, value: String?): JSONObject = apply {
     if (value == null) put(key, JSONObject.NULL) else put(key, value)
+}
+
+private fun JSONObject.optStringOrNull(key: String): String? =
+    if (isNull(key)) null else optString(key).takeIf(String::isNotBlank)
+
+private fun JSONObject.optStringSet(key: String): Set<String> {
+    val values = optJSONArray(key) ?: return emptySet()
+    return buildSet {
+        repeat(values.length()) { index -> values.optString(index).takeIf(String::isNotBlank)?.let(::add) }
+    }
 }

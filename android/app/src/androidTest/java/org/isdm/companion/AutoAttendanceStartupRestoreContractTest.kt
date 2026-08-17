@@ -53,6 +53,7 @@ class AutoAttendanceStartupRestoreContractTest {
         try {
             restoreAutoAttendanceOnProcessStart(
                 enabled = true,
+                setupReady = true,
                 credentials = StoredCredentials(account, "unused-test-password"),
                 selectAccount = app.localStore::selectAccount,
                 loadSchedule = app.localStore::loadSchedule,

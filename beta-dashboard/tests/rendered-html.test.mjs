@@ -35,6 +35,8 @@ test("server-renders the beta command desk", async () => {
   assert.match(html, /Stop auto attendance for everyone/);
   assert.match(html, /T-01/);
   assert.match(html, /T-10/);
+  assert.match(html, />Name</);
+  assert.match(html, /Awaiting profile/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
 });
 

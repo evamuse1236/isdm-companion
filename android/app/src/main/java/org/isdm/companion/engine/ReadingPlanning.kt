@@ -13,6 +13,23 @@ data class CourseReadingPlan(
     val general: List<ReadingItem>,
 )
 
+fun defaultReadingCourseId(
+    readings: List<ReadingItem>,
+    sessions: List<CompanionSession>,
+    now: Instant,
+): String? = readings
+    .groupBy { it.catId }
+    .mapNotNull { (courseId, courseReadings) ->
+        val courseName = courseReadings.firstOrNull()?.courseName ?: return@mapNotNull null
+        val start = sessions.asSequence()
+            .filter { it.end >= now && it.matchesCourse(courseName) }
+            .minOfOrNull { it.start }
+            ?: return@mapNotNull null
+        courseId to start
+    }
+    .minWithOrNull(compareBy<Pair<String, Instant>> { it.second }.thenBy { it.first })
+    ?.first
+
 fun planCourseReadings(
     readings: List<ReadingItem>,
     sessions: List<CompanionSession>,

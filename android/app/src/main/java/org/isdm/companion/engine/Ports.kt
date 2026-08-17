@@ -1,5 +1,6 @@
 package org.isdm.companion.engine
 
+import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -62,6 +63,7 @@ data class AttendanceTelemetryEvent(
     val sessionId: String,
     val sessionLabel: String,
     val outcome: String,
+    val result: String,
     val gateAllowed: Boolean?,
     val gateReason: LocationGateReason?,
     val lmsMarkable: Boolean?,
@@ -85,6 +87,7 @@ interface LmsGateway {
     suspend fun courses(): List<LmsCourse>
     suspend fun readings(course: LmsCourse): List<ReadingItem>
     suspend fun classroom(nid: String): ClassroomDetail
+    suspend fun attendanceSummary(): AttendanceSummary
     suspend fun markability(): Map<String, Markability>
     suspend fun markPresent(nid: String): ClassroomDetail
 
@@ -184,6 +187,16 @@ data class ClassroomDetail(
     val marked: Boolean = false,
     val status: String? = null,
     val comment: String? = null,
+    val end: Instant? = null,
+)
+
+/** The LMS-calculated attendance totals. The client displays these values without recomputing them. */
+data class AttendanceSummary(
+    val total: Int,
+    val present: Int,
+    val absent: Int,
+    val upcoming: Int,
+    val presentPercentage: BigDecimal,
 )
 
 data class Markability(
@@ -223,6 +236,7 @@ data class CompanionSession(
     val markable: Boolean = false,
     val state: SessionState = SessionState.UPCOMING,
     val lateAfter: Instant? = null,
+    val endEstimated: Boolean = false,
 )
 
 data class MonitoringStatus(
@@ -247,16 +261,19 @@ data class CompanionState(
     val today: LocalDate,
     val credentialsConfigured: Boolean = false,
     val identity: Identity? = null,
+    val detectedCohorts: Cohorts = Cohorts(),
     val sessions: List<CompanionSession> = emptyList(),
     val scheduleStart: LocalDate = today,
     val scheduleEndExclusive: LocalDate = today.plusDays(14),
     val scheduleSessions: List<CompanionSession> = emptyList(),
     val readings: List<ReadingItem> = emptyList(),
     val facultyProfiles: List<FacultyProfile> = emptyList(),
+    val attendanceSummary: AttendanceSummary? = null,
     val monitor: MonitoringStatus = MonitoringStatus(),
     val sync: SyncStatus = SyncStatus(),
     val scheduleSync: SyncStatus = SyncStatus(),
     val readingSync: SyncStatus = SyncStatus(),
+    val attendanceSync: SyncStatus = SyncStatus(),
     val error: EngineError? = null,
 )
 
@@ -300,6 +317,7 @@ sealed interface Command {
     data object RefreshToday : Command
     data class RefreshSchedule(val days: Int = 14) : Command
     data object RefreshReadings : Command
+    data object RefreshAttendance : Command
     data object RefreshAll : Command
     data class ToggleReadingDone(val readingId: String) : Command
     data class Mark(val sessionId: String) : Command
