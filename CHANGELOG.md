@@ -1,5 +1,12 @@
 # ISDM Companion changelog
 
+## 0.4.3 beta
+
+- Long-running assessment windows no longer appear as Scheduled Sessions or stay highlighted as
+  happening now.
+- Assessments now use the due date shown in My Activities when the submission page does not
+  provide a date.
+
 ## 0.4.2 beta
 
 - Assessments now appear at the top of Readings with the due date from the assessment itself,

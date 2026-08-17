@@ -182,8 +182,10 @@ class RealLmsAdapter(
         return buildList {
             for (draft in drafts) {
                 val activityPage = authed(draft.submissionUrl).body
-                val dates = parseAssessmentFrameUrl(activityPage, baseUrl.toString())
-                    ?.let { frameUrl -> parseAssessmentDates(authed(frameUrl).body) }
+                val frameUrl = parseAssessmentFrameUrl(activityPage, baseUrl.toString())
+                val framePage = frameUrl?.let { authed(it).body }
+                val dates = framePage
+                    ?.let(::parseAssessmentDates)
                     ?: AssessmentDates(dueDate = null, endDate = null)
                 val sectionKey = draft.courseId to draft.sectionId
                 var sectionPage = sectionPages[sectionKey]
@@ -203,7 +205,7 @@ class RealLmsAdapter(
                         id = draft.id,
                         title = draft.title,
                         status = draft.status,
-                        dueDate = dates.dueDate,
+                        dueDate = dates.dueDate ?: draft.dueDate,
                         endDate = dates.endDate,
                         submissionUrl = draft.submissionUrl,
                         resourceTitle = resource?.title,

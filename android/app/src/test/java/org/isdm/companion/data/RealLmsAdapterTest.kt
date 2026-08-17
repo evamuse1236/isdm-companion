@@ -239,7 +239,7 @@ class RealLmsAdapterTest {
     }
 
     @Test
-    fun assessmentsUseTheActivityDueDateAndIncludeResourceAndSubmissionLinks() = runBlocking {
+    fun assessmentsUseTheTaskListDueDateWhenTheLiveSubmissionHasNoFrame() = runBlocking {
         val server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse = when {
@@ -263,10 +263,7 @@ class RealLmsAdapterTest {
                     """.trimIndent(),
                 )
                 request.path?.startsWith("/subtopic/view?sid=1298915&vid=1305879") == true -> MockResponse().setBody(
-                    "<iframe id='iframe_load' src='/activity/user/attempt?nid=1305877&amp;videoid=1305879'></iframe>",
-                )
-                request.path == "/activity/user/attempt?nid=1305877&videoid=1305879" -> MockResponse().setBody(
-                    "<div>Due Date : 20/08/2026</div><div>End Date : 20/09/2026</div>",
+                    "<main>Assessment submission form without an iframe or date labels</main>",
                 )
                 request.path == "/course/details?cat_id=70954&course_id=1298915" -> MockResponse().setBody(
                     """
@@ -285,8 +282,8 @@ class RealLmsAdapterTest {
             val assessment = adapter.assessments().single()
 
             assertEquals("B10 - T1 - PMDL - Reflection 2", assessment.title)
-            assertEquals(java.time.LocalDate.of(2026, 8, 20), assessment.dueDate)
-            assertEquals(java.time.LocalDate.of(2026, 9, 20), assessment.endDate)
+            assertEquals(java.time.LocalDate.of(2026, 9, 20), assessment.dueDate)
+            assertEquals(null, assessment.endDate)
             assertEquals("Not Submitted", assessment.status)
             assertEquals("PMDL Reflection Prompt PDF", assessment.resourceTitle)
             assertTrue(assessment.resourceUrl?.contains("vid=1296029") == true)

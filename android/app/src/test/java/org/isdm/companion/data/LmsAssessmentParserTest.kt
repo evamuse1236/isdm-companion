@@ -6,7 +6,7 @@ import org.junit.Test
 
 class LmsAssessmentParserTest {
     @Test
-    fun `active assessment keeps its submission link without trusting the task-list deadline`() {
+    fun `active assessment parses its task-list due date and keeps its submission link`() {
         val assessment = parseAssessmentTasks(
             """
             <table><tbody><tr>
@@ -30,6 +30,7 @@ class LmsAssessmentParserTest {
         assertEquals("Not Submitted", assessment.status)
         assertEquals("1298915", assessment.sectionId)
         assertEquals("70954", assessment.courseId)
+        assertEquals(LocalDate.of(2026, 9, 20), assessment.dueDate)
         assertEquals(
             "https://lms.isdm.org.in/subtopic/view?sid=1298915&vid=1305879&cid=1298950&cat_id=70954&destination=my-activities",
             assessment.submissionUrl,

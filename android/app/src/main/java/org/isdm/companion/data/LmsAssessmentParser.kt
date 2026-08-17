@@ -2,6 +2,8 @@ package org.isdm.companion.data
 
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeFormatterBuilder
+import java.util.Locale
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.jsoup.Jsoup
 
@@ -11,6 +13,7 @@ internal data class AssessmentTaskDraft(
     val status: String,
     val courseId: String,
     val sectionId: String,
+    val dueDate: LocalDate?,
     val submissionUrl: String,
 )
 
@@ -54,6 +57,7 @@ internal fun parseAssessmentTasks(html: String, baseUrl: String): List<Assessmen
                 status = status,
                 courseId = courseId,
                 sectionId = sectionId,
+                dueDate = ASSESSMENT_TASK_DUE.find(rowText)?.groupValues?.get(1)?.toTaskAssessmentDate(),
                 submissionUrl = submissionUrl,
             ),
         )
@@ -112,10 +116,18 @@ internal fun parseAssessmentResource(
 private fun String.toAssessmentDate(): LocalDate? =
     runCatching { LocalDate.parse(this, ASSESSMENT_DATE_FORMAT) }.getOrNull()
 
+private fun String.toTaskAssessmentDate(): LocalDate? =
+    runCatching { LocalDate.parse(this, ASSESSMENT_TASK_DATE_FORMAT) }.getOrNull()
+
 private fun isAssessmentId(value: String): Boolean = value.matches(Regex("\\d+"))
 
 private val ASSESSMENT_DATE_FORMAT = DateTimeFormatter.ofPattern("dd/MM/uuuu")
+private val ASSESSMENT_TASK_DATE_FORMAT = DateTimeFormatterBuilder()
+    .parseCaseInsensitive()
+    .appendPattern("d-MMM-uuuu")
+    .toFormatter(Locale.ENGLISH)
 private val ASSESSMENT_TITLE = Regex("(.+?)\\s+from topic\\s+Assessments", RegexOption.IGNORE_CASE)
 private val ASSESSMENT_STATUS = Regex("Status:\\s*(.+?)(?:\\s+Take Activity|$)", RegexOption.IGNORE_CASE)
+private val ASSESSMENT_TASK_DUE = Regex("Due On\\s*:\\s*(\\d{1,2}-[A-Z]{3}-\\d{4})", RegexOption.IGNORE_CASE)
 private val ASSESSMENT_DUE = Regex("Due Date\\s*:\\s*(\\d{2}/\\d{2}/\\d{4})", RegexOption.IGNORE_CASE)
 private val ASSESSMENT_END = Regex("End Date\\s*:\\s*(\\d{2}/\\d{2}/\\d{4})", RegexOption.IGNORE_CASE)

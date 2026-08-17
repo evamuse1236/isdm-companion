@@ -26,6 +26,43 @@ class ScheduleTest {
 
         assertTrue(sessions.isEmpty())
     }
+
+    @Test
+    fun `live assessment attempt URLs are not scheduled sessions`() {
+        val sessions = buildSessions(
+            listOf(
+                event(
+                    "1305877",
+                    "B10 - T1 - PMDL - Reflection 2",
+                    "/activity/user/attempt?nid=1305877&redirect=true",
+                    "2026-08-17 11:37:00",
+                    "2026-08-17 12:32:00",
+                ),
+            ),
+            Cohorts(),
+        )
+
+        assertTrue(sessions.isEmpty())
+    }
+
+    @Test
+    fun `events longer than eight hours are not scheduled sessions`() {
+        val sessions = buildSessions(
+            listOf(
+                event(
+                    "1305877",
+                    "Long-running activity",
+                    "/activity/unknown",
+                    "2026-08-17 11:37:00",
+                    "2026-09-20 12:32:00",
+                ),
+            ),
+            Cohorts(),
+        )
+
+        assertTrue(sessions.isEmpty())
+    }
+
     @Test
     fun parsesAttendanceTitleIntoNameCohortAndSession() {
         assertEquals(
@@ -74,19 +111,20 @@ class ScheduleTest {
     @Test
     fun mergesAttendanceAndBatchRowsAndFiltersOtherCohorts() {
         val events = listOf(
-            event("batch-a", "Digital Engagement - Section A - Session 1", "/join/webinar", "2026-07-27 14:00:00"),
-            event("batch-b", "Digital Engagement - Section B - Session 1", "/join/webinar", "2026-07-27 14:00:00"),
+            event("batch-a", "Digital Engagement - Section A - Session 1", "/join/webinar", "2026-07-27 14:00:00", "2026-07-27 15:30:00"),
+            event("batch-b", "Digital Engagement - Section B - Session 1", "/join/webinar", "2026-07-27 14:00:00", "2026-07-27 15:30:00"),
             event(
                 "attendance-b",
                 "Attendance - Digital Engagement - Section B - Session 1",
                 "/classroom/attendance-b/view",
                 "2026-07-27 14:00:00",
+                "2026-07-27 15:30:00",
                 trainers = "Trainer Two",
                 subject = "Digital Engagement",
             ),
-            event("group-2", "SPO Visit - Group 2 - Session 1", "/join/webinar", "2026-07-31 15:00:00"),
-            event("group-3", "SPO Visit - Group 3 - Session 1", "/join/webinar", "2026-07-31 15:00:00"),
-            event("everyone", "Orientation", "/join/webinar", "2026-07-31 09:00:00"),
+            event("group-2", "SPO Visit - Group 2 - Session 1", "/join/webinar", "2026-07-31 15:00:00", "2026-07-31 16:30:00"),
+            event("group-3", "SPO Visit - Group 3 - Session 1", "/join/webinar", "2026-07-31 15:00:00", "2026-07-31 16:30:00"),
+            event("everyone", "Orientation", "/join/webinar", "2026-07-31 09:00:00", "2026-07-31 10:30:00"),
         )
 
         val sessions = buildSessions(

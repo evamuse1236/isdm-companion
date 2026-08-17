@@ -13,9 +13,8 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
-        "Assessments now appear at the top of Readings with the real due date, related PDF and submission link.",
-        "Course reading cards are now ordered by your next session.",
-        "Assignments no longer appear as classes that stay in progress for weeks.",
+        "Long-running assessment windows no longer appear as classes that are happening now.",
+        "Assessments now use the due date shown in My Activities when the submission page has no date.",
     ),
 )
 

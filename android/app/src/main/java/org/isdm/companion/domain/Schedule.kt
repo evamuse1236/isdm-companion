@@ -92,6 +92,10 @@ fun parseTitle(rawTitle: String?): ParsedTitle {
 /** Is this the personalised attendance row rather than the batch-wide event row? */
 fun isAttendanceEvent(event: CalendarEvent): Boolean = event.url?.contains("/classroom/") == true
 
+private fun isAssessmentActivity(event: CalendarEvent): Boolean = event.url?.let { url ->
+    url.contains("/subtopic/view") || url.contains("/activity/user/attempt")
+} == true
+
 /** Infer section/group membership from the LMS's personalised attendance rows. */
 fun detectCohorts(events: Iterable<CalendarEvent>): Cohorts {
     val sections = linkedSetOf<String>()
@@ -176,9 +180,10 @@ fun buildSessions(events: Iterable<CalendarEvent>, cohorts: Cohorts): List<Sessi
     for (event in events) {
         // Assessment submission windows share the calendar feed with timetable entries.
         // Their start/end dates describe availability, not a Scheduled Session.
-        if (event.url?.contains("/subtopic/view") == true) continue
         val start = parseLmsTime(event.start) ?: continue
         val end = parseLmsTime(event.end)
+        if (isAssessmentActivity(event)) continue
+        if (end?.isAfter(start.plusSeconds(MAX_SESSION_DURATION_SECONDS)) == true) continue
         val key = mergeKey(event)
         val title = parseTitle(event.title)
         val row = byKey.getOrPut(key) {
@@ -240,3 +245,4 @@ fun sessionState(row: Session, now: Instant): SessionState {
 fun sessionState(row: Session, nowMs: Long): SessionState = sessionState(row, Instant.ofEpochMilli(nowMs))
 
 private const val DEFAULT_SESSION_DURATION_SECONDS = 90L * 60L
+private const val MAX_SESSION_DURATION_SECONDS = 8L * 60L * 60L
