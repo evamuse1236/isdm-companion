@@ -51,6 +51,24 @@ class ReadingPlanningTest {
         assertEquals("next", defaultReadingCourseId(readings, sessions, now))
     }
 
+    @Test
+    fun `course cards are ordered by their nearest active or future session`() {
+        val readings = listOf(
+            reading("general", null, catId = "general", courseName = "General Course"),
+            reading("later", 1, catId = "later", courseName = "Later Course"),
+            reading("next", 1, catId = "next", courseName = "Next Course"),
+        )
+        val sessions = listOf(
+            session("Later Course - Session 1", 1, "2026-08-11T03:30:00Z"),
+            session("Next Course - Session 1", 1, "2026-08-10T03:30:00Z"),
+        )
+
+        assertEquals(
+            listOf("next", "later", "general"),
+            orderedReadingCourseIds(readings, sessions, now),
+        )
+    }
+
     private fun reading(
         id: String,
         sessionNumber: Int?,

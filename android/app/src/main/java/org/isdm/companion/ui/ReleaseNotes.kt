@@ -13,8 +13,9 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
-        "Attendance now uses your completed LMS sessions from the last year, so upcoming classes no longer lower your percentage.",
-        "Profile has a clearer attendance overview and simpler personal details.",
+        "Assessments now appear at the top of Readings with the real due date, related PDF and submission link.",
+        "Course reading cards are now ordered by your next session.",
+        "Assignments no longer appear as classes that stay in progress for weeks.",
     ),
 )
 

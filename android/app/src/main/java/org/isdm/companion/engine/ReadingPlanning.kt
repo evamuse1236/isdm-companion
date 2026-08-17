@@ -17,18 +17,30 @@ fun defaultReadingCourseId(
     readings: List<ReadingItem>,
     sessions: List<CompanionSession>,
     now: Instant,
-): String? = readings
+): String? = orderedReadingCourseIds(readings, sessions, now).firstOrNull { courseId ->
+    val courseName = readings.firstOrNull { it.catId == courseId }?.courseName ?: return@firstOrNull false
+    sessions.any { it.end >= now && it.matchesCourse(courseName) }
+}
+
+fun orderedReadingCourseIds(
+    readings: List<ReadingItem>,
+    sessions: List<CompanionSession>,
+    now: Instant,
+): List<String> = readings
     .groupBy { it.catId }
-    .mapNotNull { (courseId, courseReadings) ->
-        val courseName = courseReadings.firstOrNull()?.courseName ?: return@mapNotNull null
-        val start = sessions.asSequence()
+    .map { (courseId, courseReadings) ->
+        val courseName = courseReadings.first().courseName
+        val nextStart = sessions.asSequence()
             .filter { it.end >= now && it.matchesCourse(courseName) }
             .minOfOrNull { it.start }
-            ?: return@mapNotNull null
-        courseId to start
+        ReadingCourseOrder(courseId, courseName, nextStart)
     }
-    .minWithOrNull(compareBy<Pair<String, Instant>> { it.second }.thenBy { it.first })
-    ?.first
+    .sortedWith(
+        compareBy<ReadingCourseOrder> { it.nextStart ?: Instant.MAX }
+            .thenBy { it.courseName.lowercase() }
+            .thenBy { it.courseId },
+    )
+    .map { it.courseId }
 
 fun planCourseReadings(
     readings: List<ReadingItem>,
@@ -66,6 +78,12 @@ private fun CompanionSession.matchesCourse(courseName: String): Boolean {
         normalized.contains(course) || course.contains(normalized)
     }
 }
+
+private data class ReadingCourseOrder(
+    val courseId: String,
+    val courseName: String,
+    val nextStart: Instant?,
+)
 
 private fun String.normalizedWords(): String = lowercase()
     .replace(Regex("[^a-z0-9]+"), " ")

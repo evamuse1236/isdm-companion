@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.isdm.companion.CompanionApplication
 import org.isdm.companion.engine.Command
+import org.isdm.companion.engine.AssessmentItem
 import org.isdm.companion.engine.CommandResult
 import org.isdm.companion.engine.Credentials
 import org.isdm.companion.engine.EngineError
@@ -312,22 +313,50 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun downloadReading(reading: ReadingItem) {
+        downloadLmsPdf(
+            title = reading.title,
+            description = reading.courseName,
+            sourceUrl = reading.sourceUrl,
+            diagnosticType = "reading",
+        )
+    }
+
+    fun downloadAssessmentResource(assessment: AssessmentItem) {
+        val sourceUrl = assessment.resourceUrl
+        if (sourceUrl == null) {
+            _message.value = "The LMS has not attached a PDF to this assessment."
+            return
+        }
+        downloadLmsPdf(
+            title = assessment.resourceTitle ?: "${assessment.title} PDF",
+            description = assessment.title,
+            sourceUrl = sourceUrl,
+            diagnosticType = "assessment",
+        )
+    }
+
+    private fun downloadLmsPdf(
+        title: String,
+        description: String,
+        sourceUrl: String,
+        diagnosticType: String,
+    ) {
         viewModelScope.launch {
             val stored = app.credentialStore.load()
             if (stored == null) {
-                _message.value = "Save your LMS login before downloading a reading."
+                _message.value = "Save your LMS login before downloading this PDF."
                 return@launch
             }
             runCatching {
                 val url = app.lmsAdapter.readingDownloadUrl(
                     Credentials(stored.email, stored.password),
-                    reading.sourceUrl,
+                    sourceUrl,
                 )
                 val stamp = DOWNLOAD_STAMP.format(LocalDateTime.now())
-                val fileName = readingDownloadFileName(reading.title, stamp)
+                val fileName = readingDownloadFileName(title, stamp)
                 val request = DownloadManager.Request(Uri.parse(url))
-                    .setTitle(reading.title)
-                    .setDescription(reading.courseName)
+                    .setTitle(title)
+                    .setDescription(description)
                     .setMimeType("application/pdf")
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -337,13 +366,13 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 }
                 val manager = app.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
                 val downloadId = manager.enqueue(request)
-                app.diagnostics.log("reading_download_enqueued", mapOf("download_id" to downloadId.toString()))
+                app.diagnostics.log("${diagnosticType}_download_enqueued", mapOf("download_id" to downloadId.toString()))
                 fileName
             }.onSuccess { fileName ->
                 _message.value = "Downloading $fileName"
             }.onFailure { error ->
-                app.diagnostics.log("reading_download_failed", error = error)
-                _message.value = error.message ?: "Could not download this reading."
+                app.diagnostics.log("${diagnosticType}_download_failed", error = error)
+                _message.value = error.message ?: "Could not download this PDF."
             }
         }
     }

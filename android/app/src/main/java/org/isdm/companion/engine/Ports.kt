@@ -86,6 +86,7 @@ interface LmsGateway {
     suspend fun calendar(start: LocalDate, endExclusive: LocalDate): List<CalendarEvent>
     suspend fun courses(): List<LmsCourse>
     suspend fun readings(course: LmsCourse): List<ReadingItem>
+    suspend fun assessments(): List<AssessmentItem> = emptyList()
     suspend fun classroom(nid: String): ClassroomDetail
     suspend fun attendanceSummary(): AttendanceSummary
     suspend fun markability(): Map<String, Markability>
@@ -128,6 +129,8 @@ interface CompanionCacheStore {
     fun saveSchedule(schedule: CachedSchedule)
     fun loadReadings(): List<ReadingItem>
     fun saveReadings(readings: List<ReadingItem>)
+    fun loadAssessments(): List<AssessmentItem> = emptyList()
+    fun saveAssessments(assessments: List<AssessmentItem>) = Unit
     fun loadFacultyProfiles(): List<FacultyProfile>
     fun saveFacultyProfiles(profiles: List<FacultyProfile>)
 }
@@ -138,6 +141,8 @@ object NoopCompanionCacheStore : CompanionCacheStore {
     override fun saveSchedule(schedule: CachedSchedule) = Unit
     override fun loadReadings(): List<ReadingItem> = emptyList()
     override fun saveReadings(readings: List<ReadingItem>) = Unit
+    override fun loadAssessments(): List<AssessmentItem> = emptyList()
+    override fun saveAssessments(assessments: List<AssessmentItem>) = Unit
     override fun loadFacultyProfiles(): List<FacultyProfile> = emptyList()
     override fun saveFacultyProfiles(profiles: List<FacultyProfile>) = Unit
 }
@@ -176,6 +181,17 @@ data class ReadingItem(
     val progress: LmsReadingProgress = LmsReadingProgress.UNKNOWN,
     val mandatory: Boolean = false,
     val done: Boolean = false,
+)
+
+data class AssessmentItem(
+    val id: String,
+    val title: String,
+    val status: String,
+    val dueDate: LocalDate?,
+    val endDate: LocalDate?,
+    val submissionUrl: String,
+    val resourceTitle: String? = null,
+    val resourceUrl: String? = null,
 )
 
 data class ClassroomDetail(
@@ -267,12 +283,14 @@ data class CompanionState(
     val scheduleEndExclusive: LocalDate = today.plusDays(14),
     val scheduleSessions: List<CompanionSession> = emptyList(),
     val readings: List<ReadingItem> = emptyList(),
+    val assessments: List<AssessmentItem> = emptyList(),
     val facultyProfiles: List<FacultyProfile> = emptyList(),
     val attendanceSummary: AttendanceSummary? = null,
     val monitor: MonitoringStatus = MonitoringStatus(),
     val sync: SyncStatus = SyncStatus(),
     val scheduleSync: SyncStatus = SyncStatus(),
     val readingSync: SyncStatus = SyncStatus(),
+    val assessmentSync: SyncStatus = SyncStatus(),
     val attendanceSync: SyncStatus = SyncStatus(),
     val error: EngineError? = null,
 )

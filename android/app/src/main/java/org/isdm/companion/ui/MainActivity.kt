@@ -114,6 +114,7 @@ import kotlinx.coroutines.delay
 import org.isdm.companion.CompanionApplication
 import org.isdm.companion.R
 import org.isdm.companion.engine.CompanionState
+import org.isdm.companion.engine.AssessmentItem
 import org.isdm.companion.engine.EngineError
 import org.isdm.companion.engine.FacultyProfile
 import org.isdm.companion.engine.LmsReadingProgress
@@ -122,6 +123,7 @@ import org.isdm.companion.engine.Session
 import org.isdm.companion.engine.SessionState
 import org.isdm.companion.engine.planCourseReadings
 import org.isdm.companion.engine.defaultReadingCourseId
+import org.isdm.companion.engine.orderedReadingCourseIds
 import org.isdm.companion.domain.LocationGateReason
 import org.isdm.companion.platform.BetaProfile
 import java.time.Duration
@@ -647,6 +649,8 @@ private fun CompanionScreen(
                             onReading = { selectedReading = it },
                             onFacultyProfile = { onOpenReading(it.sourceUrl) },
                             onToggleDone = viewModel::toggleReadingDone,
+                            onOpenAssessment = onOpenReading,
+                            onDownloadAssessment = viewModel::downloadAssessmentResource,
                         )
                     } else {
                         ProfileContent(
@@ -1065,17 +1069,20 @@ private fun ReadingsContent(
     onReading: (ReadingItem) -> Unit,
     onFacultyProfile: (FacultyProfile) -> Unit,
     onToggleDone: (String) -> Unit,
+    onOpenAssessment: (String) -> Unit,
+    onDownloadAssessment: (AssessmentItem) -> Unit,
 ) {
     var expandedCourseId by rememberSaveable { mutableStateOf<String?>(null) }
     var initialCourseChosen by rememberSaveable { mutableStateOf(false) }
     val expandedSections = remember { mutableStateListOf<String>() }
     val readingsByCourse = state.readings.groupBy { it.catId }
     val profilesByCourse = state.facultyProfiles.groupBy { it.courseCatId }
-    val courseIds = (readingsByCourse.keys + profilesByCourse.keys).distinct()
+    val readingCourseIds = orderedReadingCourseIds(state.readings, state.scheduleSessions, state.now)
+    val courseIds = readingCourseIds + profilesByCourse.keys.filterNot { it in readingCourseIds }
     val initialScheduleReady = state.scheduleSync.lastSuccess != null || state.scheduleSync.error != null
     LaunchedEffect(courseIds, state.scheduleSessions, initialScheduleReady) {
         if (!initialCourseChosen && courseIds.isNotEmpty() && initialScheduleReady) {
-            expandedCourseId = defaultReadingCourseId(state.readings, state.scheduleSessions, Instant.now())
+            expandedCourseId = defaultReadingCourseId(state.readings, state.scheduleSessions, state.now)
             initialCourseChosen = true
         }
     }
@@ -1084,11 +1091,34 @@ private fun ReadingsContent(
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (state.readingSync.inProgress && courseIds.isEmpty()) {
+        if (state.assessments.isNotEmpty()) {
+            item(key = "assessments") {
+                AssessmentsCard(
+                    assessments = state.assessments,
+                    today = state.today,
+                    onOpenSubmission = onOpenAssessment,
+                    onDownloadResource = onDownloadAssessment,
+                )
+            }
+        }
+        state.assessmentSync.error?.let { error ->
+            item(key = "assessment-error") { InlineError("Assessments may be stale. ${errorText(error)}") }
+        }
+        if (state.readingSync.inProgress && courseIds.isEmpty() && state.assessments.isEmpty()) {
             item { Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Teal) } }
-        } else if (courseIds.isEmpty()) {
+        } else if (courseIds.isEmpty() && state.assessments.isEmpty()) {
             item { EmptyState("No course content yet", "The LMS listing has not produced readings or faculty profiles.") }
-        } else {
+        } else if (courseIds.isNotEmpty()) {
+            item(key = "course-order-label") {
+                Text(
+                    "COURSES BY NEXT SESSION",
+                    modifier = Modifier.padding(start = 3.dp, top = 8.dp, end = 3.dp, bottom = 2.dp),
+                    color = Teal,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = .5.sp,
+                )
+            }
             items(courseIds, key = { it }) { courseId ->
                 val readings = readingsByCourse[courseId].orEmpty()
                 val profiles = profilesByCourse[courseId].orEmpty()
@@ -1120,6 +1150,144 @@ private fun ReadingsContent(
         }
         state.readingSync.error?.let { error -> item { InlineError("Readings may be stale. ${errorText(error)}") } }
     }
+}
+
+@Composable
+private fun AssessmentsCard(
+    assessments: List<AssessmentItem>,
+    today: LocalDate,
+    onOpenSubmission: (String) -> Unit,
+    onDownloadResource: (AssessmentItem) -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(true) }
+    val openCount = assessments.count { !it.isSubmitted() }
+    Surface(
+        modifier = Modifier.fillMaxWidth().animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
+        shape = RoundedCornerShape(20.dp),
+        color = Color.White,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+    ) {
+        Column {
+            Box(
+                Modifier.fillMaxWidth().background(DonePurpleSoft).clickable { expanded = !expanded }.padding(16.dp),
+            ) {
+                Column(Modifier.fillMaxWidth(.82f)) {
+                    Text("ASSESSMENTS", color = DonePurple, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = .6.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Due work", color = Ink, fontSize = 19.sp, lineHeight = 21.sp, fontWeight = FontWeight.ExtraBold)
+                    Spacer(Modifier.height(9.dp))
+                    Text(
+                        if (openCount == 0) "All listed work submitted" else "$openCount ${if (openCount == 1) "assessment" else "assessments"} open",
+                        color = Ink.copy(alpha = .72f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    assessments.firstOrNull { !it.isSubmitted() }?.let { next ->
+                        Spacer(Modifier.height(5.dp))
+                        Text("Next: ${next.title}", color = Ink.copy(alpha = .62f), fontSize = 10.sp, maxLines = 1)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(if (expanded) "⌃  Collapse" else "⌄  Open", color = DonePurple, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                CourseArtwork(0, DonePurple, Modifier.align(Alignment.BottomEnd).size(110.dp, 88.dp))
+            }
+            AnimatedVisibility(visible = expanded, enter = fadeIn() + slideInVertically { -it / 8 }, exit = fadeOut()) {
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                    assessments.forEachIndexed { index, assessment ->
+                        AssessmentRow(
+                            assessment = assessment,
+                            today = today,
+                            onOpenSubmission = onOpenSubmission,
+                            onDownloadResource = onDownloadResource,
+                        )
+                        if (index != assessments.lastIndex) HorizontalDivider(color = Line)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssessmentRow(
+    assessment: AssessmentItem,
+    today: LocalDate,
+    onOpenSubmission: (String) -> Unit,
+    onDownloadResource: (AssessmentItem) -> Unit,
+) {
+    val submitted = assessment.isSubmitted()
+    val overdue = !submitted && assessment.dueDate?.isBefore(today) == true
+    val statusLabel = when {
+        submitted -> assessment.status
+        overdue -> "Overdue"
+        else -> assessment.status
+    }
+    val statusBackground = when {
+        submitted -> DonePurple
+        overdue -> Butter
+        else -> Mint
+    }
+    val statusColor = when {
+        submitted -> Color.White
+        overdue -> Color(0xFF8A5B0E)
+        else -> Teal
+    }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 14.dp)) {
+        Text(assessment.title, color = Ink, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(7.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                statusLabel,
+                modifier = Modifier.background(statusBackground, RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 3.dp),
+                color = statusColor,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                formatAssessmentDueDate(assessment.dueDate),
+                color = if (overdue) BlushAccent else Ink.copy(alpha = .72f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        assessment.resourceTitle?.let { title ->
+            Spacer(Modifier.height(6.dp))
+            Text("PDF · $title", color = Muted, fontSize = 10.sp, maxLines = 1)
+        }
+        Spacer(Modifier.height(11.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            if (assessment.resourceUrl != null) {
+                Button(
+                    onClick = { onDownloadResource(assessment) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Soft),
+                ) {
+                    androidx.compose.material3.Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp), tint = Ink)
+                    Spacer(Modifier.width(7.dp))
+                    Text("PDF", color = Ink)
+                }
+            }
+            if (!submitted) {
+                Button(
+                    onClick = { onOpenSubmission(assessment.submissionUrl) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Ink),
+                ) {
+                    androidx.compose.material3.Icon(Icons.AutoMirrored.Filled.OpenInNew, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("Submit")
+                }
+            }
+        }
+    }
+}
+
+internal fun formatAssessmentDueDate(dueDate: LocalDate?): String =
+    dueDate?.let { "Due ${ASSESSMENT_DUE_FORMAT.format(it)}" } ?: "Due date not posted"
+
+private fun AssessmentItem.isSubmitted(): Boolean {
+    val value = status.lowercase(Locale.ENGLISH)
+    return "submitted" in value && "not submitted" !in value
 }
 
 @Composable
@@ -2138,6 +2306,7 @@ private val IST = ZoneId.of("Asia/Kolkata")
 private val TIME_FORMAT = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 private val TIME_SHORT = DateTimeFormatter.ofPattern("H:mm", Locale.ENGLISH)
 private val DATE_FORMAT = DateTimeFormatter.ofPattern("EEEE, d MMM", Locale.ENGLISH)
+private val ASSESSMENT_DUE_FORMAT = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.ENGLISH)
 
 internal val companionTypography = Typography().run {
     val family = FontFamily(

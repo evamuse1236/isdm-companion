@@ -38,7 +38,8 @@ and open **http://localhost:4321**.
 The native Android client lives in [`android/`](android/README.md). It keeps the Windows app
 unchanged and talks directly to the same LMS endpoints from the phone. The current build has
 secure on-device login, today's schedule and rooms, one-tap marking, notify-only class-day
-monitoring, and separately armed daily auto-marking.
+monitoring, separately armed daily auto-marking, and LMS assessments with their due dates,
+resources, and submission links.
 
 Auto-marking follows the same rule as the desktop app: arm it only while you are physically
 attending that day's classes. Monitoring is visible through a persistent Android notification,

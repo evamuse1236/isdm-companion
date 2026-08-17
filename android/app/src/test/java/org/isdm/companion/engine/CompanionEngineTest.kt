@@ -192,6 +192,28 @@ class CompanionEngineTest {
     }
 
     @Test
+    fun `reading refresh also publishes active assessments`() = runBlocking {
+        gateway.assessmentRows += AssessmentItem(
+            id = "1305879",
+            title = "B10 - T1 - PMDL - Reflection 2",
+            status = "Not Submitted",
+            dueDate = LocalDate.of(2026, 8, 20),
+            endDate = LocalDate.of(2026, 9, 20),
+            submissionUrl = "https://lms.isdm.org.in/subtopic/view?vid=1305879",
+            resourceTitle = "Reflection prompt PDF",
+            resourceUrl = "https://lms.isdm.org.in/subtopic/view?vid=1296029",
+        )
+        val engine = engine()
+        engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
+
+        val result = engine.dispatch(Command.RefreshReadings)
+
+        assertTrue(result is CommandResult.Completed)
+        assertEquals(listOf("1305879"), engine.state.value.assessments.map { it.id })
+        assertEquals(start, engine.state.value.assessmentSync.lastSuccess)
+    }
+
+    @Test
     fun `manual mark denied by the Attendance Location Gate makes no LMS marking calls`() = runBlocking {
         val engine = engine(locationGate = deniedLocationGate())
         configureAndRefresh(engine)
@@ -536,6 +558,7 @@ private class FakeGateway : LmsGateway {
     val markabilityMap = mutableMapOf<String, Markability>()
     val courseRows = mutableListOf<LmsCourse>()
     val readingRows = mutableMapOf<String, MutableList<ReadingItem>>()
+    val assessmentRows = mutableListOf<AssessmentItem>()
     var markFailuresRemaining = 0
     var markPresentCalls = 0
     var markabilityCalls = 0
@@ -559,6 +582,8 @@ private class FakeGateway : LmsGateway {
         }
         return readingRows[course.catId].orEmpty()
     }
+
+    override suspend fun assessments(): List<AssessmentItem> = assessmentRows.toList()
 
     override suspend fun calendar(start: LocalDate, endExclusive: LocalDate): List<CalendarEvent> {
         calendarCalls++

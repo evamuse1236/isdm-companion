@@ -10,6 +10,23 @@ import org.junit.Test
 
 class ScheduleTest {
     @Test
+    fun `assessment activities are not scheduled sessions`() {
+        val sessions = buildSessions(
+            listOf(
+                event(
+                    "1305879",
+                    "B10 - T1 - PMDL - Reflection 2",
+                    "/subtopic/view?sid=1298915&vid=1305879&cid=1298950&cat_id=70954",
+                    "2026-08-17 11:37:00",
+                    "2026-09-20 12:32:00",
+                ),
+            ),
+            Cohorts(),
+        )
+
+        assertTrue(sessions.isEmpty())
+    }
+    @Test
     fun parsesAttendanceTitleIntoNameCohortAndSession() {
         assertEquals(
             ParsedTitle(name = "Maths", cohort = "Section B", session = 2),

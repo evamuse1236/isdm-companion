@@ -134,6 +134,7 @@ class CompanionEngine(
             scheduleEndExclusive = cachedSchedule?.endExclusive ?: today.plusDays(DEFAULT_SCHEDULE_DAYS.toLong()),
             scheduleSessions = cachedSchedule?.sessions.orEmpty(),
             readings = loadCachedReadings(),
+            assessments = cacheStore.loadAssessments(),
             facultyProfiles = cacheStore.loadFacultyProfiles(),
             scheduleSync = SyncStatus(lastSuccess = cachedSchedule?.syncedAt),
         )
@@ -173,12 +174,14 @@ class CompanionEngine(
                 ?: today.plusDays(DEFAULT_SCHEDULE_DAYS.toLong()),
             scheduleSessions = cachedSchedule?.sessions.orEmpty(),
             readings = loadCachedReadings(),
+            assessments = cacheStore.loadAssessments(),
             facultyProfiles = cacheStore.loadFacultyProfiles(),
             monitor = MonitoringStatus(reason = if (wasMonitoring) MonitoringStopReason.DISARMED else null),
             error = null,
             sync = SyncStatus(),
             scheduleSync = SyncStatus(lastSuccess = cachedSchedule?.syncedAt),
             readingSync = SyncStatus(),
+            assessmentSync = SyncStatus(),
             attendanceSummary = null,
             attendanceSync = SyncStatus(),
         )
@@ -367,9 +370,28 @@ class CompanionEngine(
     private suspend fun refreshReadings(): CommandResult {
         val saved = credentials ?: return reject(EngineError.CredentialsMissing)
         val now = clock.now()
-        _state.value = stateNow().copy(readingSync = _state.value.readingSync.copy(inProgress = true, error = null))
+        _state.value = stateNow().copy(
+            readingSync = _state.value.readingSync.copy(inProgress = true, error = null),
+            assessmentSync = _state.value.assessmentSync.copy(inProgress = true, error = null),
+        )
         return try {
             authenticateIfNeeded(saved)
+            val assessmentFetch = captureFetchWithRetry { gateway.assessments() }
+            if (assessmentFetch.error == null) {
+                val assessments = assessmentFetch.value.orEmpty()
+                    .distinctBy { it.id }
+                    .sortedWith(compareBy<AssessmentItem> { it.dueDate ?: LocalDate.MAX }.thenBy { it.title })
+                _state.value = stateNow().copy(
+                    assessments = assessments,
+                    assessmentSync = SyncStatus(lastSuccess = now),
+                )
+                cacheStore.saveAssessments(assessments)
+                diagnostics.log("assessments_refreshed", mapOf("assessments" to assessments.size.toString()))
+            } else {
+                val mapped = mapError(assessmentFetch.error)
+                _state.value = stateNow().copy(assessmentSync = SyncStatus(error = mapped))
+                diagnostics.log("assessments_refresh_failed", error = assessmentFetch.error)
+            }
             val courses = gateway.courses()
             val semaphore = Semaphore(3)
             val courseContent = coroutineScope {
@@ -439,7 +461,10 @@ class CompanionEngine(
             throw error
         } catch (error: Throwable) {
             val mapped = mapError(error)
-            _state.value = stateNow().copy(readingSync = SyncStatus(error = mapped))
+            _state.value = stateNow().copy(
+                readingSync = SyncStatus(error = mapped),
+                assessmentSync = if (_state.value.assessmentSync.inProgress) SyncStatus(error = mapped) else _state.value.assessmentSync,
+            )
             CommandResult.Rejected(mapped, _state.value)
         }
     }

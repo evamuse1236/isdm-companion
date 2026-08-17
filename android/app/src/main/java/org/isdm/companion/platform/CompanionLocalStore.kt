@@ -2,6 +2,7 @@ package org.isdm.companion.platform
 
 import android.content.Context
 import org.isdm.companion.engine.CachedSchedule
+import org.isdm.companion.engine.AssessmentItem
 import org.isdm.companion.engine.CompanionCacheStore
 import org.isdm.companion.engine.CompanionSession
 import org.isdm.companion.engine.FacultyProfile
@@ -73,6 +74,18 @@ class CompanionLocalStore(context: Context) : ReadingDoneStore, CompanionCacheSt
     override fun saveReadings(readings: List<ReadingItem>) = synchronized(lock) {
         val key = accountKey(KEY_READINGS) ?: return@synchronized
         val array = JSONArray().apply { readings.forEach { put(encodeReading(it.copy(done = false))) } }
+        preferences.edit().putString(key, array.toString()).apply()
+    }
+
+    override fun loadAssessments(): List<AssessmentItem> = synchronized(lock) {
+        val key = accountKey(KEY_ASSESSMENTS) ?: return@synchronized emptyList()
+        val raw = preferences.getString(key, null) ?: return@synchronized emptyList()
+        runCatching { JSONArray(raw).mapObjects(::decodeAssessment) }.getOrDefault(emptyList())
+    }
+
+    override fun saveAssessments(assessments: List<AssessmentItem>) = synchronized(lock) {
+        val key = accountKey(KEY_ASSESSMENTS) ?: return@synchronized
+        val array = JSONArray().apply { assessments.forEach { put(encodeAssessment(it)) } }
         preferences.edit().putString(key, array.toString()).apply()
     }
 
@@ -155,6 +168,27 @@ class CompanionLocalStore(context: Context) : ReadingDoneStore, CompanionCacheSt
         mandatory = value.optBoolean("mandatory"),
     )
 
+    private fun encodeAssessment(value: AssessmentItem) = JSONObject()
+        .put("id", value.id)
+        .put("title", value.title)
+        .put("status", value.status)
+        .putNullable("dueDate", value.dueDate?.toString())
+        .putNullable("endDate", value.endDate?.toString())
+        .put("submissionUrl", value.submissionUrl)
+        .putNullable("resourceTitle", value.resourceTitle)
+        .putNullable("resourceUrl", value.resourceUrl)
+
+    private fun decodeAssessment(value: JSONObject) = AssessmentItem(
+        id = value.getString("id"),
+        title = value.getString("title"),
+        status = value.getString("status"),
+        dueDate = value.nullableString("dueDate")?.let(LocalDate::parse),
+        endDate = value.nullableString("endDate")?.let(LocalDate::parse),
+        submissionUrl = value.getString("submissionUrl"),
+        resourceTitle = value.nullableString("resourceTitle"),
+        resourceUrl = value.nullableString("resourceUrl"),
+    )
+
     private fun encodeFacultyProfile(value: FacultyProfile) = JSONObject()
         .put("courseCatId", value.courseCatId)
         .put("courseName", value.courseName)
@@ -183,6 +217,7 @@ class CompanionLocalStore(context: Context) : ReadingDoneStore, CompanionCacheSt
         const val KEY_DONE = "reading_done_ids"
         const val KEY_SCHEDULE = "schedule_cache"
         const val KEY_READINGS = "readings_cache"
+        const val KEY_ASSESSMENTS = "assessments_cache"
         const val KEY_FACULTY_PROFILES = "faculty_profiles_cache"
     }
 }

@@ -174,6 +174,9 @@ fun buildSessions(events: Iterable<CalendarEvent>, cohorts: Cohorts): List<Sessi
     val byKey = LinkedHashMap<String, BuildingSession>()
 
     for (event in events) {
+        // Assessment submission windows share the calendar feed with timetable entries.
+        // Their start/end dates describe availability, not a Scheduled Session.
+        if (event.url?.contains("/subtopic/view") == true) continue
         val start = parseLmsTime(event.start) ?: continue
         val end = parseLmsTime(event.end)
         val key = mergeKey(event)

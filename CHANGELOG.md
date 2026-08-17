@@ -1,5 +1,12 @@
 # ISDM Companion changelog
 
+## 0.4.2 beta
+
+- Assessments now appear at the top of Readings with the due date from the assessment itself,
+  its related PDF, and its submission link.
+- Course reading cards are sorted by the nearest upcoming session.
+- Assessment submission windows no longer appear as Scheduled Sessions.
+
 ## 0.4.1 beta
 
 - Attendance now uses completed LMS sessions from the last year. Upcoming sessions no longer
