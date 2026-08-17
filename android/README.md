@@ -7,8 +7,8 @@ unchanged.
 ## Current features
 
 - Encrypted LMS credentials stored locally with a key protected by Android Keystore.
-- A Profile screen with the total attendance percentage, counts, and scope reported directly by
-  the LMS attendance page.
+- A Profile screen with the completed-session attendance percentage and counts from the LMS
+  historical report for the last year. Upcoming sessions are excluded.
 - An account-scoped cached rolling 14-day personalised schedule with room, floor, trainer, and
   attendance state.
 - Read-only aggregation of course reading/resource listing pages, including stable LMS item IDs,

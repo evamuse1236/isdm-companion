@@ -13,9 +13,8 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
-        "Profile now shows the attendance percentage reported by the LMS.",
-        "Location checks now wait longer for a reliable GPS fix.",
-        "Background attendance and readings recover better from temporary failures.",
+        "Attendance now uses your completed LMS sessions from the last year, so upcoming classes no longer lower your percentage.",
+        "Profile has a clearer attendance overview and simpler personal details.",
     ),
 )
 

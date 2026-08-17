@@ -1579,81 +1579,309 @@ private fun ProfileContent(
     var name by rememberSaveable(profile?.supportName) { mutableStateOf(profile?.supportName.orEmpty()) }
     var section by rememberSaveable(profile?.selfSection) { mutableStateOf(profile?.selfSection.orEmpty()) }
     var group by rememberSaveable(profile?.selfPlc) { mutableStateOf(profile?.selfPlc.orEmpty()) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("Profile", color = Ink, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold) }
+    var editingProfile by rememberSaveable { mutableStateOf(false) }
+    LazyColumn(
+        Modifier.fillMaxSize().background(Paper),
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
         item {
-            Column(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(16.dp)) {
-                Text("Total attendance", color = Ink, fontWeight = FontWeight.ExtraBold)
-                val summary = state.attendanceSummary
-                when {
-                    summary != null -> {
-                        val percentage = summary.presentPercentage.stripTrailingZeros().toPlainString()
-                        Text("$percentage%", color = TealDeep, fontSize = 36.sp, fontWeight = FontWeight.ExtraBold)
-                        Text(
-                            "${summary.present} present out of ${summary.total} total LMS sessions",
-                            color = Ink,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            "The LMS currently includes ${summary.upcoming} upcoming sessions in this total.",
-                            color = Muted,
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp,
-                        )
-                    }
-                    state.attendanceSync.inProgress -> Text("Updating from the LMS…", color = Muted)
-                    else -> Text("Attendance is unavailable right now.", color = Muted)
-                }
-                TextButton(
-                    onClick = onRefreshAttendance,
-                    enabled = !state.attendanceSync.inProgress,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (state.attendanceSync.inProgress) "Updating…" else "Update attendance") }
-            }
+            ProfileHeader(
+                name = profile?.supportName.orEmpty(),
+                section = profile?.selfSection,
+                group = profile?.selfPlc,
+            )
         }
         item {
-            Column(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(16.dp)) {
+            AttendanceOverviewCard(
+                state = state,
+                onRefresh = onRefreshAttendance,
+            )
+        }
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                color = Color.White,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+            ) {
+                Column(Modifier.padding(18.dp)) {
                 val statusLabel = when {
                     !setupStatus.canEnableAutomaticAttendance -> "Needs attention"
                     autoAttendanceEnabled -> "Ready"
                     else -> "Off"
                 }
-                Text("Automatic attendance · $statusLabel", color = if (statusLabel == "Ready") Green else BlushAccent, fontWeight = FontWeight.ExtraBold)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(42.dp).background(Mint, RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("✓", color = Teal, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold) }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Automatic attendance", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(statusLabel, color = if (statusLabel == "Ready") Green else BlushAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Switch(
+                        checked = autoAttendanceEnabled,
+                        onCheckedChange = { onAutoAttendance(it) },
+                        enabled = setupStatus.canEnableAutomaticAttendance || autoAttendanceEnabled,
+                        colors = SwitchDefaults.colors(checkedTrackColor = Teal),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
                 Text(
-                    "Required: Precise location, Allow all the time and precise alarms. " +
-                        if (setupStatus.notificationsAvailable) "Notifications are ready." else "Notifications are optional and currently off.",
+                    if (setupStatus.canEnableAutomaticAttendance) {
+                        "Companion can check your campus location near class time and mark attendance when the LMS allows it."
+                    } else {
+                        "Precise location, Allow all the time and precise alarms are required before automatic attendance can run."
+                    },
                     color = Muted,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
                 )
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                        .clickable { onAutoAttendance(!autoAttendanceEnabled) }
-                        .semantics { contentDescription = "Automatic attendance, $statusLabel" }
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(if (autoAttendanceEnabled) "Turn off" else "Turn on", color = Ink, fontWeight = FontWeight.Bold)
-                    Switch(checked = autoAttendanceEnabled, onCheckedChange = null)
+                if (!setupStatus.notificationsAvailable) {
+                    Text("Notifications are optional and currently off.", color = Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
+                }
                 }
             }
         }
         item {
-            Column(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(16.dp)) {
-                Text("Beta Profile", color = Ink, fontWeight = FontWeight.ExtraBold)
-                Text("LMS detected: ${detectedCohortSummary(detectedSections, detectedGroups)}", color = Muted, fontSize = 11.sp)
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(name, { name = it }, label = { Text("Support name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(section, { section = it }, label = { Text("Section") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(group, { group = it }, label = { Text("PLC or Group") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                Button(onClick = { onSaveProfile(name, section, group) }, enabled = section.isNotBlank(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Save profile") }
-                TextButton(onClick = onDeleteName, modifier = Modifier.fillMaxWidth()) { Text("Delete my support name") }
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                color = Color.White,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+            ) {
+                Column(Modifier.padding(18.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Personal details", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                            Text("LMS detected ${detectedCohortSummary(detectedSections, detectedGroups)}", color = Muted, fontSize = 11.sp)
+                        }
+                        if (!editingProfile) {
+                            TextButton(onClick = { editingProfile = true }) { Text("Edit", color = Teal, fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (editingProfile) {
+                        OutlinedTextField(name, { name = it }, label = { Text("Support name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(section, { section = it }, label = { Text("Section") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(group, { group = it }, label = { Text("PLC or Group") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = {
+                                name = profile?.supportName.orEmpty()
+                                section = profile?.selfSection.orEmpty()
+                                group = profile?.selfPlc.orEmpty()
+                                editingProfile = false
+                            }, modifier = Modifier.weight(1f)) { Text("Cancel", color = Muted) }
+                            Button(
+                                onClick = {
+                                    onSaveProfile(name.trim(), section.trim(), group.trim())
+                                    editingProfile = false
+                                },
+                                enabled = section.isNotBlank(),
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = TealDeep),
+                            ) { Text("Save") }
+                        }
+                        if (!profile?.supportName.isNullOrBlank()) {
+                            TextButton(onClick = onDeleteName, modifier = Modifier.fillMaxWidth()) {
+                                Text("Delete my support name", color = BlushAccent)
+                            }
+                        }
+                    } else {
+                        ProfileDetailRow("Name", profile?.supportName ?: "Not added")
+                        ProfileDetailRow("Section", profile?.selfSection ?: "Not added")
+                        ProfileDetailRow("PLC / Group", profile?.selfPlc ?: "Not added", divider = false)
+                    }
+                }
             }
         }
-        item { TextButton(onClick = onShowReleaseNotes, modifier = Modifier.fillMaxWidth()) { Text("What’s new") } }
-        item { TextButton(onClick = onReopenTour, modifier = Modifier.fillMaxWidth()) { Text("View tour again") } }
-        item { TextButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text("Sign out", color = Muted) } }
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                color = Color.White,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+            ) {
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                    ProfileAction("What’s new", onShowReleaseNotes)
+                    HorizontalDivider(color = Line, modifier = Modifier.padding(horizontal = 10.dp))
+                    ProfileAction("View tour again", onReopenTour)
+                    HorizontalDivider(color = Line, modifier = Modifier.padding(horizontal = 10.dp))
+                    ProfileAction("Sign out", onSignOut, color = Muted)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileHeader(name: String, section: String?, group: String?) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(64.dp).background(TealDeep, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(profileInitials(name), color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Profile", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(name.ifBlank { "ISDM student" }, color = Ink, fontSize = 23.sp, lineHeight = 27.sp, fontWeight = FontWeight.ExtraBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                section?.takeIf(String::isNotBlank)?.let { ProfileChip(it) }
+                group?.takeIf(String::isNotBlank)?.let { ProfileChip(it) }
+            }
+        }
+    }
+}
+
+private fun profileInitials(name: String): String = name.trim()
+    .split(Regex("\\s+"))
+    .filter(String::isNotBlank)
+    .take(2)
+    .joinToString("") { it.first().uppercaseChar().toString() }
+    .ifBlank { "IS" }
+
+@Composable
+private fun ProfileChip(label: String) {
+    Text(
+        label,
+        color = TealDeep,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.background(Mint, RoundedCornerShape(20.dp)).padding(horizontal = 9.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun AttendanceOverviewCard(state: CompanionState, onRefresh: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.White,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Attendance", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                    Text("Last 1 year · completed sessions", color = Muted, fontSize = 11.sp)
+                }
+                Text(
+                    "Updated from LMS",
+                    color = Green,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.background(DoneSoft, RoundedCornerShape(20.dp)).padding(horizontal = 9.dp, vertical = 5.dp),
+                )
+            }
+            Spacer(Modifier.height(18.dp))
+            val summary = state.attendanceSummary
+            when {
+                summary != null -> {
+                    val percentage = summary.presentPercentage.stripTrailingZeros().toPlainString()
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(128.dp), contentAlignment = Alignment.Center) {
+                            Canvas(
+                                Modifier.fillMaxSize().semantics {
+                                    contentDescription = "$percentage percent attendance"
+                                },
+                            ) {
+                                val stroke = 12.dp.toPx()
+                                val inset = stroke / 2f
+                                drawArc(
+                                    color = Soft,
+                                    startAngle = -90f,
+                                    sweepAngle = 360f,
+                                    useCenter = false,
+                                    topLeft = Offset(inset, inset),
+                                    size = Size(size.width - stroke, size.height - stroke),
+                                    style = Stroke(stroke, cap = StrokeCap.Round),
+                                )
+                                drawArc(
+                                    color = Teal,
+                                    startAngle = -90f,
+                                    sweepAngle = 360f * summary.presentPercentage.toFloat().div(100f).coerceIn(0f, 1f),
+                                    useCenter = false,
+                                    topLeft = Offset(inset, inset),
+                                    size = Size(size.width - stroke, size.height - stroke),
+                                    style = Stroke(stroke, cap = StrokeCap.Round),
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("$percentage%", color = TealDeep, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                                Text("attendance", color = Muted, fontSize = 10.sp)
+                            }
+                        }
+                        Spacer(Modifier.width(18.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("${summary.present} present", color = Ink, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold)
+                            Text("${summary.absent} absent", color = BlushAccent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(5.dp))
+                            Text("${summary.total} completed sessions", color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
+                            if (summary.notMarked > 0) {
+                                Text("${summary.notMarked} not marked", color = Muted, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AttendanceStat("Present", summary.present.toString(), DoneSoft, Green, Modifier.weight(1f))
+                        AttendanceStat("Absent", summary.absent.toString(), Blush.copy(alpha = 0.48f), BlushAccent, Modifier.weight(1f))
+                        AttendanceStat("Total", summary.total.toString(), Mint, TealDeep, Modifier.weight(1f))
+                    }
+                }
+                state.attendanceSync.inProgress -> {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 28.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(24.dp), color = Teal, strokeWidth = 3.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Updating from the LMS…", color = Muted)
+                    }
+                }
+                else -> Text("Attendance is unavailable right now.", color = Muted, modifier = Modifier.padding(vertical = 24.dp))
+            }
+            TextButton(
+                onClick = onRefresh,
+                enabled = !state.attendanceSync.inProgress,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            ) { Text(if (state.attendanceSync.inProgress) "Updating…" else "Update from LMS", color = Teal, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+@Composable
+private fun AttendanceStat(label: String, value: String, background: Color, foreground: Color, modifier: Modifier = Modifier) {
+    Column(
+        modifier.background(background, RoundedCornerShape(14.dp)).padding(horizontal = 10.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(value, color = foreground, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+        Text(label, color = foreground, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun ProfileDetailRow(label: String, value: String, divider: Boolean = true) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 13.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, color = Muted, fontSize = 12.sp)
+        Text(value, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+    }
+    if (divider) HorizontalDivider(color = Line)
+}
+
+@Composable
+private fun ProfileAction(label: String, onClick: () -> Unit, color: Color = Ink) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = color, fontWeight = FontWeight.Bold)
+        Text("›", color = Muted, fontSize = 20.sp)
     }
 }
 

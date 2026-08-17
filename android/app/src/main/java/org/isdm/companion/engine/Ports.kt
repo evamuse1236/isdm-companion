@@ -190,12 +190,12 @@ data class ClassroomDetail(
     val end: Instant? = null,
 )
 
-/** The LMS-calculated attendance totals. The client displays these values without recomputing them. */
+/** Completed-session totals from the LMS historical attendance report. */
 data class AttendanceSummary(
     val total: Int,
     val present: Int,
     val absent: Int,
-    val upcoming: Int,
+    val notMarked: Int,
     val presentPercentage: BigDecimal,
 )
 

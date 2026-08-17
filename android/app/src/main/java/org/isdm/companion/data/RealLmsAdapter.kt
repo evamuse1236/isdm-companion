@@ -30,9 +30,12 @@ import org.isdm.companion.engine.LmsCourse
 import org.isdm.companion.engine.Markability
 import org.isdm.companion.engine.ReadingItem
 import org.isdm.companion.domain.parseLmsTime
-import java.time.LocalDate
-import java.math.BigDecimal
 import java.io.IOException
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.time.Instant
+import java.time.LocalDate
+import java.util.Locale
 
 /**
  * LMS implementation backed by OkHttp and Jsoup.
@@ -190,7 +193,14 @@ class RealLmsAdapter(
     }
 
     override suspend fun attendanceSummary(): AttendanceSummary {
-        val page = authed("/manage/classroom/attendance")
+        val end = Instant.now().epochSecond
+        val start = end - ATTENDANCE_HISTORY_SECONDS
+        val url = baseUrl.resolve("/api/executereport")!!.newBuilder()
+            .addQueryParameter("report", "student-dashboard-user-classroom-session-summary")
+            .addQueryParameter("start_time", start.toString())
+            .addQueryParameter("end_time", end.toString())
+            .build()
+        val page = authed(url.toString())
         return parseAttendanceSummary(page.body)
     }
 
@@ -535,6 +545,7 @@ class RealLmsAdapter(
     private companion object {
         const val DEFAULT_BASE_URL = "https://lms.isdm.org.in"
         const val MAX_REDIRECTS = 6
+        const val ATTENDANCE_HISTORY_SECONDS = 365L * 24L * 60L * 60L
         val REDIRECT_STATUSES = setOf(301, 302, 303, 307, 308)
         val PRESERVE_METHOD_REDIRECTS = setOf(307, 308)
         val NUMERIC_ID = Regex("\\d+")
@@ -544,29 +555,43 @@ class RealLmsAdapter(
     }
 }
 
-internal fun parseAttendanceSummary(html: String): AttendanceSummary {
-    val summary = Jsoup.parse(html).selectFirst("#classroom_attendance_summary")
-        ?: throw LmsProtocolException("The LMS attendance summary was missing.")
+internal fun parseAttendanceSummary(json: String): AttendanceSummary {
+    val rows = try {
+        JSONArray(json)
+    } catch (error: Exception) {
+        throw LmsProtocolException("The LMS attendance report was not JSON.", error)
+    }
+    val counts = buildMap {
+        for (index in 0 until rows.length()) {
+            val row = rows.optJSONObject(index) ?: continue
+            val title = row.optString("title").trim().lowercase(Locale.ROOT)
+            val count = row.optInt("count", -1)
+            if (title.isNotBlank() && count >= 0) put(title, count)
+        }
+    }
+    fun count(title: String): Int = counts[title]
+        ?: throw LmsProtocolException("The LMS $title attendance total was missing.")
 
-    fun count(selector: String, label: String): Int = summary.selectFirst(selector)?.text()
-        ?.trim()?.toIntOrNull()?.takeIf { it >= 0 }
-        ?: throw LmsProtocolException("The LMS $label attendance total was invalid.")
-
-    val percentageText = summary.selectFirst(".cas-present")
-        ?.closest(".cas-stat")
-        ?.selectFirst(".cas-stat-sub")
-        ?.text()
-        ?.trim()
-        ?.removeSuffix("%")
-    val percentage = percentageText?.toBigDecimalOrNull()
-        ?.takeIf { it >= BigDecimal.ZERO && it <= BigDecimal("100") }
-        ?: throw LmsProtocolException("The LMS present attendance percentage was invalid.")
+    val total = count("total")
+    val present = count("present")
+    val absent = count("absent")
+    val notMarked = count("not marked")
+    if (total != present + absent + notMarked) {
+        throw LmsProtocolException("The LMS attendance totals did not add up.")
+    }
+    val percentage = if (total == 0) {
+        BigDecimal.ZERO
+    } else {
+        BigDecimal(present)
+            .multiply(BigDecimal("100"))
+            .divide(BigDecimal(total), 2, RoundingMode.HALF_UP)
+    }
 
     return AttendanceSummary(
-        total = count(".cas-total", "total"),
-        present = count(".cas-present", "present"),
-        absent = count(".cas-absent", "absent"),
-        upcoming = count(".cas-upcoming", "upcoming"),
+        total = total,
+        present = present,
+        absent = absent,
+        notMarked = notMarked,
         presentPercentage = percentage,
     )
 }
@@ -586,6 +611,7 @@ internal fun lmsEndpointLabel(path: String): String = when {
     path == "/show/all/courses" -> "courses"
     path == "/course/details" -> "course_details"
     path.startsWith("/classroom/") -> "classroom"
+    path == "/api/executereport" -> "attendance_summary"
     path == "/manage/classroom/attendance" -> "markability"
     path == "/api/mark/classroomsession/attendance" -> "mark_present"
     path == "/api/downloadcontent" -> "reading_download"

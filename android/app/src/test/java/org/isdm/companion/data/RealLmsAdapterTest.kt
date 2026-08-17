@@ -15,7 +15,7 @@ import org.isdm.companion.engine.Credentials
 
 class RealLmsAdapterTest {
     @Test
-    fun `attendance summary uses the LMS totals and percentage`() = runBlocking {
+    fun `attendance summary uses completed sessions from the historical LMS report`() = runBlocking {
         val server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse = when {
@@ -26,33 +26,19 @@ class RealLmsAdapterTest {
                     .setResponseCode(302).setHeader("Location", "/home")
                 request.method == "GET" && request.path == "/home" -> MockResponse()
                     .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
-                request.method == "GET" && request.path == "/manage/classroom/attendance" -> MockResponse()
-                    .setBody(
-                        """
-                        <div id="classroom_attendance_summary">
-                          <div class="cas-stat">
-                            <div class="cas-stat-label">Total Sessions</div>
-                            <div class="cas-stat-value cas-total">14</div>
-                            <div class="cas-stat-sub">All Sessions</div>
-                          </div>
-                          <div class="cas-stat">
-                            <div class="cas-stat-label">Present</div>
-                            <div class="cas-stat-value cas-present">3</div>
-                            <div class="cas-stat-sub">21.43%</div>
-                          </div>
-                          <div class="cas-stat">
-                            <div class="cas-stat-label">Absent</div>
-                            <div class="cas-stat-value cas-absent">0</div>
-                            <div class="cas-stat-sub">0.00%</div>
-                          </div>
-                          <div class="cas-stat">
-                            <div class="cas-stat-label">Upcoming</div>
-                            <div class="cas-stat-value cas-upcoming">11</div>
-                            <div class="cas-stat-sub">78.57%</div>
-                          </div>
-                        </div>
-                        """.trimIndent(),
-                    )
+                request.method == "GET" &&
+                    request.requestUrl?.encodedPath == "/api/executereport" &&
+                    request.requestUrl?.queryParameter("report") ==
+                    "student-dashboard-user-classroom-session-summary" -> MockResponse().setBody(
+                    """
+                    [
+                      { "count": 54, "title": "Total" },
+                      { "count": 0, "title": "Not Marked" },
+                      { "count": 40, "title": "Present" },
+                      { "count": 14, "title": "Absent" }
+                    ]
+                    """.trimIndent(),
+                )
                 else -> MockResponse().setResponseCode(404)
             }
         }
@@ -62,11 +48,17 @@ class RealLmsAdapterTest {
             val summary = RealLmsAdapter("student@example.com", "secret", server.url("/").toString())
                 .attendanceSummary()
 
-            assertEquals(14, summary.total)
-            assertEquals(3, summary.present)
-            assertEquals(0, summary.absent)
-            assertEquals(11, summary.upcoming)
-            assertEquals("21.43", summary.presentPercentage.toPlainString())
+            assertEquals(54, summary.total)
+            assertEquals(40, summary.present)
+            assertEquals(14, summary.absent)
+            assertEquals(0, summary.notMarked)
+            assertEquals("74.07", summary.presentPercentage.toPlainString())
+
+            val reportRequest = generateSequence { server.takeRequest() }
+                .first { it.requestUrl?.encodedPath == "/api/executereport" }
+            val start = reportRequest.requestUrl!!.queryParameter("start_time")!!.toLong()
+            val end = reportRequest.requestUrl!!.queryParameter("end_time")!!.toLong()
+            assertEquals(365L * 24L * 60L * 60L, end - start)
         } finally {
             server.shutdown()
         }
@@ -77,6 +69,7 @@ class RealLmsAdapterTest {
         assertEquals("calendar", lmsEndpointLabel("/calendar/json"))
         assertEquals("course_details", lmsEndpointLabel("/course/details"))
         assertEquals("classroom", lmsEndpointLabel("/classroom/1285348/view"))
+        assertEquals("attendance_summary", lmsEndpointLabel("/api/executereport"))
         assertEquals("other", lmsEndpointLabel("/unexpected/private/path"))
     }
 

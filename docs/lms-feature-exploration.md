@@ -306,10 +306,12 @@ The domain already computes `MARKED`, `OPEN`, `UPCOMING`, `MISSED`, `DONE`, and 
 service already returns a seven-day structure (`src/service.js:153-163`). A calendar/week summary
 could show marked, missed, and schedule-only counts and link to the relevant session detail.
 
-The authenticated `/manage/classroom/attendance` page now exposes a separate LMS-owned summary
-with total, present, absent, upcoming, and present percentage. Companion displays that percentage
-without recomputing it. The LMS currently includes upcoming sessions in its total, so the UI must
-show the counts and explain that denominator.
+The authenticated `/manage/classroom/attendance` page is a current/upcoming attendance list, not
+a reliable historical denominator. Overall attendance comes from the LMS My Progress report:
+`/api/executereport?report=student-dashboard-user-classroom-session-summary&start_time=...&end_time=...`.
+It returns Total, Not Marked, Present, and Absent for the selected period. Companion requests the
+last year, validates that the counts add up, and calculates the displayed percentage as Present ÷
+Total. Upcoming sessions are excluded.
 
 ### 3. Session detail sheet (medium value, low effort)
 

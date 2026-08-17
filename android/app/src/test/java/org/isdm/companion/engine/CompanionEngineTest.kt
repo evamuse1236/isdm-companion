@@ -67,11 +67,11 @@ class CompanionEngineTest {
     @Test
     fun `attendance refresh stores the LMS summary without recalculating it`() = runBlocking {
         gateway.attendance = AttendanceSummary(
-            total = 14,
-            present = 3,
-            absent = 0,
-            upcoming = 11,
-            presentPercentage = java.math.BigDecimal("21.43"),
+            total = 54,
+            present = 40,
+            absent = 14,
+            notMarked = 0,
+            presentPercentage = java.math.BigDecimal("74.07"),
         )
         val engine = engine()
         engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
