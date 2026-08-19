@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.112.3";
+import { summarizeProcessExits } from "./reliability.ts";
 
 const db = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -46,7 +47,7 @@ async function dashboard(): Promise<Response> {
     db.from("beta_events").select("id", { count: "exact", head: true })
       .gte("occurred_at", todayIst)
       .eq("event_type", "command_cancelled"),
-    db.from("beta_events").select("id", { count: "exact", head: true })
+    db.from("beta_events").select("payload")
       .gte("occurred_at", todayIst)
       .eq("event_type", "previous_process_exit"),
   ]);
@@ -58,6 +59,7 @@ async function dashboard(): Promise<Response> {
     const { data } = await db.storage.from("beta-evidence").createSignedUrl(attachment.storage_path, 15 * 60);
     return { ...attachment, signed_url: data?.signedUrl ?? null };
   }));
+  const exitSummary = summarizeProcessExits(exits.data ?? []);
 
   return json({
     generated_at: new Date().toISOString(),
@@ -67,7 +69,8 @@ async function dashboard(): Promise<Response> {
     reliability: {
       failures: failures.count ?? 0,
       cancellations: cancellations.count ?? 0,
-      recorded_exits: exits.count ?? 0,
+      recorded_exits: exitSummary.critical_exits + exitSummary.low_memory_exits + exitSummary.other_exits,
+      ...exitSummary,
     },
     schedule_confirmations: schedules.data ?? [],
     attendance_decisions: attendance.data ?? [],

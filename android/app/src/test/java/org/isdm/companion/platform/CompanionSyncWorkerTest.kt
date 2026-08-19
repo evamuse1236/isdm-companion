@@ -11,13 +11,14 @@ import java.time.Instant
 
 class CompanionSyncWorkerTest {
     @Test
-    fun `background sync retries transient failures only three times`() {
+    fun `background sync retries transient failures and bounds authentication retry`() {
         val error = EngineError.NetworkFailure("temporary")
 
         assertTrue(shouldRetryBackgroundSync(error, runAttemptCount = 0))
         assertTrue(shouldRetryBackgroundSync(error, runAttemptCount = 2))
         assertFalse(shouldRetryBackgroundSync(error, runAttemptCount = 3))
-        assertFalse(shouldRetryBackgroundSync(EngineError.AuthenticationFailed("logged out"), runAttemptCount = 0))
+        assertTrue(shouldRetryBackgroundSync(EngineError.AuthenticationFailed("logged out"), runAttemptCount = 0))
+        assertFalse(shouldRetryBackgroundSync(EngineError.AuthenticationFailed("logged out"), runAttemptCount = 1))
     }
 
     @Test

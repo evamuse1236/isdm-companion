@@ -90,7 +90,9 @@ export type ReportAttachment = {
 export type ReliabilitySummary = {
   failures: number;
   cancellations: number;
-  recorded_exits: number;
+  critical_exits: number;
+  low_memory_exits: number;
+  other_exits: number;
 };
 
 export type DashboardData = {
@@ -155,7 +157,7 @@ export function emptyDashboard(): DashboardData {
     },
     installations,
     events: [],
-    reliability: { failures: 0, cancellations: 0, recorded_exits: 0 },
+    reliability: { failures: 0, cancellations: 0, critical_exits: 0, low_memory_exits: 0, other_exits: 0 },
     schedule_confirmations: [],
     attendance_decisions: [],
     reports: [],

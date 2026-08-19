@@ -1,0 +1,4 @@
+interface:
+  display_name: "ISDM Incident Response"
+  short_description: "Diagnose Android, LMS, and telemetry incidents"
+  default_prompt: "Use $isdm-incident-response to diagnose this ISDM Companion failure from source, device, and telemetry evidence."

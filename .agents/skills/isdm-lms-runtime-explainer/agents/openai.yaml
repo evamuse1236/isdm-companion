@@ -1,0 +1,4 @@
+interface:
+  display_name: "ISDM LMS Runtime Explainer"
+  short_description: "Explain live, cached, and parsed LMS behavior"
+  default_prompt: "Use $isdm-lms-runtime-explainer to explain where this ISDM Companion data comes from and how fresh it is."

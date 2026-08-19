@@ -1,0 +1,4 @@
+interface:
+  display_name: "ISDM Safe Cleanup"
+  short_description: "Audit and recoverably clean generated artifacts"
+  default_prompt: "Use $isdm-safe-cleanup to identify disposable ISDM Companion artifacts and clean them without losing active work."

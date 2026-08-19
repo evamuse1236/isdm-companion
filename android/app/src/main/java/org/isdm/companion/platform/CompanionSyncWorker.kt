@@ -75,8 +75,8 @@ class CompanionSyncWorker(
             ),
         )
         return when {
-            error is EngineError.AuthenticationFailed -> Result.failure()
             retry -> Result.retry()
+            error is EngineError.AuthenticationFailed -> Result.failure()
             else -> Result.success()
         }
     }
@@ -163,8 +163,8 @@ class CompanionReadingSyncWorker(
                 mapOf("error" to result.error.javaClass.simpleName, "retry" to retry.toString()),
             )
             return when {
-                result.error is EngineError.AuthenticationFailed -> Result.failure()
                 retry -> Result.retry()
+                result.error is EngineError.AuthenticationFailed -> Result.failure()
                 else -> Result.success()
             }
         }
@@ -213,4 +213,7 @@ private val MINIMUM_READING_DEFERRAL: Duration = Duration.ofMinutes(1)
 private const val MAX_BACKGROUND_SYNC_ATTEMPTS = 3
 
 internal fun shouldRetryBackgroundSync(error: EngineError, runAttemptCount: Int): Boolean =
-    error !is EngineError.AuthenticationFailed && runAttemptCount < MAX_BACKGROUND_SYNC_ATTEMPTS
+    when (error) {
+        is EngineError.AuthenticationFailed -> runAttemptCount == 0
+        else -> runAttemptCount < MAX_BACKGROUND_SYNC_ATTEMPTS
+    }

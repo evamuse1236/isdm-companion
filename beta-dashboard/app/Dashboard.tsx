@@ -8,7 +8,7 @@ import type {
   IssueReport,
 } from "./types";
 import { profileMatchStatus, testerDisplayName } from "./roster";
-import { confirmedPresentCount, reliabilityLabel } from "./metrics";
+import { confirmedPresentCount, reliabilityLabel, reliabilityNote } from "./metrics";
 
 type Props = {
   initialData: DashboardData;
@@ -87,7 +87,13 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
   const stale = claimed.filter((item) => seenState(item.last_seen_at, nowMs) === "stale");
   const todayAttendance = data.attendance_decisions.filter((item) => isTodayIst(item.occurred_at));
   const presentToday = confirmedPresentCount(todayAttendance);
-  const reliability = data.reliability ?? { failures: 0, cancellations: 0, recorded_exits: 0 };
+  const reliability = {
+    failures: data.reliability?.failures ?? 0,
+    cancellations: data.reliability?.cancellations ?? 0,
+    critical_exits: data.reliability?.critical_exits ?? 0,
+    low_memory_exits: data.reliability?.low_memory_exits ?? 0,
+    other_exits: data.reliability?.other_exits ?? 0,
+  };
   const triageReports = data.reports.filter((item) => item.status === "new" || item.status === "seen");
   const selectedReport = data.reports.find((item) => item.id === selectedReportId) ?? null;
   const selectedAttendance = data.attendance_decisions.find((item) => item.id === selectedAttendanceId) ?? null;
@@ -208,7 +214,7 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
         <Pulse
           label="Reliability"
           value={reliabilityLabel(reliability)}
-          note={`${reliability.cancellations} cancelled · ${reliability.recorded_exits} exits`}
+          note={reliabilityNote(reliability)}
           critical={reliability.failures > 0}
         />
       </section>

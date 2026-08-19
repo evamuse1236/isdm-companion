@@ -11,6 +11,6 @@
     "start": "node --env-file=.env src/server.js",
     "setup": "node tools/setup.js",
     "beta:release": "node scripts/send-beta-release.mjs",
-    "test": "node tests/selftest.js && node tests/marktest.js && node tests/resumetest.js && node --test tests/beta-profile-edge.test.mjs tests/beta-telemetry-edge.test.mjs tests/send-beta-release.test.mjs"
+    "test": "node tests/selftest.js && node tests/marktest.js && node tests/resumetest.js && node --test tests/beta-admin-reliability-edge.test.mjs tests/beta-profile-edge.test.mjs tests/beta-telemetry-edge.test.mjs tests/send-beta-release.test.mjs"
   }
 }

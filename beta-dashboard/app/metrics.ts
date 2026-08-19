@@ -12,3 +12,7 @@ export function confirmedPresentCount(decisions: AttendanceDecision[]): number {
 export function reliabilityLabel(summary: ReliabilitySummary): string {
   return `${summary.failures} failures`;
 }
+
+export function reliabilityNote(summary: ReliabilitySummary): string {
+  return `${summary.cancellations} cancelled · ${summary.critical_exits} crash/ANR exits · ${summary.low_memory_exits} cached low-memory`;
+}
