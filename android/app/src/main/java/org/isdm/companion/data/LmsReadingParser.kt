@@ -8,6 +8,42 @@ import org.isdm.companion.engine.LmsReadingProgress
 import org.isdm.companion.engine.LmsReadingSection
 import org.isdm.companion.engine.ReadingItem
 
+internal data class CourseOutlineLink(
+    val title: String,
+    val sourceUrl: String,
+)
+
+internal fun parseCourseOutlineLink(
+    html: String,
+    course: LmsCourse,
+    baseUrl: String,
+): CourseOutlineLink? {
+    val base = baseUrl.toHttpUrlOrNull() ?: return null
+    val document = Jsoup.parse(html, baseUrl)
+    for (anchor in document.select("a[href]")) {
+        val labels = buildList {
+            add(anchor.readableLabel())
+            add(anchor.attr("title"))
+            add(anchor.attr("aria-label"))
+            anchor.parents().take(5).forEach { parent ->
+                parent.selectFirst(".single_content_title, h1, h2, h3, h4")?.let { title ->
+                    add(title.text())
+                    add(title.attr("title"))
+                }
+            }
+        }.map { it.trim().replace(Regex("\\s+"), " ") }
+        val label = labels.firstOrNull { it.contains("course outline", ignoreCase = true) }
+            ?: continue
+        val url = anchor.absUrl("href").toHttpUrlOrNull() ?: continue
+        if (!url.host.equals(base.host, ignoreCase = true)) continue
+        if (base.isHttps && !url.isHttps) continue
+        if (url.queryParameter("cat_id") != course.catId) continue
+        if (url.encodedPath !in COURSE_OUTLINE_PATHS) continue
+        return CourseOutlineLink(label, url.toString())
+    }
+    return null
+}
+
 internal fun parseCourses(html: String, baseUrl: String): List<LmsCourse> {
     val courses = linkedMapOf<String, LmsCourse>()
     for (anchor in Jsoup.parse(html, baseUrl).select("a[href]")) {
@@ -173,5 +209,11 @@ private fun progressAround(anchor: Element): LmsReadingProgress {
 }
 
 private fun isNumericId(value: String): Boolean = value.matches(Regex("\\d+"))
+
+private val COURSE_OUTLINE_PATHS = setOf(
+    "/course/details",
+    "/subtopic/view",
+    "/download/video",
+)
 
 private val SESSION_NUMBER = Regex("(?i)\\bsession\\s*(?:no\\.?\\s*)?[-:#]?\\s*(\\d{1,2})\\b")

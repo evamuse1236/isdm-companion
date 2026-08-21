@@ -9,6 +9,8 @@ data class ReleaseNotes(
     val items: List<String>,
 )
 
+internal const val RELEASE_NOTES_HEADER_CONTENT_DESCRIPTION = "What's new"
+
 val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,

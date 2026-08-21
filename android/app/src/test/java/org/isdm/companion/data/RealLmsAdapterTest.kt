@@ -65,6 +65,48 @@ class RealLmsAdapterTest {
     }
 
     @Test
+    fun `attendance summary remains available when the LMS reported total is inconsistent`() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.method == "GET" && request.path == "/user/login" -> MockResponse()
+                    .setHeader("Set-Cookie", "SESSattendance=trusted; Path=/; HttpOnly")
+                    .setBody(loginForm())
+                request.method == "POST" && request.path == "/user/login" -> MockResponse()
+                    .setResponseCode(302).setHeader("Location", "/home")
+                request.method == "GET" && request.path == "/home" -> MockResponse()
+                    .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
+                request.method == "GET" &&
+                    request.requestUrl?.encodedPath == "/api/executereport" -> MockResponse().setBody(
+                    """
+                    [
+                      { "count": 54, "title": "Total" },
+                      { "count": 3, "title": "Not Marked" },
+                      { "count": 40, "title": "Present" },
+                      { "count": 14, "title": "Absent" }
+                    ]
+                    """.trimIndent(),
+                )
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+
+        try {
+            val summary = RealLmsAdapter("student@example.com", "secret", server.url("/").toString())
+                .attendanceSummary()
+
+            assertEquals(57, summary.total)
+            assertEquals(40, summary.present)
+            assertEquals(14, summary.absent)
+            assertEquals(3, summary.notMarked)
+            assertEquals("70.18", summary.presentPercentage.toPlainString())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun `LMS diagnostics reduce request paths to safe endpoint labels`() {
         assertEquals("calendar", lmsEndpointLabel("/calendar/json"))
         assertEquals("course_details", lmsEndpointLabel("/course/details"))
@@ -209,7 +251,10 @@ class RealLmsAdapterTest {
                         "<a href='/course/details?cat_id=12'>State, Market and Society</a>",
                     )
                     request.path == "/course/details?cat_id=12" -> MockResponse().setBody(
-                        "<a href='/course/details?cat_id=12&amp;course_id=91'>Mandatory Reading</a>",
+                        """
+                        <a href='/course/details?cat_id=12&amp;course_id=91'>Mandatory Reading</a>
+                        <a href='/course/details?cat_id=12&amp;course_id=95' title='Course Outline'>Open</a>
+                        """.trimIndent(),
                     )
                     request.path == "/course/details?cat_id=12&course_id=91" -> MockResponse().setBody(
                         """
@@ -232,6 +277,11 @@ class RealLmsAdapterTest {
             assertEquals("12", course.catId)
             assertEquals("501", reading.vid)
             assertTrue(reading.mandatory)
+            assertEquals("Course Outline", reading.courseOutlineTitle)
+            assertEquals(
+                server.url("/course/details?cat_id=12&course_id=95").toString(),
+                reading.courseOutlineUrl,
+            )
             assertFalse(paths.any { it.startsWith("/subtopic/view") })
         } finally {
             server.shutdown()

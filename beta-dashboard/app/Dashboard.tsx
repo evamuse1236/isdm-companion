@@ -7,7 +7,7 @@ import type {
   DashboardData,
   IssueReport,
 } from "./types";
-import { profileMatchStatus, testerDisplayName } from "./roster";
+import { profileMatchStatus, testerDisplayName, testerVersionLabel } from "./roster";
 import { confirmedPresentCount, reliabilityLabel, reliabilityNote } from "./metrics";
 
 type Props = {
@@ -378,7 +378,7 @@ function TesterRow({ item, attendance, remoteBlocked, nowMs, onAttendance }: { i
       <td>{item.self_plc ?? "—"}</td>
       <td>{detected}</td>
       <td>{[item.manufacturer, item.model].filter(Boolean).join(" ") || "Not installed"}</td>
-      <td>{item.android_version ? `${item.android_version} / ${item.app_version ?? "—"}` : "—"}</td>
+      <td>{testerVersionLabel(item)}</td>
       <td><span className={`status-chip ${state === "live" ? "teal" : state === "stale" ? "amber" : "neutral"}`}>{state}</span><small className="cell-note">{item.last_seen_at ? formatIst(item.last_seen_at) : "Never"}</small></td>
       <td>{item.last_sync_status ?? "—"}</td>
       <td><span className={`status-chip ${item.schedule_status === "confirmed" ? "teal" : item.schedule_status === "mismatch" ? "amber" : "neutral"}`}>{item.schedule_status.replace("_", " ")}</span></td>

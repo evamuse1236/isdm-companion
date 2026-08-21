@@ -7,6 +7,20 @@ import org.junit.Test
 
 class IssueReportTest {
     @Test
+    fun `issue report sheet opts into short-screen keyboard-safe layout`() {
+        val policy = issueReportSheetLayoutPolicy()
+
+        assertTrue(policy.scrollable)
+        assertTrue(policy.imeSafe)
+        assertTrue(policy.systemInsetsSafe)
+    }
+
+    @Test
+    fun `report FAB description names issues and suggestions`() {
+        assertEquals("Report issues and suggestions", ISSUE_REPORT_FAB_CONTENT_DESCRIPTION)
+    }
+
+    @Test
     fun betaEnrollmentRequiresInviteSectionAndExplicitConsent() {
         assertFalse(isBetaEnrollmentValid("", "Section A", consented = true))
         assertFalse(isBetaEnrollmentValid("BLUE-MANGO", "", consented = true))

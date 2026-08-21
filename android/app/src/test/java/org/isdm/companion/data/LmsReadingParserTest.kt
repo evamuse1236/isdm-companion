@@ -9,6 +9,29 @@ import org.junit.Test
 
 class LmsReadingParserTest {
     @Test
+    fun `course outline link is retained for the matching LMS course`() {
+        val outline = parseCourseOutlineLink(
+            """
+            <section>
+              <h3>Programme material</h3>
+              <a href="/course/details?cat_id=12&amp;course_id=95" title="Course Outline">
+                Open
+              </a>
+            </section>
+            <a href="/course/details?cat_id=21&amp;course_id=96" title="Course Outline">Other course</a>
+            """.trimIndent(),
+            LmsCourse("12", "State, Market and Society"),
+            "https://lms.isdm.org.in/",
+        )
+
+        assertEquals("Course Outline", outline?.title)
+        assertEquals(
+            "https://lms.isdm.org.in/course/details?cat_id=12&course_id=95",
+            outline?.sourceUrl,
+        )
+    }
+
+    @Test
     fun `live WID card and reading retain their LMS labels`() {
         val course = parseCourses(
             """

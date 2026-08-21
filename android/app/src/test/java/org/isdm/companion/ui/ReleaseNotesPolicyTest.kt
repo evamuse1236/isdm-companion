@@ -1,10 +1,16 @@
 package org.isdm.companion.ui
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReleaseNotesPolicyTest {
+    @Test
+    fun `main header names the release notes action clearly`() {
+        assertEquals("What's new", RELEASE_NOTES_HEADER_CONTENT_DESCRIPTION)
+    }
+
     @Test
     fun `an existing install sees release notes after an update`() {
         assertTrue(

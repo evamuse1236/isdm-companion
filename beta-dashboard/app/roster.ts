@@ -2,6 +2,19 @@ export function testerDisplayName(tester: { support_name: string | null }): stri
   return tester.support_name?.trim() || "Awaiting profile";
 }
 
+export function testerVersionLabel(tester: {
+  android_version: string | null;
+  app_version: string | null;
+  app_version_code: number | null;
+}): string {
+  const android = tester.android_version?.trim();
+  const app = tester.app_version?.trim();
+  const appLabel = app
+    ? `${app}${tester.app_version_code == null ? "" : ` (code ${tester.app_version_code})`}`
+    : tester.app_version_code == null ? null : `code ${tester.app_version_code}`;
+  return [android, appLabel].filter(Boolean).join(" / ") || "—";
+}
+
 type CohortProfile = {
   self_section: string | null;
   self_plc: string | null;

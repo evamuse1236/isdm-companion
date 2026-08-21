@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { profileMatchStatus, testerDisplayName } from "../app/roster.ts";
+import { profileMatchStatus, testerDisplayName, testerVersionLabel } from "../app/roster.ts";
 
 test("roster shows the tester-confirmed support name", () => {
   assert.equal(testerDisplayName({ support_name: "Asha Rao" }), "Asha Rao");
   assert.equal(testerDisplayName({ support_name: null }), "Awaiting profile");
+});
+
+test("roster keeps an available app version visible and includes its code", () => {
+  assert.equal(
+    testerVersionLabel({ android_version: null, app_version: "0.4.3-beta", app_version_code: 7 }),
+    "0.4.3-beta (code 7)",
+  );
 });
 
 test("roster distinguishes confirmed, mismatched, and missing LMS cohorts", () => {

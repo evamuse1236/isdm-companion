@@ -152,6 +152,8 @@ class CompanionLocalStore(context: Context) : ReadingDoneStore, CompanionCacheSt
         .putNullable("sessionNumber", value.sessionNumber)
         .put("progress", value.progress.name)
         .put("mandatory", value.mandatory)
+        .putNullable("courseOutlineTitle", value.courseOutlineTitle)
+        .putNullable("courseOutlineUrl", value.courseOutlineUrl)
 
     private fun decodeReading(value: JSONObject) = ReadingItem(
         vid = value.getString("vid"),
@@ -166,6 +168,8 @@ class CompanionLocalStore(context: Context) : ReadingDoneStore, CompanionCacheSt
         progress = runCatching { LmsReadingProgress.valueOf(value.getString("progress")) }
             .getOrDefault(LmsReadingProgress.UNKNOWN),
         mandatory = value.optBoolean("mandatory"),
+        courseOutlineTitle = value.nullableString("courseOutlineTitle"),
+        courseOutlineUrl = value.nullableString("courseOutlineUrl"),
     )
 
     private fun encodeAssessment(value: AssessmentItem) = JSONObject()

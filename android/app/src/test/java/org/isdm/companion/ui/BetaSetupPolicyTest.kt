@@ -6,6 +6,13 @@ import org.junit.Test
 
 class BetaSetupPolicyTest {
     @Test
+    fun `schedule setup banner remains for needs attention and off states`() {
+        assertTrue(shouldShowScheduleSetupBanner(setupReady = false, autoAttendanceEnabled = false))
+        assertTrue(shouldShowScheduleSetupBanner(setupReady = true, autoAttendanceEnabled = false))
+        assertFalse(shouldShowScheduleSetupBanner(setupReady = true, autoAttendanceEnabled = true))
+    }
+
+    @Test
     fun `automatic attendance requires consent known cohort and required system access`() {
         val status = betaSetupStatus(
             consented = true,

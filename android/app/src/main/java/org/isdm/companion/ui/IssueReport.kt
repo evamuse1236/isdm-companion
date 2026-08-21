@@ -11,7 +11,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +36,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 internal const val MAX_ISSUE_REPORT_IMAGES = 4
+internal const val ISSUE_REPORT_FAB_CONTENT_DESCRIPTION = "Report issues and suggestions"
+
+internal data class IssueReportSheetLayoutPolicy(
+    val scrollable: Boolean,
+    val imeSafe: Boolean,
+    val systemInsetsSafe: Boolean,
+)
+
+internal fun issueReportSheetLayoutPolicy(): IssueReportSheetLayoutPolicy = IssueReportSheetLayoutPolicy(
+    scrollable = true,
+    imeSafe = true,
+    systemInsetsSafe = true,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,9 +66,18 @@ internal fun IssueReportSheet(
     ) { selected ->
         images = selected.distinct().take(MAX_ISSUE_REPORT_IMAGES)
     }
+    val layoutPolicy = issueReportSheetLayoutPolicy()
+    val scrollState = rememberScrollState()
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.padding(start = 22.dp, end = 22.dp, bottom = 28.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .then(if (layoutPolicy.scrollable) Modifier.verticalScroll(scrollState) else Modifier)
+                .then(if (layoutPolicy.imeSafe) Modifier.imePadding() else Modifier)
+                .then(if (layoutPolicy.systemInsetsSafe) Modifier.navigationBarsPadding() else Modifier)
+                .padding(start = 22.dp, end = 22.dp, bottom = 28.dp),
+        ) {
             Text(
                 "Send to beta",
                 fontSize = 24.sp,

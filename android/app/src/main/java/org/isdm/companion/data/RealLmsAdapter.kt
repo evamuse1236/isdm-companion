@@ -165,13 +165,21 @@ class RealLmsAdapter(
     override suspend fun readings(course: LmsCourse): List<ReadingItem> {
         requireNumericId(course.catId, "course")
         val coursePage = authed("/course/details?cat_id=${course.catId}")
+        val courseOutline = parseCourseOutlineLink(coursePage.body, course, baseUrl.toString())
         val sections = parseReadingSections(coursePage.body, course, baseUrl.toString())
         return buildList {
             for (section in sections) {
                 val page = authed(
                     "/course/details?cat_id=${course.catId}&course_id=${section.sid}",
                 )
-                addAll(parseReadingItems(page.body, course, section, baseUrl.toString()))
+                addAll(
+                    parseReadingItems(page.body, course, section, baseUrl.toString()).map { reading ->
+                        reading.copy(
+                            courseOutlineTitle = courseOutline?.title,
+                            courseOutlineUrl = courseOutline?.sourceUrl,
+                        )
+                    },
+                )
             }
         }.distinctBy { it.vid }
     }
@@ -613,13 +621,13 @@ internal fun parseAttendanceSummary(json: String): AttendanceSummary {
     fun count(title: String): Int = counts[title]
         ?: throw LmsProtocolException("The LMS $title attendance total was missing.")
 
-    val total = count("total")
+    // Some learner reports return an inconsistent aggregate Total. Require the expected row,
+    // but derive the displayed total from the mutually exclusive classifications below.
+    count("total")
     val present = count("present")
     val absent = count("absent")
     val notMarked = count("not marked")
-    if (total != present + absent + notMarked) {
-        throw LmsProtocolException("The LMS attendance totals did not add up.")
-    }
+    val total = present + absent + notMarked
     val percentage = if (total == 0) {
         BigDecimal.ZERO
     } else {

@@ -181,6 +181,8 @@ data class ReadingItem(
     val progress: LmsReadingProgress = LmsReadingProgress.UNKNOWN,
     val mandatory: Boolean = false,
     val done: Boolean = false,
+    val courseOutlineTitle: String? = null,
+    val courseOutlineUrl: String? = null,
 )
 
 data class AssessmentItem(

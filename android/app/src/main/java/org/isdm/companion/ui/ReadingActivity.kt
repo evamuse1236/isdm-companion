@@ -215,5 +215,6 @@ private class ReadingWebViewClient(
 internal fun readingResourceId(sourceUrl: String): String? = sourceUrl
     .toHttpUrlOrNull()
     ?.takeIf { it.host.equals("lms.isdm.org.in", ignoreCase = true) }
+    ?.takeIf { it.queryParameter("destination") != "my-activities" }
     ?.queryParameter("vid")
     ?.takeIf { it.matches(Regex("\\d+")) }

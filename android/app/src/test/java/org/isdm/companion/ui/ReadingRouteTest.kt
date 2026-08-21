@@ -20,4 +20,13 @@ class ReadingRouteTest {
         assertNull(readingResourceId("https://example.com/subtopic/view?vid=1298349"))
         assertNull(readingResourceId("https://lms.isdm.org.in/subtopic/view?vid=not-a-number"))
     }
+
+    @Test
+    fun `does not auto-open an assessment submission as a reading resource`() {
+        assertNull(
+            readingResourceId(
+                "https://lms.isdm.org.in/subtopic/view?sid=1298915&vid=1305879&cid=1298950&cat_id=70954&destination=my-activities",
+            ),
+        )
+    }
 }

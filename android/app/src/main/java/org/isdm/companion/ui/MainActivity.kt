@@ -52,6 +52,7 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
@@ -59,6 +60,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -113,6 +115,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import org.isdm.companion.CompanionApplication
 import org.isdm.companion.R
+import org.isdm.companion.engine.AttendanceSummary
 import org.isdm.companion.engine.CompanionState
 import org.isdm.companion.engine.AssessmentItem
 import org.isdm.companion.engine.EngineError
@@ -540,7 +543,7 @@ private fun CompanionScreen(
                 ) {
                     androidx.compose.material3.Icon(
                         Icons.Default.BugReport,
-                        contentDescription = "Report an issue",
+                        contentDescription = ISSUE_REPORT_FAB_CONTENT_DESCRIPTION,
                     )
                 }
             }
@@ -608,6 +611,7 @@ private fun CompanionScreen(
                     autoAttendanceEnabled = autoAttendanceEnabled,
                     onRefresh = viewModel::refresh,
                     onAutoAttendance = onAutoAttendance,
+                    onShowReleaseNotes = viewModel::showReleaseNotes,
                 )
                 DestinationTabs(destination, onChange = { destination = it })
                 AnimatedContent(
@@ -743,6 +747,7 @@ private fun CompanionHeader(
     autoAttendanceEnabled: Boolean,
     onRefresh: () -> Unit,
     onAutoAttendance: (Boolean) -> Unit,
+    onShowReleaseNotes: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 11.dp),
@@ -780,18 +785,28 @@ private fun CompanionHeader(
             state.readingSync.lastSuccess,
             state.attendanceSync.lastSuccess,
         ).maxOrNull()
-        Row(
-            Modifier.clip(RoundedCornerShape(10.dp)).clickable(enabled = !syncing, onClick = onRefresh).padding(5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.size(7.dp).background(if (syncing) SkyAccent else Green, CircleShape))
-            Spacer(Modifier.width(6.dp))
-            Text(
-                if (syncing) "Updating…" else latest?.let { "Updated ${TIME_FORMAT.format(it.atZone(IST))}" } ?: "Update",
-                fontSize = 11.sp,
-                color = if (syncing) SkyAccent else Green,
-                fontWeight = FontWeight.Bold,
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onShowReleaseNotes, modifier = Modifier.size(34.dp)) {
+                androidx.compose.material3.Icon(
+                    Icons.Default.Notifications,
+                    contentDescription = RELEASE_NOTES_HEADER_CONTENT_DESCRIPTION,
+                    tint = Ink,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Row(
+                Modifier.clip(RoundedCornerShape(10.dp)).clickable(enabled = !syncing, onClick = onRefresh).padding(5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(7.dp).background(if (syncing) SkyAccent else Green, CircleShape))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (syncing) "Updating…" else latest?.let { "Updated ${TIME_FORMAT.format(it.atZone(IST))}" } ?: "Update",
+                    fontSize = 11.sp,
+                    color = if (syncing) SkyAccent else Green,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
     }
 }
@@ -862,22 +877,24 @@ private fun ScheduleContent(
                 onStep = onStepDate,
             )
         }
-        item {
-            val label = when {
-                !setupStatus.canEnableAutomaticAttendance -> "Setup check · Needs attention"
-                autoAttendanceEnabled -> "Setup check · Ready"
-                else -> "Setup check · Automatic attendance off"
+        if (shouldShowScheduleSetupBanner(setupStatus.canEnableAutomaticAttendance, autoAttendanceEnabled)) {
+            item {
+                val label = when {
+                    !setupStatus.canEnableAutomaticAttendance -> "Setup check · Needs attention"
+                    autoAttendanceEnabled -> "Setup check · Ready"
+                    else -> "Setup check · Automatic attendance off"
+                }
+                val needsAttention = !setupStatus.canEnableAutomaticAttendance
+                Text(
+                    label,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                        .background(if (!needsAttention) Mint else Butter, RoundedCornerShape(12.dp))
+                        .clickable(enabled = needsAttention, onClick = onOpenProfile).padding(11.dp),
+                    color = if (!needsAttention) Green else Ink,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
             }
-            val needsAttention = !setupStatus.canEnableAutomaticAttendance
-            Text(
-                label,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
-                    .background(if (!needsAttention) Mint else Butter, RoundedCornerShape(12.dp))
-                    .clickable(enabled = needsAttention, onClick = onOpenProfile).padding(11.dp),
-                color = if (!needsAttention) Green else Ink,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
-            )
         }
         if (sessions.isNotEmpty() && !scheduleFeedbackRecorded) {
             item {
@@ -947,6 +964,9 @@ private fun ScheduleContent(
         }
     }
 }
+
+internal fun shouldShowScheduleSetupBanner(setupReady: Boolean, autoAttendanceEnabled: Boolean): Boolean =
+    !setupReady || !autoAttendanceEnabled
 
 @Composable
 private fun DateHeader(date: LocalDate, canPrevious: Boolean, canNext: Boolean, onStep: (Int) -> Unit) {
@@ -1145,6 +1165,7 @@ private fun ReadingsContent(
                     onReading = onReading,
                     onFacultyProfile = onFacultyProfile,
                     onToggleDone = onToggleDone,
+                    onCourseOutline = onOpenAssessment,
                 )
             }
         }
@@ -1306,10 +1327,12 @@ private fun CourseReadingCard(
     onReading: (ReadingItem) -> Unit,
     onFacultyProfile: (FacultyProfile) -> Unit,
     onToggleDone: (String) -> Unit,
+    onCourseOutline: (String) -> Unit,
 ) {
     val colors = COURSE_COLORS[design]
     val pending = readings.count { !it.done }
     val mandatory = readings.count { it.mandatory && !it.done }
+    val outline = readings.firstOrNull { it.courseOutlineUrl != null }
     Surface(
         modifier = Modifier.fillMaxWidth().animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
         shape = RoundedCornerShape(20.dp),
@@ -1349,6 +1372,32 @@ private fun CourseReadingCard(
             }
             AnimatedVisibility(visible = expanded, enter = fadeIn() + slideInVertically { -it / 8 }, exit = fadeOut()) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    outline?.courseOutlineUrl?.let { outlineUrl ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                                .background(colors.panel)
+                                .clickable { onCourseOutline(outlineUrl) }
+                                .padding(horizontal = 12.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    outline.courseOutlineTitle ?: "Course Outline",
+                                    color = Ink,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text("Open the LMS course outline", color = Muted, fontSize = 10.sp)
+                            }
+                            androidx.compose.material3.Icon(
+                                Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = "Open course outline",
+                                tint = colors.accent,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        HorizontalDivider(color = Line, modifier = Modifier.padding(top = 10.dp))
+                    }
                     if (facultyProfiles.isNotEmpty()) {
                         Text(
                             "FACULTY PROFILE${if (facultyProfiles.size == 1) "" else "S"}",
@@ -1990,17 +2039,20 @@ private fun AttendanceOverviewCard(state: CompanionState, onRefresh: () -> Unit)
                             Text("${summary.present} present", color = Ink, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold)
                             Text("${summary.absent} absent", color = BlushAccent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(5.dp))
-                            Text("${summary.total} completed sessions", color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
-                            if (summary.notMarked > 0) {
-                                Text("${summary.notMarked} not marked", color = Muted, fontSize = 11.sp)
-                            }
+                            Text("${summary.total} sessions in the LMS report", color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
                         }
                     }
                     Spacer(Modifier.height(16.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AttendanceStat("Present", summary.present.toString(), DoneSoft, Green, Modifier.weight(1f))
-                        AttendanceStat("Absent", summary.absent.toString(), Blush.copy(alpha = 0.48f), BlushAccent, Modifier.weight(1f))
-                        AttendanceStat("Total", summary.total.toString(), Mint, TealDeep, Modifier.weight(1f))
+                    val stats = attendanceStatValues(summary)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AttendanceStat(stats[0].label, stats[0].value, DoneSoft, Green, Modifier.weight(1f))
+                            AttendanceStat(stats[1].label, stats[1].value, Blush.copy(alpha = 0.48f), BlushAccent, Modifier.weight(1f))
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AttendanceStat(stats[2].label, stats[2].value, Butter, Ink, Modifier.weight(1f))
+                            AttendanceStat(stats[3].label, stats[3].value, Mint, TealDeep, Modifier.weight(1f))
+                        }
                     }
                 }
                 state.attendanceSync.inProgress -> {
@@ -2020,6 +2072,15 @@ private fun AttendanceOverviewCard(state: CompanionState, onRefresh: () -> Unit)
         }
     }
 }
+
+internal data class AttendanceStatValue(val label: String, val value: String)
+
+internal fun attendanceStatValues(summary: AttendanceSummary): List<AttendanceStatValue> = listOf(
+    AttendanceStatValue("Present", summary.present.toString()),
+    AttendanceStatValue("Absent", summary.absent.toString()),
+    AttendanceStatValue("Not marked", summary.notMarked.toString()),
+    AttendanceStatValue("Total", summary.total.toString()),
+)
 
 @Composable
 private fun AttendanceStat(label: String, value: String, background: Color, foreground: Color, modifier: Modifier = Modifier) {
