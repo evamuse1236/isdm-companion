@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -55,13 +56,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
@@ -760,62 +764,87 @@ private fun CompanionHeader(
     onAutoAttendance: (Boolean) -> Unit,
     onShowReleaseNotes: () -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(
-                checked = autoAttendanceEnabled,
-                onCheckedChange = onAutoAttendance,
-                modifier = Modifier.size(width = 40.dp, height = 24.dp),
-                colors = SwitchDefaults.colors(
-                    checkedTrackColor = Teal,
-                    checkedThumbColor = Color.White,
-                    uncheckedTrackColor = Soft,
-                    uncheckedThumbColor = Color.White,
-                    uncheckedBorderColor = Color.Transparent,
-                ),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("Auto attendance", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(4.dp))
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
             Text(
-                if (autoAttendanceEnabled) "On" else "Off",
+                DATE_FORMAT.format(state.today).uppercase(Locale.ENGLISH),
                 fontSize = 10.sp,
-                color = if (autoAttendanceEnabled) Teal else Muted,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.4.sp,
+                color = Muted,
             )
-        }
-        val syncing = state.sync.inProgress || state.scheduleSync.inProgress ||
-            state.readingSync.inProgress || state.attendanceSync.inProgress
-        val latest = listOfNotNull(
-            state.sync.lastSuccess,
-            state.scheduleSync.lastSuccess,
-            state.readingSync.lastSuccess,
-            state.attendanceSync.lastSuccess,
-        ).maxOrNull()
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onShowReleaseNotes, modifier = Modifier.size(34.dp)) {
-                androidx.compose.material3.Icon(
-                    Icons.Default.Notifications,
-                    contentDescription = RELEASE_NOTES_HEADER_CONTENT_DESCRIPTION,
-                    tint = Ink,
-                    modifier = Modifier.size(18.dp),
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val syncing = state.sync.inProgress || state.scheduleSync.inProgress ||
+                    state.readingSync.inProgress || state.attendanceSync.inProgress
+                IconButton(onClick = onShowReleaseNotes, modifier = Modifier.size(34.dp)) {
+                    androidx.compose.material3.Icon(
+                        Icons.Default.Notifications,
+                        contentDescription = RELEASE_NOTES_HEADER_CONTENT_DESCRIPTION,
+                        tint = Muted,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                IconButton(onClick = onRefresh, enabled = !syncing, modifier = Modifier.size(34.dp)) {
+                    androidx.compose.material3.Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = if (syncing) "Updating from LMS" else "Refresh from LMS",
+                        tint = if (syncing) SkyAccent else Teal,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            val hour = java.time.LocalTime.now(IST).hour
+            val greeting = when {
+                hour < 12 -> "Good morning"
+                hour < 17 -> "Good afternoon"
+                else -> "Good evening"
+            }
+            val displayName = state.identity?.displayName.orEmpty().trim()
+            Text(
+                buildAnnotatedString {
+                    append(greeting)
+                    if (displayName.isNotEmpty()) {
+                        append(", ")
+                        withStyle(SpanStyle(color = Teal)) { append(displayName) }
+                    }
+                },
+                fontSize = 21.sp,
+                lineHeight = 25.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Ink,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(12.dp))
             Row(
-                Modifier.clip(RoundedCornerShape(10.dp)).clickable(enabled = !syncing, onClick = onRefresh).padding(5.dp),
+                Modifier.clip(RoundedCornerShape(50)).clickable { onAutoAttendance(!autoAttendanceEnabled) }.padding(start = 8.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(7.dp).background(if (syncing) SkyAccent else Green, CircleShape))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    if (syncing) "Updating…" else latest?.let { "Updated ${TIME_FORMAT.format(it.atZone(IST))}" } ?: "Update",
-                    fontSize = 11.sp,
-                    color = if (syncing) SkyAccent else Green,
-                    fontWeight = FontWeight.Bold,
+                Text("Auto", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
+                Spacer(Modifier.width(8.dp))
+                Switch(
+                    checked = autoAttendanceEnabled,
+                    onCheckedChange = null,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Automatic attendance ${if (autoAttendanceEnabled) "on" else "off"}"
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = Color(0xFF006B5C),
+                        checkedThumbColor = Color.White,
+                        uncheckedTrackColor = Soft,
+                        uncheckedThumbColor = Color.White,
+                        uncheckedBorderColor = Color(0xFF707973),
+                        uncheckedIconColor = Color.Transparent,
+                    ),
                 )
             }
         }
@@ -824,25 +853,36 @@ private fun CompanionHeader(
 
 @Composable
 private fun DestinationTabs(destination: Destination, onChange: (Destination) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Destination.entries.forEach { item ->
-            val active = item == destination
-            val color by animateColorAsState(if (active) TealDeep else Soft, label = "tab")
-            Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(color)
-                    .clickable { onChange(item) }.padding(vertical = 13.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    when (item) {
-                        Destination.SCHEDULE -> "Schedule"
-                        Destination.READINGS -> "Readings"
-                        Destination.PROFILE -> "Profile"
-                    },
-                    color = if (active) Color.White else Muted,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .background(Soft.copy(alpha = .55f), RoundedCornerShape(14.dp))
+            .padding(3.dp),
+    ) {
+        Row(Modifier.fillMaxWidth()) {
+            Destination.entries.forEach { item ->
+                val active = item == destination
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(if (active) Color.White else Color.Transparent)
+                        .clickable { onChange(item) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        when (item) {
+                            Destination.SCHEDULE -> "Schedule"
+                            Destination.READINGS -> "Readings"
+                            Destination.PROFILE -> "Profile"
+                        },
+                        color = if (active) Ink else Muted,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
             }
         }
     }
@@ -878,15 +918,24 @@ private fun ScheduleContent(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 28.dp),
+        contentPadding = PaddingValues(start = 0.dp, end = 0.dp, top = 2.dp, bottom = 28.dp),
     ) {
         item {
-            DateHeader(
-                date = selectedDate,
-                canPrevious = selectedDate > state.scheduleStart,
-                canNext = selectedDate.plusDays(1) < state.scheduleEndExclusive,
-                onStep = onStepDate,
+            WeekStrip(
+                selectedDate = selectedDate,
+                today = state.today,
+                rangeStart = state.scheduleStart,
+                rangeEndExclusive = state.scheduleEndExclusive,
+                onSelect = { day ->
+                    if (day >= state.scheduleStart && day < state.scheduleEndExclusive) {
+                        val delta = (day.toEpochDay() - selectedDate.toEpochDay()).toInt()
+                        if (delta != 0) onStepDate(delta)
+                    }
+                },
             )
+        }
+        state.assessments.firstOrNull { !it.isSubmitted() }?.let { assessment ->
+            item { AssessmentDueBanner(assessment) }
         }
         if (shouldShowScheduleSetupBanner(setupStatus.canEnableAutomaticAttendance, autoAttendanceEnabled)) {
             item {
@@ -898,7 +947,7 @@ private fun ScheduleContent(
                 val needsAttention = !setupStatus.canEnableAutomaticAttendance
                 Text(
                     label,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)
                         .background(if (!needsAttention) Mint else Butter, RoundedCornerShape(12.dp))
                         .clickable(enabled = needsAttention, onClick = onOpenProfile).padding(11.dp),
                     color = if (!needsAttention) Green else Ink,
@@ -910,7 +959,7 @@ private fun ScheduleContent(
         if (sessions.isNotEmpty() && !scheduleFeedbackRecorded) {
             item {
                 Column(
-                    Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)
                         .clip(RoundedCornerShape(16.dp)).border(1.dp, Line, RoundedCornerShape(16.dp))
                         .background(Color.White).padding(16.dp),
                 ) {
@@ -947,13 +996,22 @@ private fun ScheduleContent(
         } else if (sessions.isEmpty()) {
             item { EmptyState("Nothing scheduled", "This day is clear. Your readings remain available offline.") }
         } else {
+            val heroEntry = highlights.entries.filter { it.value == ScheduleHighlightKind.HAPPENING_NOW || it.value == ScheduleHighlightKind.UP_NEXT }
+                .minByOrNull { it.key.start }
             item {
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).border(1.dp, Line, RoundedCornerShape(20.dp)).background(Color.White),
-                ) {
-                    sessions.forEachIndexed { index, session ->
-                        if (index > 0) HorizontalDivider(color = Line)
-                        SessionRow(
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    heroEntry?.let { hero ->
+                        CurrentSessionHero(
+                            session = hero.key,
+                            happeningNow = hero.value == ScheduleHighlightKind.HAPPENING_NOW,
+                            now = clockNow,
+                            onOpen = { onSession(hero.key) },
+                            onMark = onMark,
+                        )
+                    }
+                    sessions.forEach { session ->
+                        if (session == heroEntry?.key) return@forEach
+                        UpcomingSessionCard(
                             session = session,
                             highlight = highlights[session],
                             now = clockNow,
@@ -976,138 +1034,242 @@ private fun ScheduleContent(
     }
 }
 
+@Composable
+private fun AssessmentDueBanner(assessment: AssessmentItem) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)
+            .clip(RoundedCornerShape(16.dp)).background(Blush)
+            .padding(horizontal = 15.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.Icon(
+            Icons.AutoMirrored.Filled.Assignment,
+            contentDescription = null,
+            tint = BlushInk,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(11.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                assessment.title,
+                color = BlushInk,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+            )
+            Text(
+                formatAssessmentDueDate(assessment.dueDate),
+                color = BlushAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Text(
+            "OPEN",
+            color = BlushInk,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.background(Color.White.copy(alpha = .55f), RoundedCornerShape(50))
+                .padding(horizontal = 9.dp, vertical = 5.dp),
+        )
+    }
+}
+
 internal fun shouldShowScheduleSetupBanner(setupReady: Boolean, autoAttendanceEnabled: Boolean): Boolean =
     !setupReady || !autoAttendanceEnabled
 
 @Composable
-private fun DateHeader(date: LocalDate, canPrevious: Boolean, canNext: Boolean, onStep: (Int) -> Unit) {
+private fun WeekStrip(
+    selectedDate: LocalDate,
+    today: LocalDate,
+    rangeStart: LocalDate,
+    rangeEndExclusive: LocalDate,
+    onSelect: (LocalDate) -> Unit,
+) {
+    val days = remember(selectedDate, today) {
+        val anchor = selectedDate
+        (-3..3).map { anchor.plusDays(it.toLong()) }
+    }
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 3.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Text(DATE_FORMAT.format(date), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            DateArrow(false, canPrevious) { onStep(-1) }
-            DateArrow(true, canNext) { onStep(1) }
+        days.forEach { day ->
+            val selectable = day >= rangeStart && day < rangeEndExclusive
+            val selected = day == selectedDate
+            val isToday = day == today
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(if (selected) TealDeep else Color.Transparent)
+                    .clickable(enabled = selectable) { onSelect(day) }
+                    .padding(top = 8.dp, bottom = 7.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    day.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH)
+                        .uppercase(Locale.ENGLISH),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = .6.sp,
+                    color = if (selected) Color.White else Muted,
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    day.dayOfMonth.toString(),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = when {
+                        selected -> Color.White
+                        isToday -> Teal
+                        else -> Ink
+                    },
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun DateArrow(forward: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Color.White).alpha(if (enabled) 1f else .38f)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        androidx.compose.material3.Icon(
-            if (forward) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-            contentDescription = if (forward) "Next day" else "Previous day",
-            tint = Ink,
-        )
+private fun CurrentSessionHero(
+    session: Session,
+    happeningNow: Boolean,
+    now: java.time.Instant,
+    onOpen: () -> Unit,
+    onMark: (String) -> Unit,
+) {
+    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Blush).clickable(onClick = onOpen)) {
+        Column(Modifier.fillMaxWidth().padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).background(BlushAccent, CircleShape))
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    if (happeningNow) "HAPPENING NOW" else "UP NEXT",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.2.sp,
+                    color = BlushAccent,
+                )
+            }
+            Spacer(Modifier.height(9.dp))
+            Text(session.name, fontSize = 22.sp, lineHeight = 25.sp, fontWeight = FontWeight.ExtraBold, color = BlushInk)
+            Spacer(Modifier.height(10.dp))
+            if (happeningNow) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(formatSessionClock(Duration.between(now, session.end).seconds), fontSize = 38.sp, fontWeight = FontWeight.ExtraBold, color = BlushInk)
+                    Spacer(Modifier.width(9.dp))
+                    Text("left · until ${TIME_FORMAT.format(session.end.atZone(IST))}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BlushAccent)
+                }
+            } else {
+                val minutes = Duration.between(now, session.start).toMinutes().coerceAtLeast(0)
+                Text("Starts in ${formatSessionCountdown(minutes)} · ${TIME_FORMAT.format(session.start.atZone(IST))}", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = BlushInk)
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                HeroChip(session.room ?: "Room not posted")
+                HeroChip("Trainer ${session.trainer ?: "not posted"}")
+                HeroChip(
+                    session.floorLabel?.trim()?.takeIf { value -> value.any(Char::isLetterOrDigit) }
+                        ?: "Floor not posted",
+                )
+            }
+            if (session.endEstimated) {
+                Spacer(Modifier.height(6.dp))
+                Text("Estimated end", fontSize = 10.sp, color = BlushAccent, fontWeight = FontWeight.Bold)
+            }
+            if (happeningNow) {
+                Spacer(Modifier.height(16.dp))
+                val fraction = sessionProgressFraction(now, session.start, session.end)
+                Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .5f))) {
+                    Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(BlushAccent))
+                }
+            }
+            AnimatedVisibility(
+                visible = session.state == SessionState.OPEN && session.nid != null,
+                enter = fadeIn() + slideInVertically { it / 2 },
+                exit = fadeOut() + slideOutVertically { it / 2 },
+            ) {
+                val heroNid = session.nid
+                if (heroNid != null) {
+                    MarkCeremonyButton(
+                        sessionId = heroNid,
+                        onMark = onMark,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                }
+            }
+        }
+        CourseArtwork(0, BlushShape, Modifier.align(Alignment.BottomEnd).size(104.dp, 82.dp))
     }
 }
 
 @Composable
-private fun SessionRow(
+private fun HeroChip(label: String) {
+    Text(
+        label,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = BlushInk.copy(alpha = .78f),
+        maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .55f)).padding(horizontal = 10.dp, vertical = 5.dp),
+    )
+}
+
+@Composable
+private fun UpcomingSessionCard(
     session: Session,
     highlight: ScheduleHighlightKind?,
     now: java.time.Instant,
     onOpen: () -> Unit,
     onMark: (String) -> Unit,
 ) {
-    val focus = highlight != null
-    val background by animateColorAsState(if (focus) Blush else Color.White, label = "session focus")
-    val past = session.state == SessionState.DONE || session.state == SessionState.MISSED
-    Box(Modifier.fillMaxWidth().background(background)) {
+    val past = session.state == SessionState.DONE || session.state == SessionState.MISSED || session.state == SessionState.NO_ATTENDANCE
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = Color.White,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+    ) {
         Row(
-            Modifier.fillMaxWidth().clickable(onClick = onOpen).alpha(if (past && !focus) .48f else 1f),
+            Modifier.fillMaxWidth().clickable(onClick = onOpen)
+                .alpha(if (past && highlight == null) .55f else 1f)
+                .padding(horizontal = 17.dp, vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                TIME_SHORT.format(session.start.atZone(IST)),
-                modifier = Modifier.width(76.dp).padding(start = 16.dp, top = if (focus) 18.dp else 16.dp, bottom = 16.dp),
-                color = if (focus) BlushAccent else Teal,
-                fontSize = 13.sp,
+                TIME_FORMAT.format(session.start.atZone(IST)),
+                modifier = Modifier.width(72.dp),
+                color = Teal,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
-            if (focus) {
-                Box(Modifier.weight(1f)) {
-                    Column(Modifier.fillMaxWidth().padding(start = 2.dp, top = 17.dp, end = 24.dp, bottom = 17.dp)) {
-                        val minutes = Duration.between(now, session.start).toMinutes().coerceAtLeast(0)
-                        Text(
-                            buildAnnotatedString {
-                                withStyle(SpanStyle(color = BlushAccent, fontWeight = FontWeight.ExtraBold)) {
-                                    append(if (highlight == ScheduleHighlightKind.HAPPENING_NOW) "Happening now · " else "Up next · ")
-                                }
-                                withStyle(SpanStyle(fontWeight = FontWeight.ExtraBold)) { append(session.name) }
-                                if (highlight == ScheduleHighlightKind.UP_NEXT) {
-                                    append(" starts in ")
-                                    withStyle(SpanStyle(color = BlushAccent, fontWeight = FontWeight.ExtraBold)) { append(formatSessionCountdown(minutes)) }
-                                    append(".")
-                                } else {
-                                    append(".")
-                                }
-                            },
-                            fontSize = 18.sp,
-                            lineHeight = 20.sp,
-                            color = BlushInk,
-                        )
-                        if (highlight == ScheduleHighlightKind.HAPPENING_NOW) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                "in session until ${TIME_FORMAT.format(session.end.atZone(IST))} · " +
-                                    "${formatSessionClock(Duration.between(now, session.end).seconds)} left",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = BlushAccent,
-                            )
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(session.metaLine(), fontSize = 11.sp, color = BlushInk.copy(alpha = .66f), fontWeight = FontWeight.SemiBold)
-                        if (session.endEstimated) {
-                            Text("Estimated end", fontSize = 10.sp, color = BlushAccent, fontWeight = FontWeight.Bold)
-                        }
-                        AnimatedVisibility(
-                            visible = session.state == SessionState.OPEN && session.nid != null,
-                            enter = fadeIn() + slideInVertically { it / 2 },
-                            exit = fadeOut() + slideOutVertically { it / 2 },
-                        ) {
-                            val heroNid = session.nid
-                            if (heroNid != null) {
-                                MarkCeremonyButton(
-                                    sessionId = heroNid,
-                                    onMark = onMark,
-                                    modifier = Modifier.padding(top = 12.dp),
-                                )
-                            }
-                        }
-                    }
-                    Canvas(Modifier.align(Alignment.BottomEnd).size(100.dp, 72.dp)) {
-                        drawCircle(BlushShape.copy(alpha = .44f), radius = 33.dp.toPx(), center = Offset(size.width * .47f, size.height * .88f))
-                        drawCircle(BlushShape.copy(alpha = .44f), radius = 33.dp.toPx(), center = Offset(size.width * .86f, size.height * .68f))
-                    }
-                }
-            } else {
-                Column(Modifier.weight(1f).padding(top = 15.dp, end = 14.dp, bottom = 15.dp)) {
-                    Text(session.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
-                    Spacer(Modifier.height(4.dp))
-                    Text(session.metaLine(), fontSize = 11.sp, color = Muted, maxLines = 1)
-                }
+            Column(Modifier.weight(1f)) {
+                Text(session.name, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
+                Spacer(Modifier.height(3.dp))
+                Text(session.metaLine(), fontSize = 11.sp, color = Muted, maxLines = 1)
             }
-        }
-        if (!past && highlight == ScheduleHighlightKind.HAPPENING_NOW) {
-            val fraction = sessionProgressFraction(now, session.start, session.end)
-            Box(
-                Modifier.align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .background(Color.White.copy(alpha = .45f)),
-            ) {
-                Box(Modifier.fillMaxWidth(fraction).height(4.dp).background(BlushAccent))
+            when {
+                highlight == ScheduleHighlightKind.UP_NEXT && session.state == SessionState.OPEN && session.nid != null -> {
+                    val nid = session.nid
+                    MarkCeremonyButton(sessionId = nid, onMark = onMark)
+                }
+                past -> StateChip("✓ DONE", Mint, Green)
+                else -> StateChip(TIME_FORMAT.format(session.end.atZone(IST)), Soft, Muted)
             }
         }
     }
+}
+
+@Composable
+private fun StateChip(label: String, background: Color, foreground: Color) {
+    Text(
+        label,
+        fontSize = 9.5.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = foreground,
+        modifier = Modifier.clip(RoundedCornerShape(50)).background(background).padding(horizontal = 10.dp, vertical = 5.dp),
+    )
 }
 
 internal fun formatSessionCountdown(minutes: Long): String {
@@ -1141,7 +1303,7 @@ private fun MarkCeremonyButton(
     var stage by rememberSaveable(sessionId) { mutableStateOf(MarkStage.IDLE) }
     var stampedAt by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     val container by animateColorAsState(
-        targetValue = if (stage == MarkStage.DONE) Green else Ink,
+        targetValue = if (stage == MarkStage.DONE) Green else TealDeep,
         label = "mark container",
     )
     Button(
@@ -1153,7 +1315,11 @@ private fun MarkCeremonyButton(
             }
         },
         enabled = stage == MarkStage.IDLE,
-        colors = ButtonDefaults.buttonColors(containerColor = container),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = container,
+            disabledContainerColor = container,
+            disabledContentColor = Color.White,
+        ),
         shape = RoundedCornerShape(50),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
         modifier = modifier,
@@ -1257,7 +1423,6 @@ private fun ReadingsContent(
                 AssessmentsCard(
                     assessments = state.assessments,
                     today = state.today,
-                    onOpenSubmission = onOpenAssessment,
                     onDownloadResource = onDownloadAssessment,
                 )
             }
@@ -1318,7 +1483,6 @@ private fun ReadingsContent(
 private fun AssessmentsCard(
     assessments: List<AssessmentItem>,
     today: LocalDate,
-    onOpenSubmission: (String) -> Unit,
     onDownloadResource: (AssessmentItem) -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(true) }
@@ -1349,7 +1513,21 @@ private fun AssessmentsCard(
                         Text("Next: ${next.title}", color = Ink.copy(alpha = .62f), fontSize = 10.sp, maxLines = 1)
                     }
                     Spacer(Modifier.height(10.dp))
-                    Text(if (expanded) "⌃  Collapse" else "⌄  Open", color = DonePurple, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 16.dp),
+                ) {
+                    IconButton(
+                        onClick = { expanded = !expanded },
+                        modifier = Modifier.size(40.dp).background(Color.White.copy(alpha = .82f), CircleShape),
+                    ) {
+                        androidx.compose.material3.Icon(
+                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (expanded) "Collapse assessments" else "Expand assessments",
+                            tint = DonePurple,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
                 CourseArtwork(0, DonePurple, Modifier.align(Alignment.BottomEnd).size(110.dp, 88.dp))
             }
@@ -1359,7 +1537,6 @@ private fun AssessmentsCard(
                         AssessmentRow(
                             assessment = assessment,
                             today = today,
-                            onOpenSubmission = onOpenSubmission,
                             onDownloadResource = onDownloadResource,
                         )
                         if (index != assessments.lastIndex) HorizontalDivider(color = Line)
@@ -1374,7 +1551,6 @@ private fun AssessmentsCard(
 private fun AssessmentRow(
     assessment: AssessmentItem,
     today: LocalDate,
-    onOpenSubmission: (String) -> Unit,
     onDownloadResource: (AssessmentItem) -> Unit,
 ) {
     val submitted = assessment.isSubmitted()
@@ -1417,28 +1593,16 @@ private fun AssessmentRow(
             Text("PDF · $title", color = Muted, fontSize = 10.sp, maxLines = 1)
         }
         Spacer(Modifier.height(11.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-            if (assessment.resourceUrl != null) {
-                Button(
-                    onClick = { onDownloadResource(assessment) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Soft),
-                ) {
-                    androidx.compose.material3.Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp), tint = Ink)
-                    Spacer(Modifier.width(7.dp))
-                    Text("PDF", color = Ink)
-                }
-            }
-            if (!submitted) {
-                Button(
-                    onClick = { onOpenSubmission(assessment.submissionUrl) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Ink),
-                ) {
-                    androidx.compose.material3.Icon(Icons.AutoMirrored.Filled.OpenInNew, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(7.dp))
-                    Text("Submit")
-                }
+        if (assessment.resourceUrl != null) {
+            Button(
+                onClick = { onDownloadResource(assessment) },
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = TealDeep),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
+            ) {
+                androidx.compose.material3.Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(7.dp))
+                Text("PDF", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -1507,7 +1671,21 @@ private fun CourseReadingCard(
                         Text("Next: ${preview.title}", color = Ink.copy(alpha = .62f), fontSize = 10.sp, maxLines = 1)
                     }
                     Spacer(Modifier.height(10.dp))
-                    Text(if (expanded) "⌃  Collapse" else "⌄  Open", color = colors.accent, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 16.dp),
+                ) {
+                    IconButton(
+                        onClick = onToggleCourse,
+                        modifier = Modifier.size(40.dp).background(Color.White.copy(alpha = .82f), CircleShape),
+                    ) {
+                        androidx.compose.material3.Icon(
+                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (expanded) "Collapse $courseName" else "Expand $courseName",
+                            tint = colors.accent,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
                 CourseArtwork(design, colors.shape, Modifier.align(Alignment.BottomEnd).size(110.dp, 88.dp))
             }
@@ -1587,7 +1765,12 @@ private fun CourseReadingCard(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(label, fontSize = 12.sp, color = Ink, fontWeight = FontWeight.Bold)
-                            Text(if (open) "−" else "+", fontSize = 18.sp, color = colors.accent)
+                            androidx.compose.material3.Icon(
+                                if (open) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (open) "Collapse $label" else "Expand $label",
+                                tint = colors.accent,
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                         AnimatedVisibility(open) {
                             Column {
@@ -1997,7 +2180,14 @@ private fun ProfileContent(
                     Box(
                         Modifier.size(42.dp).background(Mint, RoundedCornerShape(14.dp)),
                         contentAlignment = Alignment.Center,
-                    ) { Text("✓", color = Teal, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold) }
+                    ) {
+                        androidx.compose.material3.Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint = Teal,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Automatic attendance", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
@@ -2275,7 +2465,12 @@ private fun ProfileAction(label: String, onClick: () -> Unit, color: Color = Ink
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, color = color, fontWeight = FontWeight.Bold)
-        Text("›", color = Muted, fontSize = 20.sp)
+        androidx.compose.material3.Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = Muted,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -2436,8 +2631,17 @@ private fun LoginContent(state: CompanionState, onSignIn: (String, String) -> Un
     }
 }
 
-private fun Session.metaLine(): String = listOfNotNull(room, floorLabel, trainer).joinToString(" · ").ifBlank { "Details not posted" }
-private fun Session.placeLine(): String = listOfNotNull(room, floorLabel).joinToString(" · ").ifBlank { "Location not posted" }
+private fun Session.metaLine(): String = listOfNotNull(room, floorLabel, trainer)
+    .map(String::trim)
+    .filter { value -> value.any(Char::isLetterOrDigit) }
+    .joinToString(" · ")
+    .ifBlank { "Details not posted" }
+
+private fun Session.placeLine(): String = listOfNotNull(room, floorLabel)
+    .map(String::trim)
+    .filter { value -> value.any(Char::isLetterOrDigit) }
+    .joinToString(" · ")
+    .ifBlank { "Location not posted" }
 
 private fun performAttendanceHaptic(view: View, success: Boolean) {
     val feedback = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -2530,7 +2734,6 @@ private val ButterStrong = Color(0xFFE0AE4D)
 private val SkyAccent = Color(0xFF315F7D)
 private val IST = ZoneId.of("Asia/Kolkata")
 private val TIME_FORMAT = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
-private val TIME_SHORT = DateTimeFormatter.ofPattern("H:mm", Locale.ENGLISH)
 private val DATE_FORMAT = DateTimeFormatter.ofPattern("EEEE, d MMM", Locale.ENGLISH)
 private val ASSESSMENT_DUE_FORMAT = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.ENGLISH)
 

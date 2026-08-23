@@ -15,10 +15,9 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
-        "Profile attendance now ignores orientation from 27 July through 7 August and works with more LMS report formats.",
-        "Assessment Submit opens the LMS form, and each assessment uses its matching PDF.",
-        "Course cards now link to the LMS course outline.",
-        "Attendance marking now confirms LMS conflicts instead of reporting an unnecessary failure.",
+        "Schedule, Readings, and Profile now use the Signature Moments design.",
+        "Assessment cards keep due-work details and matching PDFs while submission actions are temporarily hidden.",
+        "Attendance marking has a clearer Material-style action and compact confirmation state.",
     ),
 )
 

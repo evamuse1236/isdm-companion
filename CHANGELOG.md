@@ -1,5 +1,12 @@
 # ISDM Companion changelog
 
+## 0.5.1 beta
+
+- Schedule, Readings, and Profile now use the Signature Moments visual language, including the
+  compact Auto toggle, week strip, Material expansion controls, and redesigned attendance action.
+- Assessment cards retain their due-work details and matching PDF downloads while submission
+  actions are temporarily hidden.
+
 ## 0.5.0 beta
 
 - Profile attendance now excludes orientation sessions from 27 July through 7 August, accepts
