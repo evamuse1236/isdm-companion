@@ -15,8 +15,10 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
-        "Long-running assessment windows no longer appear as classes that are happening now.",
-        "Assessments now use the due date shown in My Activities when the submission page has no date.",
+        "Profile attendance now ignores orientation from 27 July through 7 August and works with more LMS report formats.",
+        "Assessment Submit opens the LMS form, and each assessment uses its matching PDF.",
+        "Course cards now link to the LMS course outline.",
+        "Attendance marking now confirms LMS conflicts instead of reporting an unnecessary failure.",
     ),
 )
 

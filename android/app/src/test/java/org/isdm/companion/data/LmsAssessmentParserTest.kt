@@ -63,7 +63,7 @@ class LmsAssessmentParserTest {
     }
 
     @Test
-    fun `submission is paired with the closest preceding downloadable assessment resource`() {
+    fun `assessment is paired with the downloadable resource matching its task title`() {
         val resource = parseAssessmentResource(
             """
             <a href="/subtopic/view?sid=1298915&amp;vid=1296029&amp;cid=1298950&amp;cat_id=70954">
@@ -79,14 +79,33 @@ class LmsAssessmentParserTest {
             <a href="/subtopic/view?sid=1298915&amp;vid=1306062&amp;cid=1298950&amp;cat_id=70954">Reflection Prompt 2</a>
             <a href="/download/video?sid=1298915&amp;vid=1306062&amp;cid=1298950&amp;cat_id=70954"></a>
             """.trimIndent(),
-            submissionUrl = "https://lms.isdm.org.in/subtopic/view?sid=1298915&vid=1305879&cid=1298950&cat_id=70954",
+            assessmentTitle = "B10 - T1 - PMDL - Reflection 2",
             baseUrl = "https://lms.isdm.org.in/",
         )
 
-        assertEquals("PMDL Assessment_Reflection Prompt 1_7th August", resource?.title)
+        assertEquals("Reflection Prompt 2", resource?.title)
         assertEquals(
-            "https://lms.isdm.org.in/subtopic/view?sid=1298915&vid=1296029&cid=1298950&cat_id=70954",
+            "https://lms.isdm.org.in/subtopic/view?sid=1298915&vid=1306062&cid=1298950&cat_id=70954",
             resource?.sourceUrl,
         )
+    }
+
+    @Test
+    fun `assessment is not paired with an unrelated downloadable resource`() {
+        val resource = parseAssessmentResource(
+            """
+            <a href="/subtopic/view?sid=1298915&amp;vid=1306062&amp;cid=1298950&amp;cat_id=70954">
+              Reflection Prompt 2 - Instructions
+            </a>
+            <a href="/download/video?sid=1298915&amp;vid=1306062&amp;cid=1298950&amp;cat_id=70954"></a>
+            <a href="/subtopic/view?sid=1298915&amp;vid=1308681&amp;cid=1298950&amp;cat_id=70954">
+              Group Contract - Submission Link
+            </a>
+            """.trimIndent(),
+            assessmentTitle = "B10 - T1 - PMDL - Group Contract",
+            baseUrl = "https://lms.isdm.org.in/",
+        )
+
+        assertEquals(null, resource)
     }
 }

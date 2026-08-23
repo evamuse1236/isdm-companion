@@ -15,8 +15,9 @@ import org.isdm.companion.engine.Credentials
 
 class RealLmsAdapterTest {
     @Test
-    fun `attendance summary uses completed sessions from the historical LMS report`() = runBlocking {
+    fun `attendance summary excludes orientation sessions from 27 July through 7 August`() = runBlocking {
         val server = MockWebServer()
+        val reportWindows = mutableListOf<Pair<Long, Long>>()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse = when {
                 request.method == "GET" && request.path == "/user/login" -> MockResponse()
@@ -29,40 +30,64 @@ class RealLmsAdapterTest {
                 request.method == "GET" &&
                     request.requestUrl?.encodedPath == "/api/executereport" &&
                     request.requestUrl?.queryParameter("report") ==
-                    "student-dashboard-user-classroom-session-summary" -> MockResponse().setBody(
-                    """
-                    [
-                      { "count": 54, "title": "Total" },
-                      { "count": 0, "title": "Not Marked" },
-                      { "count": 40, "title": "Present" },
-                      { "count": 14, "title": "Absent" }
-                    ]
-                    """.trimIndent(),
-                )
+                    "student-dashboard-user-classroom-session-summary" -> {
+                    reportWindows += request.requestUrl!!.queryParameter("start_time")!!.toLong() to
+                        request.requestUrl!!.queryParameter("end_time")!!.toLong()
+                    val beforeOrientation = reportWindows.size == 1
+                    MockResponse().setBody(
+                        if (beforeOrientation) {
+                            attendanceReport(total = 20, present = 15, absent = 5, notMarked = 0)
+                        } else {
+                            attendanceReport(total = 10, present = 7, absent = 2, notMarked = 1)
+                        },
+                    )
+                }
                 else -> MockResponse().setResponseCode(404)
             }
         }
         server.start()
 
         try {
-            val summary = RealLmsAdapter("student@example.com", "secret", server.url("/").toString())
+            val now = Instant.parse("2026-08-23T06:30:00Z")
+            val summary = RealLmsAdapter(
+                "student@example.com",
+                "secret",
+                server.url("/").toString(),
+                now = { now },
+            )
                 .attendanceSummary()
 
-            assertEquals(54, summary.total)
-            assertEquals(40, summary.present)
-            assertEquals(14, summary.absent)
-            assertEquals(0, summary.notMarked)
-            assertEquals("74.07", summary.presentPercentage.toPlainString())
-
-            val reportRequest = generateSequence { server.takeRequest() }
-                .first { it.requestUrl?.encodedPath == "/api/executereport" }
-            val start = reportRequest.requestUrl!!.queryParameter("start_time")!!.toLong()
-            val end = reportRequest.requestUrl!!.queryParameter("end_time")!!.toLong()
-            assertEquals(365L * 24L * 60L * 60L, end - start)
+            assertEquals(30, summary.total)
+            assertEquals(22, summary.present)
+            assertEquals(7, summary.absent)
+            assertEquals(1, summary.notMarked)
+            assertEquals("73.33", summary.presentPercentage.toPlainString())
+            assertEquals(
+                listOf(
+                    (now.epochSecond - 365L * 24L * 60L * 60L) to
+                        (Instant.parse("2026-07-26T18:30:00Z").epochSecond - 1L),
+                    Instant.parse("2026-08-07T18:30:00Z").epochSecond to now.epochSecond,
+                ),
+                reportWindows,
+            )
         } finally {
             server.shutdown()
         }
     }
+
+    private fun attendanceReport(
+        total: Int,
+        present: Int,
+        absent: Int,
+        notMarked: Int,
+    ): String = """
+        [
+          { "count": $total, "title": "Total" },
+          { "count": $notMarked, "title": "Not Marked" },
+          { "count": $present, "title": "Present" },
+          { "count": $absent, "title": "Absent" }
+        ]
+    """.trimIndent()
 
     @Test
     fun `attendance summary remains available when the LMS reported total is inconsistent`() = runBlocking {
@@ -93,7 +118,12 @@ class RealLmsAdapterTest {
         server.start()
 
         try {
-            val summary = RealLmsAdapter("student@example.com", "secret", server.url("/").toString())
+            val summary = RealLmsAdapter(
+                "student@example.com",
+                "secret",
+                server.url("/").toString(),
+                now = { Instant.parse("2026-07-01T06:30:00Z") },
+            )
                 .attendanceSummary()
 
             assertEquals(57, summary.total)
@@ -317,9 +347,9 @@ class RealLmsAdapterTest {
                 )
                 request.path == "/course/details?cat_id=70954&course_id=1298915" -> MockResponse().setBody(
                     """
-                    <a href='/subtopic/view?sid=1298915&amp;vid=1296029&amp;cid=1298950&amp;cat_id=70954'>PMDL Reflection Prompt PDF</a>
-                    <a href='/download/video?sid=1298915&amp;vid=1296029&amp;cid=1298950&amp;cat_id=70954'></a>
                     <a href='/subtopic/view?sid=1298915&amp;vid=1305879&amp;cid=1298950&amp;cat_id=70954'>Reflection Prompt 1 - Submission Link</a>
+                    <a href='/subtopic/view?sid=1298915&amp;vid=1306062&amp;cid=1298950&amp;cat_id=70954'>Reflection Prompt 2 - Instructions</a>
+                    <a href='/download/video?sid=1298915&amp;vid=1306062&amp;cid=1298950&amp;cat_id=70954'></a>
                     """.trimIndent(),
                 )
                 else -> MockResponse().setResponseCode(404)
@@ -335,9 +365,63 @@ class RealLmsAdapterTest {
             assertEquals(java.time.LocalDate.of(2026, 9, 20), assessment.dueDate)
             assertEquals(null, assessment.endDate)
             assertEquals("Not Submitted", assessment.status)
-            assertEquals("PMDL Reflection Prompt PDF", assessment.resourceTitle)
-            assertTrue(assessment.resourceUrl?.contains("vid=1296029") == true)
+            assertEquals("Reflection Prompt 2 - Instructions", assessment.resourceTitle)
+            assertTrue(assessment.resourceUrl?.contains("vid=1306062") == true)
             assertTrue(assessment.submissionUrl.contains("vid=1305879"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun assessmentSubmitOpensTheEmbeddedLmsForm() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.method == "GET" && request.path == "/user/login" -> MockResponse()
+                    .setHeader("Set-Cookie", "SESSassessmentform=one; Path=/")
+                    .setBody(loginForm())
+                request.method == "POST" && request.path == "/user/login" -> MockResponse()
+                    .setResponseCode(302).setHeader("Location", "/home")
+                request.method == "GET" && request.path == "/home" -> MockResponse()
+                    .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
+                request.path == "/my-activities" -> MockResponse().setBody(
+                    """
+                    <table><tr>
+                      <td><p>B10 - T1 - PMDL - Reflection 2 from topic Assessments</p>
+                        <span>Starts On: 17-Aug-2026 - 11:37 AM</span>
+                        <span>Due On: 20-Sep-2026 - 12:32 PM</span>
+                        <span>Status: Not Submitted</span>
+                      </td>
+                      <td><a href='/subtopic/view?sid=1298915&amp;vid=1305879&amp;cid=1298950&amp;cat_id=70954&amp;destination=my-activities'>Take Activity</a></td>
+                    </tr></table>
+                    """.trimIndent(),
+                )
+                request.path?.startsWith("/subtopic/view?sid=1298915&vid=1305879") == true -> MockResponse().setBody(
+                    "<iframe id='iframe_load' src='/activity/user/attempt?nid=1305877&amp;videoid=1305879'></iframe>",
+                )
+                request.path == "/activity/user/attempt?nid=1305877&videoid=1305879" -> MockResponse().setBody(
+                    "<div>Due Date : 20/08/2026</div><div>End Date : 20/09/2026</div>",
+                )
+                request.path == "/course/details?cat_id=70954&course_id=1298915" -> MockResponse().setBody(
+                    """
+                    <a href='/subtopic/view?sid=1298915&amp;vid=1306062&amp;cid=1298950&amp;cat_id=70954'>Reflection Prompt 2</a>
+                    <a href='/download/video?sid=1298915&amp;vid=1306062&amp;cid=1298950&amp;cat_id=70954'></a>
+                    """.trimIndent(),
+                )
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+
+        try {
+            val assessment = RealLmsAdapter("a@b.c", "password", server.url("/").toString())
+                .assessments().single()
+
+            assertEquals(java.time.LocalDate.of(2026, 8, 20), assessment.dueDate)
+            assertEquals(java.time.LocalDate.of(2026, 9, 20), assessment.endDate)
+            assertTrue(assessment.submissionUrl.contains("/activity/user/attempt"))
+            assertTrue(assessment.submissionUrl.contains("nid=1305877"))
         } finally {
             server.shutdown()
         }
@@ -415,6 +499,38 @@ class RealLmsAdapterTest {
 
             val confirmation = requests.filter { it.path == "/classroom/1285348/view" }
             assertEquals(1, confirmation.size)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun attendanceConflictIsConfirmedByAuthoritativeReread() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.method == "GET" && request.path == "/user/login" -> MockResponse()
+                    .setHeader("Set-Cookie", "SESSconflict=one; Path=/")
+                    .setBody(loginForm())
+                request.method == "POST" && request.path == "/user/login" -> MockResponse()
+                    .setResponseCode(302).setHeader("Location", "/home")
+                request.method == "GET" && request.path == "/home" -> MockResponse()
+                    .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
+                request.method == "POST" && request.path == "/api/mark/classroomsession/attendance" ->
+                    MockResponse().setResponseCode(409).setBody("conflict")
+                request.method == "GET" && request.path == "/classroom/1285348/view" -> MockResponse()
+                    .setBody(classroom(marked = true))
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+
+        try {
+            val detail = RealLmsAdapter("a@b.c", "password", server.url("/").toString())
+                .markPresent("1285348")
+
+            assertTrue(detail.marked)
+            assertEquals("Majlis", detail.room)
         } finally {
             server.shutdown()
         }

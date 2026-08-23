@@ -1,5 +1,19 @@
 # ISDM Companion changelog
 
+## 0.5.0 beta
+
+- Profile attendance now excludes orientation sessions from 27 July through 7 August, accepts
+  more LMS report formats, and shows the available Present, Absent, Not marked, Total, and
+  percentage values consistently across supported phones.
+- Assessment Submit opens the embedded LMS form, and assessment PDFs are matched to the correct
+  assessment instead of an unrelated downloadable resource.
+- Course cards now expose the LMS course outline.
+- The beta feedback sheet remains usable above the keyboard and on short screens.
+- Attendance conflicts are verified against the authoritative classroom page so an LMS-confirmed
+  mark is recorded as successful.
+- The beta dashboard now shows each tester's installed app version and distinguishes cached
+  low-memory process exits from critical reliability failures.
+
 ## 0.4.3 beta
 
 - Long-running assessment windows no longer appear as Scheduled Sessions or stay highlighted as

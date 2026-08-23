@@ -36,6 +36,7 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Locale
 
 /**
@@ -51,6 +52,7 @@ class RealLmsAdapter(
     private val defaultPassword: String? = null,
     baseUrl: String = DEFAULT_BASE_URL,
     private val lmsDiagnosticReporter: LmsDiagnosticReporter = NoopLmsDiagnosticReporter,
+    private val now: () -> Instant = Instant::now,
 ) : LmsGateway, FacultyDirectory {
     private val baseUrl: HttpUrl = baseUrl.trimEnd('/').toHttpUrl()
     private val cookies = SessionCookieJar()
@@ -205,7 +207,7 @@ class RealLmsAdapter(
                 }
                 val resource = parseAssessmentResource(
                     html = sectionPage,
-                    submissionUrl = draft.submissionUrl,
+                    assessmentTitle = draft.title,
                     baseUrl = baseUrl.toString(),
                 )
                 add(
@@ -215,7 +217,7 @@ class RealLmsAdapter(
                         status = draft.status,
                         dueDate = dates.dueDate ?: draft.dueDate,
                         endDate = dates.endDate,
-                        submissionUrl = draft.submissionUrl,
+                        submissionUrl = frameUrl ?: draft.submissionUrl,
                         resourceTitle = resource?.title,
                         resourceUrl = resource?.sourceUrl,
                     ),
@@ -242,8 +244,15 @@ class RealLmsAdapter(
     }
 
     override suspend fun attendanceSummary(): AttendanceSummary {
-        val end = Instant.now().epochSecond
+        val end = now().epochSecond
         val start = end - ATTENDANCE_HISTORY_SECONDS
+        val summaries = attendanceReportWindows(start, end).map { window ->
+            attendanceSummary(window.first, window.last)
+        }
+        return combineAttendanceSummaries(summaries)
+    }
+
+    private suspend fun attendanceSummary(start: Long, end: Long): AttendanceSummary {
         val url = baseUrl.resolve("/api/executereport")!!.newBuilder()
             .addQueryParameter("report", "student-dashboard-user-classroom-session-summary")
             .addQueryParameter("start_time", start.toString())
@@ -288,20 +297,26 @@ class RealLmsAdapter(
             .put("status", "present")
             .toString()
 
-        val page = authed(
-            path = "/api/mark/classroomsession/attendance",
-            method = "POST",
-            headers = mapOf(
-                "Content-Type" to JSON_MEDIA_TYPE.toString(),
-                "X-Requested-With" to "XMLHttpRequest",
-                "Referer" to baseUrl.resolve("/manage/classroom/attendance").toString(),
-            ),
-            // The desktop client sends exactly application/json. The String overload adds a
-            // charset parameter, so use bytes to keep the wire header identical.
-            body = payload.toByteArray(Charsets.UTF_8).toRequestBody(JSON_MEDIA_TYPE),
-        )
-        if (page.status >= 400) {
-            throw LmsHttpException(page.status, page.url)
+        try {
+            authed(
+                path = "/api/mark/classroomsession/attendance",
+                method = "POST",
+                headers = mapOf(
+                    "Content-Type" to JSON_MEDIA_TYPE.toString(),
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "Referer" to baseUrl.resolve("/manage/classroom/attendance").toString(),
+                ),
+                // The desktop client sends exactly application/json. The String overload adds a
+                // charset parameter, so use bytes to keep the wire header identical.
+                body = payload.toByteArray(Charsets.UTF_8).toRequestBody(JSON_MEDIA_TYPE),
+            )
+        } catch (error: LmsHttpException) {
+            if (error.status != 409) throw error
+            // A conflict can mean that the LMS accepted this or another near-simultaneous mark.
+            // Never repeat the POST blindly: confirm against the authoritative classroom page.
+            val detail = classroom(nid)
+            if (detail.marked) return detail
+            throw error
         }
 
         // The POST response body is not authoritative. The LMS sometimes returns success even
@@ -604,6 +619,28 @@ class RealLmsAdapter(
     }
 }
 
+private val ORIENTATION_START = LocalDate.of(2026, 7, 27)
+    .atStartOfDay(ZoneId.of("Asia/Kolkata"))
+    .toEpochSecond()
+private val ORIENTATION_END_EXCLUSIVE = LocalDate.of(2026, 8, 8)
+    .atStartOfDay(ZoneId.of("Asia/Kolkata"))
+    .toEpochSecond()
+
+internal fun attendanceReportWindows(historyStart: Long, historyEnd: Long): List<LongRange> = buildList {
+    val beforeOrientationEnd = minOf(historyEnd, ORIENTATION_START - 1L)
+    if (historyStart <= beforeOrientationEnd) add(historyStart..beforeOrientationEnd)
+
+    val afterOrientationStart = maxOf(historyStart, ORIENTATION_END_EXCLUSIVE)
+    if (afterOrientationStart <= historyEnd) add(afterOrientationStart..historyEnd)
+}
+
+internal fun combineAttendanceSummaries(summaries: List<AttendanceSummary>): AttendanceSummary {
+    val present = summaries.sumOf(AttendanceSummary::present)
+    val absent = summaries.sumOf(AttendanceSummary::absent)
+    val notMarked = summaries.sumOf(AttendanceSummary::notMarked)
+    return attendanceSummary(present, absent, notMarked)
+}
+
 internal fun parseAttendanceSummary(json: String): AttendanceSummary {
     val rows = try {
         JSONArray(json)
@@ -627,6 +664,10 @@ internal fun parseAttendanceSummary(json: String): AttendanceSummary {
     val present = count("present")
     val absent = count("absent")
     val notMarked = count("not marked")
+    return attendanceSummary(present, absent, notMarked)
+}
+
+private fun attendanceSummary(present: Int, absent: Int, notMarked: Int): AttendanceSummary {
     val total = present + absent + notMarked
     val percentage = if (total == 0) {
         BigDecimal.ZERO

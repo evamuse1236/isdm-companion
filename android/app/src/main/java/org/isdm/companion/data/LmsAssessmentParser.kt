@@ -86,10 +86,9 @@ internal fun parseAssessmentDates(html: String): AssessmentDates {
 
 internal fun parseAssessmentResource(
     html: String,
-    submissionUrl: String,
+    assessmentTitle: String,
     baseUrl: String,
 ): AssessmentResource? {
-    val targetId = submissionUrl.toHttpUrlOrNull()?.queryParameter("vid") ?: return null
     val document = Jsoup.parse(html, baseUrl)
     val downloadableIds = document.select("a[href]").mapNotNullTo(mutableSetOf()) { anchor ->
         val url = anchor.absUrl("href").toHttpUrlOrNull() ?: return@mapNotNullTo null
@@ -97,21 +96,37 @@ internal fun parseAssessmentResource(
             url.encodedPath.endsWith("/download/video") && isAssessmentId(it)
         }
     }
-    var latestResource: AssessmentResource? = null
-    for (anchor in document.select("a[href]")) {
+    val subject = assessmentTitle.substringAfterLast(" - ", assessmentTitle)
+    val targetTokens = assessmentMatchTokens(subject)
+    val targetWords = targetTokens.filterNot(String::isAssessmentNumber).toSet()
+    val targetNumbers = targetTokens.filter(String::isAssessmentNumber).toSet()
+    if (targetWords.isEmpty()) return null
+
+    return document.select("a[href]").mapNotNull { anchor ->
         val sourceUrl = anchor.absUrl("href")
-        val url = sourceUrl.toHttpUrlOrNull() ?: continue
-        if (!url.encodedPath.endsWith("/subtopic/view")) continue
-        val id = url.queryParameter("vid") ?: continue
-        if (id == targetId) return latestResource
-        if (id in downloadableIds) {
-            val title = anchor.text().trim().replace(Regex("\\s+"), " ")
-                .ifBlank { anchor.attr("title").trim() }
-            if (title.isNotBlank()) latestResource = AssessmentResource(title, sourceUrl)
-        }
-    }
-    return null
+        val url = sourceUrl.toHttpUrlOrNull() ?: return@mapNotNull null
+        if (!url.encodedPath.endsWith("/subtopic/view")) return@mapNotNull null
+        if (url.queryParameter("vid") !in downloadableIds) return@mapNotNull null
+        val title = anchor.text().trim().replace(Regex("\\s+"), " ")
+            .ifBlank { anchor.attr("title").trim() }
+        if (title.isBlank()) return@mapNotNull null
+        val candidateTokens = assessmentMatchTokens(title)
+        val candidateWords = candidateTokens.filterNot(String::isAssessmentNumber).toSet()
+        val candidateNumbers = candidateTokens.filter(String::isAssessmentNumber).toSet()
+        if (!candidateWords.containsAll(targetWords)) return@mapNotNull null
+        if (!candidateNumbers.containsAll(targetNumbers)) return@mapNotNull null
+        AssessmentResource(title, sourceUrl) to candidateTokens.intersect(targetTokens).size
+    }.maxByOrNull { (_, score) -> score }?.first
 }
+
+private fun assessmentMatchTokens(value: String): List<String> =
+    Regex("[a-z0-9]+")
+        .findAll(value.lowercase(Locale.ROOT))
+        .map { it.value }
+        .filter { it !in ASSESSMENT_RESOURCE_STOP_WORDS }
+        .toList()
+
+private fun String.isAssessmentNumber(): Boolean = all(Char::isDigit)
 
 private fun String.toAssessmentDate(): LocalDate? =
     runCatching { LocalDate.parse(this, ASSESSMENT_DATE_FORMAT) }.getOrNull()
@@ -131,3 +146,22 @@ private val ASSESSMENT_STATUS = Regex("Status:\\s*(.+?)(?:\\s+Take Activity|$)",
 private val ASSESSMENT_TASK_DUE = Regex("Due On\\s*:\\s*(\\d{1,2}-[A-Z]{3}-\\d{4})", RegexOption.IGNORE_CASE)
 private val ASSESSMENT_DUE = Regex("Due Date\\s*:\\s*(\\d{2}/\\d{2}/\\d{4})", RegexOption.IGNORE_CASE)
 private val ASSESSMENT_END = Regex("End Date\\s*:\\s*(\\d{2}/\\d{2}/\\d{4})", RegexOption.IGNORE_CASE)
+private val ASSESSMENT_RESOURCE_STOP_WORDS = setOf(
+    "assessment",
+    "assessments",
+    "instruction",
+    "instructions",
+    "submission",
+    "link",
+    "prompt",
+    "pdf",
+    "activity",
+    "task",
+    "the",
+    "and",
+    "for",
+    "from",
+    "of",
+    "on",
+    "to",
+)
