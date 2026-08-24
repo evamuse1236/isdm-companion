@@ -133,7 +133,7 @@ fun resolveScheduleCohorts(detected: Cohorts, confirmed: Cohorts?): Cohorts {
     )
 }
 
-/** Parse the comma-separated COHORTS override used by the desktop setup. */
+/** Parse comma-separated Section and Group profile values. */
 fun parseCohortOverride(text: String?): Cohorts? {
     val sections = linkedSetOf<String>()
     val groups = linkedSetOf<String>()
@@ -189,7 +189,7 @@ private fun mergeKey(event: CalendarEvent): String {
 
 /**
  * Merge duplicate batch-wide/attendance entries into one row and filter rows outside the
- * caller's section/group.  The returned order is start time, then name, like the JS client.
+ * caller's section/group. The returned order is start time, then name.
  */
 fun buildSessions(events: Iterable<CalendarEvent>, cohorts: Cohorts): List<Session> {
     val byKey = LinkedHashMap<String, BuildingSession>()
@@ -220,8 +220,7 @@ fun buildSessions(events: Iterable<CalendarEvent>, cohorts: Cohorts): List<Sessi
             if (!event.trainers.isNullOrEmpty()) row.trainer = event.trainers
         } else {
             row.eventNid = event.nid
-            // An attendance row proves ownership regardless of the title.  This is also
-            // faithful to the JS implementation when the batch-wide row arrives first.
+            // An attendance row proves ownership regardless of the title.
             row.mine = if (!row.nid.isNullOrEmpty()) true else belongsToMe(event, cohorts)
         }
     }
@@ -248,7 +247,7 @@ fun buildSessions(events: Iterable<CalendarEvent>, cohorts: Cohorts): List<Sessi
         .toList()
 }
 
-/** Compute the same six UI states emitted by the desktop service. */
+/** Compute the six UI states for a Scheduled Session. */
 fun sessionState(row: Session, now: Instant): SessionState {
     if (row.nid.isNullOrEmpty()) {
         return if (row.endMs < now.toEpochMilli()) SessionState.DONE else SessionState.NO_ATTENDANCE

@@ -2,7 +2,6 @@
 node_modules/
 *.log
 .cache/
-logs/
 android/.gradle/
 android/.kotlin/
 android/local.properties

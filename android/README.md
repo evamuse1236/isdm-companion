@@ -1,8 +1,7 @@
 # ISDM Companion for Android
 
 This is the production ISDM Companion client for Android 8.0 (API 26) and newer. It is a native
-Kotlin/Jetpack Compose app with one shipped interface: Schedule, Readings, and Profile. The
-dependency-free desktop client at the repository root is retained only as a legacy surface.
+Kotlin/Jetpack Compose app with one shipped interface: Schedule, Readings, and Profile.
 
 Production UI changes belong in `app/src/main/java/org/isdm/companion/ui/`. Temporary screenshots,
 HTML prototypes, and competing visual directions should stay outside the repository or on a

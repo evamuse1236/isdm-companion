@@ -90,8 +90,8 @@ class AutoMarkPolicy(
 }
 
 /**
- * Milliseconds until the next local occurrence of HH:MM.  Blank or malformed input returns
- * null.  Equality rolls to tomorrow, matching the desktop shutdown helper.
+ * Milliseconds until the next local occurrence of HH:MM. Blank or malformed input returns
+ * null, and equality rolls to tomorrow.
  */
 fun msUntilTimeOfDay(
     spec: String?,

@@ -6,7 +6,7 @@ import org.junit.Test
 
 class RoomsTest {
     @Test
-    fun keepsDesktopDefaultsAndNormalisesRoomNames() {
+    fun keepsBuiltInDefaultsAndNormalisesRoomNames() {
         assertEquals(3.0, floorFor("Sahyog"))
         assertEquals(6.0, floorFor("  MAJLIS  "))
         assertEquals("Floor 3", floorLabel("sahyog"))

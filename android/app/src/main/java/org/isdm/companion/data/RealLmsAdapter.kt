@@ -130,7 +130,7 @@ class RealLmsAdapter(
     override suspend fun calendar(start: LocalDate, endExclusive: LocalDate): List<CalendarEvent> =
         calendar(start.toString(), endExclusive.toString())
 
-    /** Convenience overload retaining the wire-level date shape used by the desktop client. */
+    /** Convenience overload for callers that already hold ISO date query values. */
     suspend fun calendar(start: String, end: String): List<CalendarEvent> {
         val page = authed(
             "/calendar/json?start=$start&end=$end&_=${System.currentTimeMillis()}",
@@ -306,8 +306,8 @@ class RealLmsAdapter(
                     "X-Requested-With" to "XMLHttpRequest",
                     "Referer" to baseUrl.resolve("/manage/classroom/attendance").toString(),
                 ),
-                // The desktop client sends exactly application/json. The String overload adds a
-                // charset parameter, so use bytes to keep the wire header identical.
+                // The String overload adds a charset parameter, so use bytes to keep the LMS wire
+                // header exactly application/json.
                 body = payload.toByteArray(Charsets.UTF_8).toRequestBody(JSON_MEDIA_TYPE),
             )
         } catch (error: LmsHttpException) {

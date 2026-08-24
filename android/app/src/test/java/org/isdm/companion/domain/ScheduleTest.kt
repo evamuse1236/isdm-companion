@@ -195,7 +195,7 @@ class ScheduleTest {
     }
 
     @Test
-    fun computesSessionStatesWithTheSamePriorityAsDesktop() {
+    fun computesSessionStatesInPriorityOrder() {
         val start = Instant.parse("2026-07-29T04:00:00Z")
         val end = Instant.parse("2026-07-29T05:30:00Z")
         val now = Instant.parse("2026-07-29T05:00:00Z")
@@ -212,7 +212,7 @@ class ScheduleTest {
         assertEquals(SessionState.MISSED, sessionState(row(), now))
         assertEquals(SessionState.NO_ATTENDANCE, sessionState(row(nid = null), now))
         assertEquals(SessionState.DONE, sessionState(row(nid = null), end.plusMillis(1)))
-        // The JS code uses a strict endMs < now comparison.
+        // A schedule-only session is done only after its end instant.
         assertEquals(SessionState.NO_ATTENDANCE, sessionState(row(nid = null), end))
     }
 

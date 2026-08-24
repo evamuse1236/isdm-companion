@@ -5,7 +5,7 @@ Use this brief to orient at the start of an ISDM task. It is a map, not runtime 
 ## Start every task
 
 1. Run `git status --short` and preserve all existing work. Attribute no dirty file to yourself unless the current task changed it. Never discard, reset, push, deploy, sign, install, or communicate externally without the user's authority.
-2. Name the system boundary: root desktop app, Android app, LMS, Supabase beta backend, beta dashboard, release/distribution, or connected device.
+2. Name the system boundary: Android app, LMS, Supabase beta backend, beta dashboard, release/distribution, or connected device.
 3. Load the matching project skill, inspect the owning source and tests, and define an observable completion check before changing anything.
 4. Treat memory and historical incidents as leads. Recheck paths, versions, live counts, credentials, connected devices, deployments, and external state.
 5. Report confirmed evidence, inference, missing evidence, verification performed, and any decision that needs the user.
@@ -13,8 +13,8 @@ Use this brief to orient at the start of an ISDM task. It is a map, not runtime 
 ## Product and system map
 
 - `CONTEXT.md` is the product-language glossary. Preserve distinctions such as Scheduled Session, Attendance Session, Attendance Location Gate, Campus Zone, Location Evidence, Faculty Reference, and Faculty Profile.
-- The repository-root Node app (`src/`, `public/`, root `tests/`) is the dependency-free local desktop dashboard over the LMS. `README.md` describes its behavior and `npm test` runs its captured-fixture and release/telemetry tests.
-- `android/` is the native Kotlin/Jetpack Compose application for API 26+. The application ID is `org.isdm.companion`. At this 2026-08-19 bootstrap it declares version `0.4.3-beta` / code `7`; read `android/app/build.gradle.kts` for the current value.
+- Root Node tooling is limited to guarded beta-release preparation and beta API/release tests. It is not a learner-facing application.
+- `android/` is the native Kotlin/Jetpack Compose application for API 26+. The application ID is `org.isdm.companion`; read `android/app/build.gradle.kts` for the current version.
 - The LMS at `lms.isdm.org.in` is authoritative for personalized schedules, attendance identity and markability, attendance history, courses, readings, and available faculty data. The app pulls data; it does not receive a live push feed. Cached or displayed state can therefore be stale.
 - Android boundaries: `data/` contains LMS gateways/parsers, `domain/` contains product rules, `engine/` coordinates commands and ports, `platform/` contains Android services, WorkManager, storage, diagnostics, beta telemetry, and location evidence, and `ui/` contains Compose/view-model behavior.
 - `supabase/functions/beta-api/` ingests beta telemetry and serves enrolled clients. `supabase/functions/beta-admin/` produces owner/admin dashboard data. Migrations define the authoritative stored schema.
@@ -23,7 +23,7 @@ Use this brief to orient at the start of an ISDM task. It is a map, not runtime 
 
 ## Verification recipes
 
-- Root checks: `npm test`.
+- Root beta-platform and release-tooling checks: `npm test`.
 - Android JVM/build checks from `android/`: use Java 17 and `bash gradlew testDebugUnitTest lintDebug assembleDebug`. Source and fixture tests do not prove live LMS or device behavior.
 - Connected Android checks: first verify `adb devices`; use `bash gradlew connectedDebugAndroidTest` only with an authorized device. Preserve installed app data and signing identity for update tests.
 - Dashboard checks from `beta-dashboard/`: `npm test`; inspect its `package.json` for current build/lint commands.

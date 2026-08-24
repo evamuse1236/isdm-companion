@@ -21,12 +21,11 @@ in [`CHANGELOG.md`](CHANGELOG.md).
 | `beta-dashboard/` | Owner-facing beta health dashboard; not an alternate learner UI |
 | `scripts/` | Guarded beta release preparation and verification |
 | `.agents/skills/` | Project safety workflows for incidents, releases, cleanup, and LMS explanation |
-| `src/`, `public/`, `tools/` | Legacy local desktop companion retained for existing users |
-| `tests/` | Desktop and beta-platform tests |
+| `tests/` | Beta-platform and release-tooling tests |
 | `docs/` | Current operational documentation only |
 
-The legacy desktop client and beta dashboard remain functional, but they do not define new Android
-product or visual direction.
+The beta dashboard is an operational surface and does not define Android product or visual
+direction.
 
 ## Android development
 
@@ -59,19 +58,7 @@ Release preparation and tester distribution are separate actions. Distribution r
 recipient/artifact preview and explicit approval; see
 [`docs/beta-release-script.md`](docs/beta-release-script.md).
 
-## Legacy desktop client
-
-The dependency-free Node.js desktop client remains available for existing users:
-
-```bash
-npm run setup
-npm start
-```
-
-It reads local `.env` configuration and serves `http://localhost:4321`. New learner-facing work
-belongs in the Android app unless the desktop client is explicitly placed back in scope.
-
-Run its tests with:
+Root Node tooling is private and exists only for beta API and release checks:
 
 ```bash
 npm test

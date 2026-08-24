@@ -9,7 +9,7 @@ private val DEFAULT_FLOORS: Map<String, Double> = mapOf(
 
 private fun normaliseRoom(room: String?): String = room.orEmpty().trim().lowercase(Locale.ROOT)
 
-/** Parse ROOM_FLOORS while retaining the desktop defaults. */
+/** Parse room-floor overrides while retaining the built-in campus defaults. */
 fun parseRoomFloors(spec: String?): Map<String, Double> {
     val floors = DEFAULT_FLOORS.toMutableMap()
     for (entry in spec.orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }) {
@@ -18,8 +18,7 @@ fun parseRoomFloors(spec: String?): Map<String, Double> {
 
         val room = normaliseRoom(entry.substring(0, at))
         val rawFloor = entry.substring(at + 1).trim()
-        // JavaScript Number("") is 0; keep that small edge case for compatibility with the
-        // desktop configuration parser.  Non-finite values are ignored.
+        // A blank floor means ground floor. Non-finite values are ignored.
         val floor = if (rawFloor.isEmpty()) 0.0 else rawFloor.toDoubleOrNull()
         if (room.isNotEmpty() && floor != null && floor.isFinite()) floors[room] = floor
     }

@@ -45,10 +45,7 @@ enum class SessionState(val wireName: String) {
     NO_ATTENDANCE("noattendance"),
 }
 
-/**
- * A merged calendar row.  The computed millisecond properties retain the shape used by the
- * desktop dashboard while Instant keeps the Android implementation timezone-safe.
- */
+/** A merged calendar row with epoch-millisecond accessors for stable sorting and comparisons. */
 data class Session(
     val name: String,
     val cohort: String?,
@@ -94,7 +91,7 @@ data class AutoMarkStatus(
     val remainingMs: Long?,
     val windowHours: Double,
 ) {
-    /** Name used by the desktop JSON status object. */
+    /** Compatibility alias used by status consumers. */
     val msRemaining: Long?
         get() = remainingMs
 }
