@@ -15,9 +15,9 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
-        "The familiar compact Schedule, Readings, and Profile interface is back.",
-        "Your confirmed section now removes other-section sessions when LMS detection is unclear.",
-        "Assessment Done and Undo actions and real attendance progress remain available.",
+        "A fresh lavender look across Schedule, Readings, and Profile.",
+        "Navigation moved to a bottom bar with the report button beside it.",
+        "Schedule days now show one card per session, with the same up-next focus.",
     ),
 )
 
