@@ -15,9 +15,9 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
-        "Open an assessment from Schedule, then mark it done or undo it in Readings.",
-        "Move through the full two-week schedule with a stable date strip and directional motion.",
-        "Clearer Material 3 controls and real attendance progress make every action easier to trust.",
+        "The familiar compact Schedule, Readings, and Profile interface is back.",
+        "Your confirmed section now removes other-section sessions when LMS detection is unclear.",
+        "Assessment Done and Undo actions and real attendance progress remain available.",
     ),
 )
 

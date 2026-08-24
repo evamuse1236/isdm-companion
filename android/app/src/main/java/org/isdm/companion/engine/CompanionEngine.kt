@@ -21,6 +21,7 @@ import org.isdm.companion.domain.buildSessions
 import org.isdm.companion.domain.detectCohorts
 import org.isdm.companion.domain.floorFor
 import org.isdm.companion.domain.floorLabel
+import org.isdm.companion.domain.resolveScheduleCohorts
 import org.isdm.companion.domain.sessionState
 
 /**
@@ -41,6 +42,7 @@ class CompanionEngine(
     private val attendanceTelemetry: AttendanceTelemetryPort = NoopAttendanceTelemetry,
     private val attendanceLocationGate: AttendanceLocationGatePort = AllowAttendanceLocationGate,
     private val cohortOverride: Cohorts? = null,
+    private val cohortPreference: () -> Cohorts? = { null },
     private val roomFloors: Map<String, Double> = mapOf("sahyog" to 3.0, "majlis" to 6.0),
     private val lateAfterMinutes: Long = 10,
     private val facultyDirectory: FacultyDirectory? = null,
@@ -560,11 +562,13 @@ class CompanionEngine(
     private suspend fun loadCohorts(today: LocalDate, now: Instant): Cohorts {
         cohortOverride?.let { return it }
         val cached = cohortCache
-        if (cached != null && now.isBefore(cached.loadedAt.plusSeconds(COHORT_TTL_SECONDS))) {
-            return cached.value
+        val detected = if (cached != null && now.isBefore(cached.loadedAt.plusSeconds(COHORT_TTL_SECONDS))) {
+            cached.value
+        } else {
+            val events = gateway.calendar(today.minusDays(120), today.plusDays(120))
+            detectCohorts(events).also { cohortCache = CacheEntry(now, it) }
         }
-        val events = gateway.calendar(today.minusDays(120), today.plusDays(120))
-        return detectCohorts(events).also { cohortCache = CacheEntry(now, it) }
+        return resolveScheduleCohorts(detected, cohortPreference())
     }
 
     private suspend fun loadDetails(

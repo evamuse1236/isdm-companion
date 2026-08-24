@@ -99,6 +99,43 @@ class ScheduleTest {
     }
 
     @Test
+    fun `confirmed section narrows ambiguous LMS cohort detection`() {
+        val resolved = resolveScheduleCohorts(
+            detected = Cohorts(sections = setOf("A", "B")),
+            confirmed = Cohorts(sections = setOf("A")),
+        )
+        val events = listOf(
+            event("batch-a", "Digital Engagement - Section A - Session 1", "/join/webinar"),
+            event("batch-b", "Digital Engagement - Section B - Session 1", "/join/webinar"),
+        )
+
+        assertEquals(setOf("A"), resolved.sections)
+        assertEquals(listOf("Section A"), buildSessions(events, resolved).map { it.cohort })
+    }
+
+    @Test
+    fun `confirmed section fills missing LMS cohort detection`() {
+        assertEquals(
+            Cohorts(sections = setOf("A")),
+            resolveScheduleCohorts(
+                detected = Cohorts(),
+                confirmed = Cohorts(sections = setOf("A")),
+            ),
+        )
+    }
+
+    @Test
+    fun `single unambiguous LMS section remains authoritative`() {
+        assertEquals(
+            Cohorts(sections = setOf("B")),
+            resolveScheduleCohorts(
+                detected = Cohorts(sections = setOf("B")),
+                confirmed = Cohorts(sections = setOf("A")),
+            ),
+        )
+    }
+
+    @Test
     fun parsesCohortOverrideAndReturnsNullForBlankOrUnusableInput() {
         assertEquals(
             Cohorts(sections = setOf("A", "B"), groups = setOf("3")),

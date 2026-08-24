@@ -9,6 +9,7 @@ import org.isdm.companion.data.LmsDiagnosticReporter
 import org.isdm.companion.domain.AttendanceLocationGate
 import org.isdm.companion.domain.AttendanceLocationGateDecision
 import org.isdm.companion.domain.LocationGateReason
+import org.isdm.companion.domain.parseCohortOverride
 import org.isdm.companion.engine.AttendanceLocationGatePort
 import org.isdm.companion.engine.AttendanceTelemetryEvent
 import org.isdm.companion.engine.AttendanceTelemetryPort
@@ -99,6 +100,13 @@ class CompanionApplication : Application() {
                 betaManager = betaManager,
                 evidenceProvider = locationEvidenceProvider,
             ),
+            cohortPreference = {
+                betaManager.profile?.let { profile ->
+                    parseCohortOverride(
+                        listOfNotNull(profile.selfSection, profile.selfPlc).joinToString(","),
+                    )
+                }
+            },
             facultyDirectory = lmsAdapter,
         )
         AndroidNotifier.createChannels(this)

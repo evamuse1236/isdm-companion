@@ -1,5 +1,12 @@
 # ISDM Companion changelog
 
+## 0.5.3 beta
+
+- Restores the familiar compact Schedule, Readings, and Profile interface while retaining
+  assessment Done/Undo actions and real attendance progress.
+- Uses the student's confirmed section when LMS cohort detection is missing or ambiguous, so a
+  Section A student does not also receive Section B sessions.
+
 ## 0.5.2 beta
 
 - Schedule assessment actions now open the matching item in Readings. Students can mark work

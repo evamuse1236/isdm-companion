@@ -553,6 +553,31 @@ class CompanionEngineTest {
     }
 
     @Test
+    fun `schedule refresh uses confirmed section when LMS cohort detection is missing`() = runBlocking {
+        gateway.events.clear()
+        gateway.events += CalendarEvent(
+            nid = "event-a",
+            title = "Policy - Section A - Session 1",
+            url = "/join/webinar?nid=event-a",
+            start = "2026-08-08 10:30:00",
+            end = "2026-08-08 12:00:00",
+        )
+        gateway.events += CalendarEvent(
+            nid = "event-b",
+            title = "Policy - Section B - Session 1",
+            url = "/join/webinar?nid=event-b",
+            start = "2026-08-08 10:30:00",
+            end = "2026-08-08 12:00:00",
+        )
+        val engine = engine(cohortPreference = { Cohorts(sections = setOf("A")) })
+        engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
+
+        engine.dispatch(Command.RefreshSchedule())
+
+        assertEquals(listOf("Section A"), engine.state.value.scheduleSessions.map { it.cohort })
+    }
+
+    @Test
     fun `schedule refresh preserves today's live attendance state`() = runBlocking {
         val engine = engine()
         configureAndRefresh(engine)
@@ -600,6 +625,7 @@ class CompanionEngineTest {
         locationGate: AttendanceLocationGatePort = AllowAttendanceLocationGate,
         diagnostics: DiagnosticsLogger = NoopDiagnosticsLogger,
         attendanceTelemetry: AttendanceTelemetryPort = NoopAttendanceTelemetry,
+        cohortPreference: () -> Cohorts? = { null },
     ) = CompanionEngine(
         gateway,
         clock,
@@ -609,6 +635,7 @@ class CompanionEngineTest {
         attendanceLocationGate = locationGate,
         diagnostics = diagnostics,
         attendanceTelemetry = attendanceTelemetry,
+        cohortPreference = cohortPreference,
     )
 
     private fun deniedLocationGate() = AttendanceLocationGatePort {

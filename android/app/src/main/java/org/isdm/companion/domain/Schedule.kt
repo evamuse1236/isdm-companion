@@ -116,6 +116,23 @@ fun detectCohorts(events: Iterable<CalendarEvent>): Cohorts {
     return Cohorts(sections = sections, groups = groups)
 }
 
+/** Reconcile LMS-detected membership with the section/group confirmed by the student. */
+fun resolveScheduleCohorts(detected: Cohorts, confirmed: Cohorts?): Cohorts {
+    if (confirmed == null) return detected
+
+    fun resolve(detectedValues: Set<String>, confirmedValues: Set<String>): Set<String> {
+        if (confirmedValues.isEmpty()) return detectedValues
+        if (detectedValues.isEmpty()) return confirmedValues
+        if (detectedValues.size == 1) return detectedValues
+        return detectedValues.intersect(confirmedValues).ifEmpty { detectedValues }
+    }
+
+    return Cohorts(
+        sections = resolve(detected.sections, confirmed.sections),
+        groups = resolve(detected.groups, confirmed.groups),
+    )
+}
+
 /** Parse the comma-separated COHORTS override used by the desktop setup. */
 fun parseCohortOverride(text: String?): Cohorts? {
     val sections = linkedSetOf<String>()
