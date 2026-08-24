@@ -13,13 +13,13 @@
   done, undo it, and keep completed work off the Schedule while preserving the LMS status.
 - The full two-week date range stays spatially stable and schedule content moves in the direction
   of the selected date.
-- Material 3 colors, clearer outlined controls, larger touch targets, and real attendance progress
-  replace ambiguous or premature confirmation states.
+- Clearer controls, larger touch targets, and real attendance progress replace ambiguous or
+  premature confirmation states.
 
 ## 0.5.1 beta
 
-- Schedule, Readings, and Profile now use the Signature Moments visual language, including the
-  compact Auto toggle, week strip, Material expansion controls, and redesigned attendance action.
+- Schedule, Readings, and Profile received a compact visual refresh with an Auto toggle, week
+  strip, expansion controls, and redesigned attendance action.
 - Assessment cards retain their due-work details and matching PDF downloads while submission
   actions are temporarily hidden.
 

@@ -1,238 +1,90 @@
 # ISDM Companion
 
-A small local dashboard over [lms.isdm.org.in](https://lms.isdm.org.in) that does the three
-things you actually need every day:
+ISDM Companion is a native Android app for a learner's ISDM schedule, readings, attendance,
+and profile. The production product has one interface with three destinations:
 
-- **One-tap attendance.** The big button appears the moment the LMS will accept a mark, with a
-  live countdown of how long you have left to be counted on time.
-- **A desktop alert** when a class opens for marking, so you don't have to keep the page open.
-- **Your schedule, already filtered** to your own section and group — with the room for every
-  session, which normally takes a click into each session page to find.
+- **Schedule** for personal sessions, rooms, trainers, assessments, and attendance actions.
+- **Readings** for course material, assessment resources, and local Done/Undo state.
+- **Profile** for confirmed Section/PLC details, LMS attendance progress, and automatic-attendance
+  setup.
 
-It runs entirely on your own machine. Your login lives in a local file, and the app talks to
-nothing except the LMS itself.
+The Android app is the product direction and UI source of truth. Historical design prototypes and
+feature-option documents are intentionally not kept beside production code; release history belongs
+in [`CHANGELOG.md`](CHANGELOG.md).
 
-<sub>Not affiliated with or endorsed by ISDM. It drives the same endpoints the LMS's own web
-pages use, as you, with your own login.</sub>
+## Repository map
 
-## Setup
+| Path | Purpose |
+| --- | --- |
+| `android/` | Production Kotlin/Jetpack Compose Android app and tests |
+| `supabase/` | Beta enrollment, profile, telemetry, and owner API functions |
+| `beta-dashboard/` | Owner-facing beta health dashboard; not an alternate learner UI |
+| `scripts/` | Guarded beta release preparation and verification |
+| `.agents/skills/` | Project safety workflows for incidents, releases, cleanup, and LMS explanation |
+| `src/`, `public/`, `tools/` | Legacy local desktop companion retained for existing users |
+| `tests/` | Desktop and beta-platform tests |
+| `docs/` | Current operational documentation only |
 
-You need [Node.js](https://nodejs.org) 20 or newer (pick the LTS installer). There are no npm
-packages to install — the app has zero dependencies.
+The legacy desktop client and beta dashboard remain functional, but they do not define new Android
+product or visual direction.
 
-1. Download this project and unzip it somewhere sensible.
-2. Double-click **`setup.cmd`** (or run `npm run setup`).
-3. Enter your LMS email and password. Setup checks them against the LMS straight away, and
-   offers to put a launcher on your Desktop.
+## Android development
 
-Then start it any time from the Desktop launcher, or:
+Requirements:
+
+- JDK 17
+- Android SDK with API 36 build tools
+- An Android 8.0/API 26 or newer device or emulator
+
+From `android/`, run:
 
 ```bash
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+ANDROID_HOME=/usr/lib/android-sdk \
+bash gradlew testDebugUnitTest lintDebug assembleDebug
+```
+
+The debug APK is written to `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+See [`android/README.md`](android/README.md) for runtime behavior, diagnostic logs, background
+limits, and update requirements.
+
+## Beta releases
+
+A beta requires a higher Android `versionCode`, updated in-app release notes, a changelog entry,
+the permanent beta signing identity, APK identity/signature verification, and an in-place update
+test that retains app data.
+
+Release preparation and tester distribution are separate actions. Distribution requires an exact
+recipient/artifact preview and explicit approval; see
+[`docs/beta-release-script.md`](docs/beta-release-script.md).
+
+## Legacy desktop client
+
+The dependency-free Node.js desktop client remains available for existing users:
+
+```bash
+npm run setup
 npm start
 ```
 
-and open **http://localhost:4321**.
+It reads local `.env` configuration and serves `http://localhost:4321`. New learner-facing work
+belongs in the Android app unless the desktop client is explicitly placed back in scope.
 
-## Android app
-
-The native Android client lives in [`android/`](android/README.md). It keeps the Windows app
-unchanged and talks directly to the same LMS endpoints from the phone. The current build has
-secure on-device login, today's schedule and rooms, one-tap marking, notify-only class-day
-monitoring, separately armed daily auto-marking, and LMS assessments with their due dates,
-resources, and submission links.
-
-Auto-marking follows the same rule as the desktop app: arm it only while you are physically
-attending that day's classes. Monitoring is visible through a persistent Android notification,
-stops at 18:00 or day rollover, and is never restored automatically after a reboot or process
-restart.
-
-Your details go into a `.env` file next to the app. It is gitignored, never uploaded, and you
-can delete it at any time to wipe your credentials.
-
-> **Google sign-in.** The app logs in with the email/password form. If you only ever use
-> *Sign in with Google*, set a password on your LMS account first (Profile → Change Password).
-
-### Settings
-
-Edit `.env` to change any of these.
-
-| Variable | Default | What it does |
-| --- | --- | --- |
-| `PORT` | `4321` | Local port for the dashboard |
-| `NOTIFY` | `1` | Windows toast when a class opens for marking; `0` turns it off |
-| `LATE_AFTER_MINUTES` | `10` | How long you have to mark before being counted late — drives the countdown |
-| `AUTO_MARK` | `0` | Mark classes automatically — see below |
-| `AUTO_MARK_HOURS` | `0` | Extra expiry on an arming; `0` = while the app is open |
-| `SHUTDOWN_AT` | `18:00` | Stop the server at this time daily; blank = never |
-| `ROOM_FLOORS` | `Sahyog:3,Majlis:6` | Which floor each room is on |
-| `LOG_LEVEL` | `info` | `debug` for much more detail |
-| `COHORTS` | auto | Override cohort detection, e.g. `Section A,Group 1` |
-
-## Auto-marking, and the guards on it
-
-With `AUTO_MARK=1`, the app marks you present the moment the LMS opens a class — no tap.
-
-This is only honest if the app is running **because you are sitting in the class**. Left
-running unattended, it records you present for sessions you never attended, which is a
-misrepresentation your institution acts on.
-
-The intended shape is: you start the app when you get in, it covers the teaching day, and it
-stops itself in the evening. Two guards keep that from drifting:
-
-- **`SHUTDOWN_AT`** stops the server at the end of the day (default 18:00), so it cannot sit
-  running for days on end.
-- **Auto-marking never carries into a new calendar day.** Even if the server somehow survives
-  midnight, it will not mark you into tomorrow's 9:30 class without you arming it again.
-
-`AUTO_MARK_HOURS` adds a shorter expiry on top if you want one — set it to `3` and an arming
-lasts three hours. `0` means "for as long as the app is open".
-
-The dashboard always shows whether auto-marking is on and what will stop it, and there's a
-switch to turn it off the moment you need to step out.
-
-**Do not combine `AUTO_MARK=1` with launching the app at Windows startup.** That removes the
-"I opened it because I'm here" signal entirely, and the app will quietly mark you present
-every class day whether you turn up or not.
-
-If you'd rather stay in control, leave `AUTO_MARK=0`: you still get the alert and the one-tap
-button, which is most of the convenience with none of the problem.
-
-## Waking from standby
-
-Windows 11 uses Modern Standby, and it cuts networking when the machine suspends:
-
-```
-10:52:53  The system is entering Modern Standby
-10:53:07  Connectivity state in standby: Disconnected, Reason: Policy Setting
-11:36:33  The system is exiting Modern Standby
-```
-
-While that is happening the app is frozen and offline. When it comes back, the session cookie
-may have lapsed and every kept-alive socket is dead, which shows up as a bare `fetch failed`.
-
-Rather than work out what survived, the app starts the LMS side over. On spotting a gap much
-longer than its 30-second check, it logs the wake, throws away the session and every cached
-read, logs back in, and re-checks the day from scratch — retrying while the network comes back
-up. Anything open for marking right then is picked up immediately:
-
-```
-11:36:33  WARN  [watch]  resumed after 44 min asleep - restarting the LMS session
-11:36:41  INFO  [watch]  back online - 3 unmarked, 1 open right now
-11:36:41  INFO  [auto]   Excel is open - marking (attempt 1)
-11:36:42  INFO  [auto]   marked Excel (1285329) - status Present
-```
-
-**The limit is unavoidable:** if the laptop stays asleep through the whole marking window,
-waking afterwards is too late. Recovery only helps if you open the lid while the window is
-still open. If you routinely shut the lid between classes, leave `AUTO_MARK=0` and use the
-one-tap button instead.
-
-## Rooms and floors
-
-The LMS only tells you a room name. `ROOM_FLOORS` maps names to floors so the dashboard can
-show *Sahyog · Floor 3* instead of leaving you guessing in a stairwell. Add rooms as you meet
-them:
-
-```
-ROOM_FLOORS=Sahyog:3,Majlis:6,Aangan:1
-```
-
-Unknown rooms simply show without a floor. Use `:0` for the ground floor.
-
-## The activity log
-
-Everything the app does is written to `logs/YYYY-MM-DD.log` and shown in the dashboard's
-**Log** tab, so at the end of the day you can see exactly what happened:
-
-```
-09:41:09  INFO  [boot]     signed in as uid 1042 (Section B, Group 3)
-09:41:09  INFO  [boot]     auto-mark ARMED for as long as the app is open
-09:41:09  INFO  [boot]     will shut down at 18:00 (in 499 min)
-11:30:12  INFO  [auto]     Excel is open - marking (attempt 1)
-11:30:13  INFO  [auto]     marked Excel (1285329) - status Present
-```
-
-The Log tab filters to **Problems only** (warnings and errors), **Auto-mark**, or **Marks**,
-which is usually the fastest way to answer "did it actually mark everything today?". Logs are
-kept for 30 days and are gitignored.
-
-## How it works
-
-Everything comes from endpoints the LMS's own front-end uses. There is no scraping of rendered
-pages beyond two small, very regular tables.
-
-| Endpoint | Used for |
-| --- | --- |
-| `GET /user/login` + `POST` | Drupal form login; fields are read off the form rather than hard-coded |
-| `GET /calendar/json?start=&end=` | All events in a range. Entries whose `url` is `/classroom/{nid}/view` are attendance sessions and are already personalised to you |
-| `GET /classroom/{nid}/view` | Room (`Location`), trainer, course, and whether you're marked |
-| `GET /manage/classroom/attendance` | Whether marking is open right now |
-| `POST /api/mark/classroomsession/attendance` | `{nid, uid, status:"present"}` — the actual mark |
-
-Two details worth knowing:
-
-**The marking window is the LMS's call, not ours.** On `/manage/classroom/attendance` each row
-carries a `mark-attend` class when the server will accept a mark and `mark-attend-disabled`
-when it won't. The app reads that flag instead of guessing from the clock, so the button
-enables exactly when the real one does.
-
-**Every class appears in the calendar twice** — once as a batch-wide session event and once as
-your personalised attendance event. The app merges the pair into a single row. Leftover
-batch-wide events (like group-split field visits, which have no attendance record) are filtered
-to your section and group, learned from the attendance sessions the LMS shows only to you.
-
-## Testing
+Run its tests with:
 
 ```bash
 npm test
 ```
 
-Thirty-five checks over real captured LMS responses and a local stub — title parsing, cohort
-filtering, event merging, the detail and attendance-list HTML, the login form, room floors,
-the auto-mark guards, the daily shutdown time, the log, the post-wake retry, recovery from
-standby, and the exact shape of the mark request. No credentials, no calls to the real LMS.
+## Safety boundaries
 
-## Troubleshooting
-
-**"LMS rejected the login"** — check `.env`. If you only ever use Google sign-in, set an LMS
-password first.
-
-**The Mark button never turns on** — the LMS opens the window itself, usually a few minutes
-before the start. Cross-check the row on `/manage/classroom/attendance`; if its button is grey
-there too, the LMS hasn't opened it yet.
-
-**A class is missing, or one you don't attend shows up** — cohort auto-detection went wrong.
-Set `COHORTS` explicitly in `.env`, e.g. `COHORTS=Section A,Group 1`.
-
-**No desktop toasts** — check Windows notification settings, or set `NOTIFY=0` and rely on the
-browser alerts instead.
-
-**Port already in use** — if it's another copy of this app, the launcher notices and just opens
-the dashboard that's already running. If it's something else, change `PORT` in `.env`.
-
-**The launcher flashes and closes, or says a `.cmd` file "is not recognized"** — the batch
-files need Windows CRLF line endings, and some machines set
-`NoDefaultCurrentDirectoryInExePath`, which stops `cmd` finding a script by bare name. Both are
-handled here (see `.gitattributes` and the full paths in `start.cmd`), but if you edit the
-launchers in an editor that saves Unix line endings you will reintroduce it.
-
-## Layout
-
-```
-src/lms.js        LMS client: login, session handling, the five endpoints
-src/schedule.js   merging events, cohort filtering, session state
-src/service.js    caching layer
-src/automark.js   auto-mark guards and the daily shutdown time
-src/rooms.js      room -> floor lookup
-src/log.js        daily activity log
-src/retry.js      retry while the network comes back after a wake
-src/server.js     local HTTP server + background watcher
-public/           the dashboard (no build step, no framework)
-tools/setup.js    first-run setup
-tests/            self-tests, no credentials needed
-logs/             daily activity logs (gitignored)
-```
+- Never commit LMS credentials, cookies, signing material, invite plaintext, or `.release-private/`.
+- Treat LMS cohort detection and confirmed profile details as account-scoped data.
+- Do not claim a release, deployment, tester installation, or message delivery without direct
+  evidence for that exact action.
+- Keep screenshots, rendered prototypes, and other temporary design evidence outside the repository.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [`LICENSE`](LICENSE).

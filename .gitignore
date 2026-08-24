@@ -7,5 +7,6 @@ android/.gradle/
 android/.kotlin/
 android/local.properties
 android/**/build/
+android/screenshots/
 .release-private/
 .release-batches/
