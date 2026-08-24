@@ -4,6 +4,7 @@ import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
+import java.util.Locale
 import java.time.LocalTime
 
 import org.isdm.companion.domain.AttendanceLocationGateDecision
@@ -115,6 +116,16 @@ object NoopReadingDoneStore : ReadingDoneStore {
     override fun setDone(readingId: String, done: Boolean) = Unit
 }
 
+interface AssessmentDoneStore {
+    fun loadAssessmentDone(): Set<String>
+    fun setAssessmentDone(assessmentId: String, done: Boolean)
+}
+
+object NoopAssessmentDoneStore : AssessmentDoneStore {
+    override fun loadAssessmentDone(): Set<String> = emptySet()
+    override fun setAssessmentDone(assessmentId: String, done: Boolean) = Unit
+}
+
 data class CachedSchedule(
     val start: LocalDate,
     val endExclusive: LocalDate,
@@ -194,7 +205,13 @@ data class AssessmentItem(
     val submissionUrl: String,
     val resourceTitle: String? = null,
     val resourceUrl: String? = null,
+    val done: Boolean = false,
 )
+
+internal fun AssessmentItem.isLmsSubmitted(): Boolean {
+    val normalized = status.lowercase(Locale.ENGLISH)
+    return "submitted" in normalized && "not submitted" !in normalized
+}
 
 data class ClassroomDetail(
     val nid: String,
@@ -340,6 +357,7 @@ sealed interface Command {
     data object RefreshAttendance : Command
     data object RefreshAll : Command
     data class ToggleReadingDone(val readingId: String) : Command
+    data class SetAssessmentDone(val assessmentId: String, val done: Boolean) : Command
     data class Mark(val sessionId: String) : Command
     data class ArmMonitoring(
         val mode: MonitoringMode = MonitoringMode.NOTIFY_ONLY,

@@ -35,6 +35,7 @@ class CompanionEngine(
     private val clock: Clock = SystemClock,
     private val notifier: Notifier = NoopNotifier,
     private val readingDoneStore: ReadingDoneStore = NoopReadingDoneStore,
+    private val assessmentDoneStore: AssessmentDoneStore = NoopAssessmentDoneStore,
     private val cacheStore: CompanionCacheStore = NoopCompanionCacheStore,
     private val diagnostics: DiagnosticsLogger = NoopDiagnosticsLogger,
     private val attendanceTelemetry: AttendanceTelemetryPort = NoopAttendanceTelemetry,
@@ -76,6 +77,7 @@ class CompanionEngine(
                 Command.RefreshAttendance -> refreshAttendance()
                 Command.RefreshAll -> refreshAll()
                 is Command.ToggleReadingDone -> toggleReadingDone(command.readingId)
+                is Command.SetAssessmentDone -> setAssessmentDone(command.assessmentId, command.done)
                 is Command.Mark -> mark(command.sessionId, automatic = false)
                 is Command.ArmMonitoring -> armMonitoring(command)
                 Command.DisarmMonitoring -> disarmMonitoring()
@@ -134,7 +136,7 @@ class CompanionEngine(
             scheduleEndExclusive = cachedSchedule?.endExclusive ?: today.plusDays(DEFAULT_SCHEDULE_DAYS.toLong()),
             scheduleSessions = cachedSchedule?.sessions.orEmpty(),
             readings = loadCachedReadings(),
-            assessments = cacheStore.loadAssessments(),
+            assessments = loadCachedAssessments(),
             facultyProfiles = cacheStore.loadFacultyProfiles(),
             scheduleSync = SyncStatus(lastSuccess = cachedSchedule?.syncedAt),
         )
@@ -174,7 +176,7 @@ class CompanionEngine(
                 ?: today.plusDays(DEFAULT_SCHEDULE_DAYS.toLong()),
             scheduleSessions = cachedSchedule?.sessions.orEmpty(),
             readings = loadCachedReadings(),
-            assessments = cacheStore.loadAssessments(),
+            assessments = loadCachedAssessments(),
             facultyProfiles = cacheStore.loadFacultyProfiles(),
             monitor = MonitoringStatus(reason = if (wasMonitoring) MonitoringStopReason.DISARMED else null),
             error = null,
@@ -378,14 +380,14 @@ class CompanionEngine(
             authenticateIfNeeded(saved)
             val assessmentFetch = captureFetchWithRetry { gateway.assessments() }
             if (assessmentFetch.error == null) {
-                val assessments = assessmentFetch.value.orEmpty()
+                val freshAssessments = assessmentFetch.value.orEmpty()
                     .distinctBy { it.id }
-                    .sortedWith(compareBy<AssessmentItem> { it.dueDate ?: LocalDate.MAX }.thenBy { it.title })
+                val assessments = applyLocalAssessmentDone(freshAssessments)
                 _state.value = stateNow().copy(
                     assessments = assessments,
                     assessmentSync = SyncStatus(lastSuccess = now),
                 )
-                cacheStore.saveAssessments(assessments)
+                cacheStore.saveAssessments(freshAssessments)
                 diagnostics.log("assessments_refreshed", mapOf("assessments" to assessments.size.toString()))
             } else {
                 val mapped = mapError(assessmentFetch.error)
@@ -478,6 +480,20 @@ class CompanionEngine(
             readings = _state.value.readings
                 .map { if (it.vid == readingId) it.copy(done = done) else it }
                 .sortedBy { it.done },
+            error = null,
+        )
+        return CommandResult.Completed(_state.value)
+    }
+
+    private fun setAssessmentDone(assessmentId: String, done: Boolean): CommandResult {
+        val assessment = _state.value.assessments.firstOrNull { it.id == assessmentId }
+            ?: return reject(EngineError.InvalidCommand("Unknown assessment id: $assessmentId"))
+        if (assessment.done == done) return CommandResult.Completed(_state.value)
+        assessmentDoneStore.setAssessmentDone(assessmentId, done)
+        _state.value = stateNow().copy(
+            assessments = _state.value.assessments
+                .map { if (it.id == assessmentId) it.copy(done = done) else it }
+                .sortedWith(ASSESSMENT_ORDER),
             error = null,
         )
         return CommandResult.Completed(_state.value)
@@ -965,6 +981,21 @@ class CompanionEngine(
             .sortedBy { it.done }
     }
 
+    private fun loadCachedAssessments(): List<AssessmentItem> {
+        return applyLocalAssessmentDone(cacheStore.loadAssessments())
+    }
+
+    private fun applyLocalAssessmentDone(assessments: List<AssessmentItem>): List<AssessmentItem> {
+        val done = assessmentDoneStore.loadAssessmentDone().toMutableSet()
+        assessments.filter { it.id in done && it.isLmsSubmitted() }.forEach { assessment ->
+            assessmentDoneStore.setAssessmentDone(assessment.id, done = false)
+            done -= assessment.id
+        }
+        return assessments
+            .map { it.copy(done = it.id in done) }
+            .sortedWith(ASSESSMENT_ORDER)
+    }
+
     private suspend fun <T> captureFetchWithRetry(block: suspend () -> T): Fetch<T> {
         for (attempt in 1..MAX_COURSE_FETCH_ATTEMPTS) {
             try {
@@ -1027,12 +1058,16 @@ private fun commandName(command: Command): String = when (command) {
     Command.RefreshAttendance -> "refresh_attendance"
     Command.RefreshAll -> "refresh_all"
     is Command.ToggleReadingDone -> "toggle_reading_done"
+    is Command.SetAssessmentDone -> "set_assessment_done"
     is Command.Mark -> "mark"
     is Command.ArmMonitoring -> "arm_monitoring"
     Command.DisarmMonitoring -> "disarm_monitoring"
     Command.SystemLimitReached -> "system_limit_reached"
     Command.MonitorTick -> "monitor_tick"
 }
+
+private val ASSESSMENT_ORDER = compareBy<AssessmentItem> { it.dueDate ?: LocalDate.MAX }
+    .thenBy { it.title }
 
 private fun resultName(result: CommandResult): String = when (result) {
     is CommandResult.Completed -> "completed"

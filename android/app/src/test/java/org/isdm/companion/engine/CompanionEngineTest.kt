@@ -18,6 +18,7 @@ class CompanionEngineTest {
     private val gateway = FakeGateway()
     private val notifier = RecordingNotifier()
     private val doneStore = MemoryReadingDoneStore()
+    private val assessmentDoneStore = MemoryAssessmentDoneStore()
 
     init {
         gateway.events += CalendarEvent(
@@ -211,6 +212,103 @@ class CompanionEngineTest {
         assertTrue(result is CommandResult.Completed)
         assertEquals(listOf("1305879"), engine.state.value.assessments.map { it.id })
         assertEquals(start, engine.state.value.assessmentSync.lastSuccess)
+    }
+
+    @Test
+    fun `local assessment completion survives LMS refresh and can be undone`() = runBlocking {
+        gateway.assessmentRows += AssessmentItem(
+            id = "1305879",
+            title = "B10 - T1 - PMDL - Reflection 2",
+            status = "Not Submitted",
+            dueDate = LocalDate.of(2026, 8, 20),
+            endDate = LocalDate.of(2026, 9, 20),
+            submissionUrl = "https://lms.isdm.org.in/subtopic/view?vid=1305879",
+        )
+        val engine = engine()
+        engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
+        engine.dispatch(Command.RefreshReadings)
+
+        engine.dispatch(Command.SetAssessmentDone("1305879", done = true))
+        engine.dispatch(Command.RefreshReadings)
+
+        assertTrue(engine.state.value.assessments.single().done)
+        assertEquals(setOf("1305879"), assessmentDoneStore.loadAssessmentDone())
+
+        engine.dispatch(Command.SetAssessmentDone("1305879", done = false))
+        engine.dispatch(Command.SetAssessmentDone("1305879", done = false))
+
+        assertFalse(engine.state.value.assessments.single().done)
+        assertEquals(emptySet<String>(), assessmentDoneStore.loadAssessmentDone())
+    }
+
+    @Test
+    fun `assessment completion does not override due date ordering or LMS fields`() = runBlocking {
+        gateway.assessmentRows += listOf(
+            AssessmentItem(
+                id = "local",
+                title = "Local acknowledgement",
+                status = "Not Submitted",
+                dueDate = LocalDate.of(2026, 8, 20),
+                endDate = LocalDate.of(2026, 9, 20),
+                submissionUrl = "https://lms/local",
+                resourceTitle = "Local PDF",
+                resourceUrl = "https://lms/local.pdf",
+            ),
+            AssessmentItem(
+                id = "submitted",
+                title = "Submitted truth",
+                status = "Submitted",
+                dueDate = LocalDate.of(2026, 8, 21),
+                endDate = null,
+                submissionUrl = "https://lms/submitted",
+            ),
+            AssessmentItem(
+                id = "open",
+                title = "Open truth",
+                status = "Not Submitted",
+                dueDate = LocalDate.of(2026, 8, 22),
+                endDate = null,
+                submissionUrl = "https://lms/open",
+            ),
+        )
+        val engine = engine()
+        engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
+        engine.dispatch(Command.RefreshReadings)
+
+        engine.dispatch(Command.SetAssessmentDone("local", done = true))
+        engine.dispatch(Command.RefreshReadings)
+
+        assertEquals(listOf("local", "submitted", "open"), engine.state.value.assessments.map { it.id })
+        assertEquals("Submitted", engine.state.value.assessments[1].status)
+        assertEquals("https://lms/local", engine.state.value.assessments[0].submissionUrl)
+        assertEquals("https://lms/local.pdf", engine.state.value.assessments[0].resourceUrl)
+    }
+
+    @Test
+    fun `LMS submission clears local completion before an assessment is reopened`() = runBlocking {
+        val assessment = AssessmentItem(
+            id = "reopened",
+            title = "Reflection",
+            status = "Not Submitted",
+            dueDate = LocalDate.of(2026, 8, 20),
+            endDate = LocalDate.of(2026, 9, 20),
+            submissionUrl = "https://lms/reopened",
+        )
+        gateway.assessmentRows += assessment
+        val engine = engine()
+        engine.dispatch(Command.ConfigureCredentials("student@example.com", "secret"))
+        engine.dispatch(Command.RefreshReadings)
+        engine.dispatch(Command.SetAssessmentDone("reopened", done = true))
+
+        gateway.assessmentRows[0] = assessment.copy(status = "Submitted")
+        engine.dispatch(Command.RefreshReadings)
+
+        assertEquals(emptySet<String>(), assessmentDoneStore.loadAssessmentDone())
+
+        gateway.assessmentRows[0] = assessment
+        engine.dispatch(Command.RefreshReadings)
+
+        assertFalse(engine.state.value.assessments.single().done)
     }
 
     @Test
@@ -507,6 +605,7 @@ class CompanionEngineTest {
         clock,
         notifier,
         readingDoneStore = doneStore,
+        assessmentDoneStore = assessmentDoneStore,
         attendanceLocationGate = locationGate,
         diagnostics = diagnostics,
         attendanceTelemetry = attendanceTelemetry,
@@ -631,5 +730,13 @@ private class MemoryReadingDoneStore : ReadingDoneStore {
     override fun load(): Set<String> = values.toSet()
     override fun setDone(readingId: String, done: Boolean) {
         if (done) values += readingId else values -= readingId
+    }
+}
+
+private class MemoryAssessmentDoneStore : AssessmentDoneStore {
+    private val values = mutableSetOf<String>()
+    override fun loadAssessmentDone(): Set<String> = values.toSet()
+    override fun setAssessmentDone(assessmentId: String, done: Boolean) {
+        if (done) values += assessmentId else values -= assessmentId
     }
 }

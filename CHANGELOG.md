@@ -1,5 +1,14 @@
 # ISDM Companion changelog
 
+## 0.5.2 beta
+
+- Schedule assessment actions now open the matching item in Readings. Students can mark work
+  done, undo it, and keep completed work off the Schedule while preserving the LMS status.
+- The full two-week date range stays spatially stable and schedule content moves in the direction
+  of the selected date.
+- Material 3 colors, clearer outlined controls, larger touch targets, and real attendance progress
+  replace ambiguous or premature confirmation states.
+
 ## 0.5.1 beta
 
 - Schedule, Readings, and Profile now use the Signature Moments visual language, including the

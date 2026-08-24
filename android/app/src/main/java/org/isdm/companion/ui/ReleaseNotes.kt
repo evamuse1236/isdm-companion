@@ -15,9 +15,9 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
-        "Schedule, Readings, and Profile now use the Signature Moments design.",
-        "Assessment cards keep due-work details and matching PDFs while submission actions are temporarily hidden.",
-        "Attendance marking has a clearer Material-style action and compact confirmation state.",
+        "Open an assessment from Schedule, then mark it done or undo it in Readings.",
+        "Move through the full two-week schedule with a stable date strip and directional motion.",
+        "Clearer Material 3 controls and real attendance progress make every action easier to trust.",
     ),
 )
 

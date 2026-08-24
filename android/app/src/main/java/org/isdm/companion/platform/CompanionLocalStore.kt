@@ -3,6 +3,7 @@ package org.isdm.companion.platform
 import android.content.Context
 import org.isdm.companion.engine.CachedSchedule
 import org.isdm.companion.engine.AssessmentItem
+import org.isdm.companion.engine.AssessmentDoneStore
 import org.isdm.companion.engine.CompanionCacheStore
 import org.isdm.companion.engine.CompanionSession
 import org.isdm.companion.engine.FacultyProfile
@@ -16,7 +17,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.security.MessageDigest
 
-class CompanionLocalStore(context: Context) : ReadingDoneStore, CompanionCacheStore {
+class CompanionLocalStore(context: Context) : ReadingDoneStore, AssessmentDoneStore, CompanionCacheStore {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
     private val lock = Any()
     private var accountPrefix: String? = null
@@ -37,6 +38,18 @@ class CompanionLocalStore(context: Context) : ReadingDoneStore, CompanionCacheSt
         val key = accountKey(KEY_DONE) ?: return@synchronized
         val values = preferences.getStringSet(key, emptySet()).orEmpty().toMutableSet()
         if (done) values += readingId else values -= readingId
+        preferences.edit().putStringSet(key, values).apply()
+    }
+
+    override fun loadAssessmentDone(): Set<String> = synchronized(lock) {
+        val key = accountKey(KEY_ASSESSMENT_DONE) ?: return@synchronized emptySet()
+        preferences.getStringSet(key, emptySet()).orEmpty().toSet()
+    }
+
+    override fun setAssessmentDone(assessmentId: String, done: Boolean) = synchronized(lock) {
+        val key = accountKey(KEY_ASSESSMENT_DONE) ?: return@synchronized
+        val values = preferences.getStringSet(key, emptySet()).orEmpty().toMutableSet()
+        if (done) values += assessmentId else values -= assessmentId
         preferences.edit().putStringSet(key, values).apply()
     }
 
@@ -219,6 +232,7 @@ class CompanionLocalStore(context: Context) : ReadingDoneStore, CompanionCacheSt
     private companion object {
         const val FILE_NAME = "companion_local_data"
         const val KEY_DONE = "reading_done_ids"
+        const val KEY_ASSESSMENT_DONE = "assessment_done_ids"
         const val KEY_SCHEDULE = "schedule_cache"
         const val KEY_READINGS = "readings_cache"
         const val KEY_ASSESSMENTS = "assessments_cache"

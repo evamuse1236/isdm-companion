@@ -54,6 +54,9 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     private val _attendanceFeedback = MutableStateFlow<AttendanceFeedback?>(null)
     val attendanceFeedback = _attendanceFeedback.asStateFlow()
 
+    private val _markingSessionIds = MutableStateFlow<Set<String>>(emptySet())
+    val markingSessionIds = _markingSessionIds.asStateFlow()
+
     private val _autoAttendanceEnabled = MutableStateFlow(app.autoAttendanceStore.isEnabled())
     val autoAttendanceEnabled = _autoAttendanceEnabled.asStateFlow()
 
@@ -312,6 +315,10 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch { app.engine.dispatch(Command.ToggleReadingDone(readingId)) }
     }
 
+    fun setAssessmentDone(assessmentId: String, done: Boolean) {
+        viewModelScope.launch { app.engine.dispatch(Command.SetAssessmentDone(assessmentId, done)) }
+    }
+
     fun downloadReading(reading: ReadingItem) {
         downloadLmsPdf(
             title = reading.title,
@@ -378,22 +385,34 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun mark(sessionId: String) {
+        if (sessionId in _markingSessionIds.value) return
+        _markingSessionIds.value = _markingSessionIds.value + sessionId
         viewModelScope.launch {
-            val result = app.engine.dispatch(Command.Mark(sessionId))
-            showMarkError(result)
-            _attendanceFeedback.value = AttendanceFeedback(result is CommandResult.Completed, System.nanoTime())
+            try {
+                val result = app.engine.dispatch(Command.Mark(sessionId))
+                showMarkError(result)
+                _attendanceFeedback.value = AttendanceFeedback(result is CommandResult.Completed, System.nanoTime())
+            } finally {
+                _markingSessionIds.value = _markingSessionIds.value - sessionId
+            }
         }
     }
 
     fun handleMarkIntent(sessionId: String) {
+        if (sessionId in _markingSessionIds.value) return
+        _markingSessionIds.value = _markingSessionIds.value + sessionId
         viewModelScope.launch {
-            initializing.filter { !it }.first()
-            if (state.value.sessions.none { it.nid == sessionId }) {
-                app.engine.dispatch(Command.RefreshToday)
+            try {
+                initializing.filter { !it }.first()
+                if (state.value.sessions.none { it.nid == sessionId }) {
+                    app.engine.dispatch(Command.RefreshToday)
+                }
+                val result = app.engine.dispatch(Command.Mark(sessionId))
+                showMarkError(result)
+                _attendanceFeedback.value = AttendanceFeedback(result is CommandResult.Completed, System.nanoTime())
+            } finally {
+                _markingSessionIds.value = _markingSessionIds.value - sessionId
             }
-            val result = app.engine.dispatch(Command.Mark(sessionId))
-            showMarkError(result)
-            _attendanceFeedback.value = AttendanceFeedback(result is CommandResult.Completed, System.nanoTime())
         }
     }
 

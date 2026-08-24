@@ -17,13 +17,9 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
@@ -31,14 +27,21 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -47,20 +50,28 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -70,16 +81,21 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -93,11 +109,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -115,12 +131,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.util.lerp
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -139,6 +157,7 @@ import org.isdm.companion.engine.LmsReadingProgress
 import org.isdm.companion.engine.ReadingItem
 import org.isdm.companion.engine.Session
 import org.isdm.companion.engine.SessionState
+import org.isdm.companion.engine.isLmsSubmitted
 import org.isdm.companion.engine.planCourseReadings
 import org.isdm.companion.engine.defaultReadingCourseId
 import org.isdm.companion.engine.orderedReadingCourseIds
@@ -503,11 +522,14 @@ private fun CompanionScreen(
     val setupPermissions by viewModel.setupPermissions.collectAsStateWithLifecycle()
     val reportSending by viewModel.reportSending.collectAsStateWithLifecycle()
     val attendanceFeedback by viewModel.attendanceFeedback.collectAsStateWithLifecycle()
+    val markingSessionIds by viewModel.markingSessionIds.collectAsStateWithLifecycle()
     val releaseNotes by viewModel.releaseNotes.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
     val rootView = LocalView.current
     var destination by rememberSaveable { mutableStateOf(Destination.SCHEDULE) }
     var selectedDate by rememberSaveable { mutableStateOf(state.today) }
+    var focusedAssessmentId by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedSession by remember { mutableStateOf<Session?>(null) }
     var selectedReading by remember { mutableStateOf<ReadingItem?>(null) }
     var issueReportOpen by rememberSaveable { mutableStateOf(false) }
@@ -526,9 +548,13 @@ private fun CompanionScreen(
         permissions = setupPermissions,
     )
 
-    LaunchedEffect(state.today) {
+    LaunchedEffect(state.today, state.scheduleStart, state.scheduleEndExclusive) {
         if (selectedDate < state.scheduleStart || selectedDate >= state.scheduleEndExclusive) {
-            selectedDate = state.today
+            selectedDate = when {
+                state.today >= state.scheduleStart && state.today < state.scheduleEndExclusive -> state.today
+                state.scheduleStart < state.scheduleEndExclusive -> state.scheduleStart
+                else -> state.today
+            }
         }
     }
     LaunchedEffect(message) {
@@ -541,6 +567,14 @@ private fun CompanionScreen(
         attendanceFeedback?.let {
             performAttendanceHaptic(rootView, it.success)
             viewModel.consumeAttendanceFeedback(it.token)
+        }
+    }
+    LaunchedEffect(focusedAssessmentId, destination) {
+        if (destination != Destination.READINGS) {
+            focusedAssessmentId = null
+        } else if (focusedAssessmentId != null) {
+            delay(2_800)
+            focusedAssessmentId = null
         }
     }
 
@@ -632,8 +666,16 @@ private fun CompanionScreen(
                 AnimatedContent(
                     targetState = destination,
                     transitionSpec = {
-                        (fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + slideInVertically { it / 18 })
-                            .togetherWith(fadeOut() + slideOutVertically { -it / 18 })
+                        val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
+                        (fadeIn(tween(180)) + slideInHorizontally(
+                            animationSpec = tween(240, easing = FastOutSlowInEasing),
+                            initialOffsetX = { width -> direction * width / 5 },
+                        )).togetherWith(
+                            fadeOut(tween(140)) + slideOutHorizontally(
+                                animationSpec = tween(200, easing = FastOutSlowInEasing),
+                                targetOffsetX = { width -> -direction * width / 5 },
+                            ),
+                        )
                     },
                     label = "destination",
                     modifier = Modifier.weight(1f),
@@ -661,6 +703,11 @@ private fun CompanionScreen(
                             setupStatus = setupStatus,
                             autoAttendanceEnabled = autoAttendanceEnabled,
                             onOpenProfile = { destination = Destination.PROFILE },
+                            onOpenAssessment = { assessmentId ->
+                                focusedAssessmentId = assessmentId
+                                destination = Destination.READINGS
+                            },
+                            markingSessionIds = markingSessionIds,
                         )
                     } else if (current == Destination.READINGS) {
                         ReadingsContent(
@@ -668,8 +715,24 @@ private fun CompanionScreen(
                             onReading = { selectedReading = it },
                             onFacultyProfile = { onOpenReading(it.sourceUrl) },
                             onToggleDone = viewModel::toggleReadingDone,
-                            onOpenAssessment = onOpenReading,
+                            onOpenCourseOutline = onOpenReading,
                             onDownloadAssessment = viewModel::downloadAssessmentResource,
+                            onSetAssessmentDone = { assessmentId, done ->
+                                viewModel.setAssessmentDone(assessmentId, done)
+                                if (done) {
+                                    coroutineScope.launch {
+                                        val result = snackbar.showSnackbar(
+                                            message = "Assessment marked done and removed from Schedule",
+                                            actionLabel = "Undo",
+                                            duration = SnackbarDuration.Short,
+                                        )
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            viewModel.setAssessmentDone(assessmentId, done = false)
+                                        }
+                                    }
+                                }
+                            },
+                            focusedAssessmentId = focusedAssessmentId,
                         )
                     } else {
                         ProfileContent(
@@ -700,7 +763,13 @@ private fun CompanionScreen(
     }
 
     selectedSession?.let { session ->
-        LectureSheet(session, state, onDismiss = { selectedSession = null }, onMark = onMarkAttendance)
+        LectureSheet(
+            session = session,
+            state = state,
+            marking = session.nid in markingSessionIds,
+            onDismiss = { selectedSession = null },
+            onMark = onMarkAttendance,
+        )
     }
     selectedReading?.let { reading ->
         ReadingSheet(
@@ -777,23 +846,32 @@ private fun CompanionHeader(
                 letterSpacing = 1.4.sp,
                 color = Muted,
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 val syncing = state.sync.inProgress || state.scheduleSync.inProgress ||
                     state.readingSync.inProgress || state.attendanceSync.inProgress
-                IconButton(onClick = onShowReleaseNotes, modifier = Modifier.size(34.dp)) {
+                IconButton(
+                    onClick = onShowReleaseNotes,
+                    modifier = Modifier.size(48.dp).clip(CircleShape).background(Color.White)
+                        .border(1.dp, OutlineStrong, CircleShape),
+                ) {
                     androidx.compose.material3.Icon(
                         Icons.Default.Notifications,
                         contentDescription = RELEASE_NOTES_HEADER_CONTENT_DESCRIPTION,
                         tint = Muted,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(20.dp),
                     )
                 }
-                IconButton(onClick = onRefresh, enabled = !syncing, modifier = Modifier.size(34.dp)) {
+                IconButton(
+                    onClick = onRefresh,
+                    enabled = !syncing,
+                    modifier = Modifier.size(48.dp).clip(CircleShape).background(Color.White)
+                        .border(1.dp, OutlineStrong, CircleShape),
+                ) {
                     androidx.compose.material3.Icon(
                         Icons.Default.Refresh,
                         contentDescription = if (syncing) "Updating from LMS" else "Refresh from LMS",
                         tint = if (syncing) SkyAccent else Teal,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
@@ -826,7 +904,19 @@ private fun CompanionHeader(
             )
             Spacer(Modifier.width(12.dp))
             Row(
-                Modifier.clip(RoundedCornerShape(50)).clickable { onAutoAttendance(!autoAttendanceEnabled) }.padding(start = 8.dp, top = 4.dp, bottom = 4.dp),
+                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(50))
+                    .background(Soft.copy(alpha = .72f))
+                    .border(1.dp, OutlineStrong, RoundedCornerShape(50))
+                    .toggleable(
+                        value = autoAttendanceEnabled,
+                        role = Role.Switch,
+                        onValueChange = onAutoAttendance,
+                    )
+                    .semantics {
+                        contentDescription = "Automatic attendance"
+                        stateDescription = if (autoAttendanceEnabled) "On" else "Off"
+                    }
+                    .padding(start = 12.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Auto", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
@@ -834,9 +924,7 @@ private fun CompanionHeader(
                 Switch(
                     checked = autoAttendanceEnabled,
                     onCheckedChange = null,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Automatic attendance ${if (autoAttendanceEnabled) "on" else "off"}"
-                    },
+                    modifier = Modifier.clearAndSetSemantics { },
                     colors = SwitchDefaults.colors(
                         checkedTrackColor = Color(0xFF006B5C),
                         checkedThumbColor = Color.White,
@@ -857,19 +945,27 @@ private fun DestinationTabs(destination: Destination, onChange: (Destination) ->
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .background(Soft.copy(alpha = .55f), RoundedCornerShape(14.dp))
+            .background(Soft, RoundedCornerShape(16.dp))
             .padding(3.dp),
     ) {
-        Row(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().selectableGroup()) {
             Destination.entries.forEach { item ->
                 val active = item == destination
                 Box(
                     Modifier
                         .weight(1f)
+                        .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(11.dp))
                         .background(if (active) Color.White else Color.Transparent)
-                        .clickable { onChange(item) }
-                        .padding(vertical = 10.dp),
+                        .then(
+                            if (active) Modifier.border(1.dp, OutlineStrong, RoundedCornerShape(11.dp))
+                            else Modifier,
+                        )
+                        .selectable(
+                            selected = active,
+                            role = Role.Tab,
+                            onClick = { onChange(item) },
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -901,9 +997,10 @@ private fun ScheduleContent(
     setupStatus: BetaSetupStatus,
     autoAttendanceEnabled: Boolean,
     onOpenProfile: () -> Unit,
+    onOpenAssessment: (String) -> Unit,
+    markingSessionIds: Set<String>,
 ) {
     val source = state.scheduleSessions.ifEmpty { state.sessions }
-    val sessions = source.filter { it.start.atZone(IST).toLocalDate() == selectedDate }
     var clockNow by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -911,11 +1008,6 @@ private fun ScheduleContent(
             delay(1_000)
         }
     }
-    val highlights = scheduleHighlights(source, selectedDate, state.today, clockNow)
-        .associate { it.session to it.kind }
-    var mismatchOpen by rememberSaveable(selectedDate) { mutableStateOf(false) }
-    var mismatchNote by rememberSaveable(selectedDate) { mutableStateOf("") }
-
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 0.dp, end = 0.dp, top = 2.dp, bottom = 28.dp),
@@ -927,15 +1019,17 @@ private fun ScheduleContent(
                 rangeStart = state.scheduleStart,
                 rangeEndExclusive = state.scheduleEndExclusive,
                 onSelect = { day ->
-                    if (day >= state.scheduleStart && day < state.scheduleEndExclusive) {
-                        val delta = (day.toEpochDay() - selectedDate.toEpochDay()).toInt()
-                        if (delta != 0) onStepDate(delta)
-                    }
+                    boundedScheduleDateDelta(
+                        selectedDate = selectedDate,
+                        targetDate = day,
+                        rangeStart = state.scheduleStart,
+                        rangeEndExclusive = state.scheduleEndExclusive,
+                    )?.let(onStepDate)
                 },
             )
         }
-        state.assessments.firstOrNull { !it.isSubmitted() }?.let { assessment ->
-            item { AssessmentDueBanner(assessment) }
+        nextScheduleAssessment(state.assessments)?.let { assessment ->
+            item { AssessmentDueBanner(assessment, onOpen = { onOpenAssessment(assessment.id) }) }
         }
         if (shouldShowScheduleSetupBanner(setupStatus.canEnableAutomaticAttendance, autoAttendanceEnabled)) {
             item {
@@ -949,77 +1043,44 @@ private fun ScheduleContent(
                     label,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)
                         .background(if (!needsAttention) Mint else Butter, RoundedCornerShape(12.dp))
-                        .clickable(enabled = needsAttention, onClick = onOpenProfile).padding(11.dp),
+                        .heightIn(min = 48.dp)
+                        .clickable(enabled = needsAttention, role = Role.Button, onClick = onOpenProfile)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
                     color = if (!needsAttention) Green else Ink,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.ExtraBold,
                 )
             }
         }
-        if (sessions.isNotEmpty() && !scheduleFeedbackRecorded) {
-            item {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)
-                        .clip(RoundedCornerShape(16.dp)).border(1.dp, Line, RoundedCornerShape(16.dp))
-                        .background(Color.White).padding(16.dp),
-                ) {
-                    Text("Is this your section and PLC day?", color = Ink, fontWeight = FontWeight.ExtraBold)
-                    Spacer(Modifier.height(5.dp))
-                    Text("Check the sessions below against your LMS schedule.", color = Muted, fontSize = 12.sp)
-                    if (mismatchOpen) {
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedTextField(
-                            value = mismatchNote,
-                            onValueChange = { mismatchNote = it },
-                            label = { Text("What's missing or incorrect?") },
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 2,
-                        )
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { mismatchOpen = false }) { Text("Cancel") }
-                            Button(
-                                onClick = { onScheduleFeedback(false, mismatchNote) },
-                                enabled = mismatchNote.isNotBlank(),
-                            ) { Text("Send") }
-                        }
-                    } else {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            TextButton(onClick = { mismatchOpen = true }) { Text("Wrong section or PLC") }
-                            Button(onClick = { onScheduleFeedback(true, null) }) { Text("Looks right") }
-                        }
-                    }
-                }
-            }
-        }
-        if (state.scheduleSync.inProgress && source.isEmpty()) {
-            item { Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Teal) } }
-        } else if (sessions.isEmpty()) {
-            item { EmptyState("Nothing scheduled", "This day is clear. Your readings remain available offline.") }
-        } else {
-            val heroEntry = highlights.entries.filter { it.value == ScheduleHighlightKind.HAPPENING_NOW || it.value == ScheduleHighlightKind.UP_NEXT }
-                .minByOrNull { it.key.start }
-            item {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    heroEntry?.let { hero ->
-                        CurrentSessionHero(
-                            session = hero.key,
-                            happeningNow = hero.value == ScheduleHighlightKind.HAPPENING_NOW,
-                            now = clockNow,
-                            onOpen = { onSession(hero.key) },
-                            onMark = onMark,
-                        )
-                    }
-                    sessions.forEach { session ->
-                        if (session == heroEntry?.key) return@forEach
-                        UpcomingSessionCard(
-                            session = session,
-                            highlight = highlights[session],
-                            now = clockNow,
-                            onOpen = { onSession(session) },
-                            onMark = onMark,
-                        )
-                    }
-                }
+        item(key = "selected-schedule-day") {
+            AnimatedContent(
+                targetState = selectedDate,
+                transitionSpec = {
+                    val direction = dateTransitionDirection(initialState, targetState)
+                    val enter = fadeIn(tween(180)) + slideInHorizontally(
+                        animationSpec = tween(280, easing = FastOutSlowInEasing),
+                        initialOffsetX = { width -> direction * width / 3 },
+                    )
+                    val exit = fadeOut(tween(140)) + slideOutHorizontally(
+                        animationSpec = tween(220, easing = FastOutSlowInEasing),
+                        targetOffsetX = { width -> -direction * width / 3 },
+                    )
+                    enter.togetherWith(exit)
+                },
+                label = "schedule date content",
+                modifier = Modifier.fillMaxWidth(),
+            ) { displayedDate ->
+                ScheduleDayContent(
+                    state = state,
+                    source = source,
+                    displayedDate = displayedDate,
+                    clockNow = clockNow,
+                    scheduleFeedbackRecorded = scheduleFeedbackRecorded,
+                    onScheduleFeedback = onScheduleFeedback,
+                    onSession = onSession,
+                    onMark = onMark,
+                    markingSessionIds = markingSessionIds,
+                )
             }
         }
         state.scheduleSync.error?.let { error ->
@@ -1035,7 +1096,105 @@ private fun ScheduleContent(
 }
 
 @Composable
-private fun AssessmentDueBanner(assessment: AssessmentItem) {
+private fun ScheduleDayContent(
+    state: CompanionState,
+    source: List<Session>,
+    displayedDate: LocalDate,
+    clockNow: Instant,
+    scheduleFeedbackRecorded: Boolean,
+    onScheduleFeedback: (Boolean, String?) -> Unit,
+    onSession: (Session) -> Unit,
+    onMark: (String) -> Unit,
+    markingSessionIds: Set<String>,
+) {
+    val sessions = source.filter { it.start.atZone(IST).toLocalDate() == displayedDate }
+    val highlights = scheduleHighlights(source, displayedDate, state.today, clockNow)
+        .associate { it.session to it.kind }
+    var mismatchOpen by rememberSaveable(displayedDate) { mutableStateOf(false) }
+    var mismatchNote by rememberSaveable(displayedDate) { mutableStateOf("") }
+
+    Column(Modifier.fillMaxWidth()) {
+        if (sessions.isNotEmpty() && !scheduleFeedbackRecorded) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)
+                    .clip(RoundedCornerShape(16.dp)).border(1.dp, Line, RoundedCornerShape(16.dp))
+                    .background(Color.White).padding(16.dp),
+            ) {
+                Text("Is this your section and PLC day?", color = Ink, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.height(5.dp))
+                Text("Check the sessions below against your LMS schedule.", color = Muted, fontSize = 12.sp)
+                if (mismatchOpen) {
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = mismatchNote,
+                        onValueChange = { mismatchNote = it },
+                        label = { Text("What's missing or incorrect?") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { mismatchOpen = false }) { Text("Cancel") }
+                        Button(
+                            onClick = { onScheduleFeedback(false, mismatchNote) },
+                            enabled = mismatchNote.isNotBlank(),
+                        ) { Text("Send") }
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        TextButton(onClick = { mismatchOpen = true }) { Text("Wrong section or PLC") }
+                        Button(onClick = { onScheduleFeedback(true, null) }) { Text("Looks right") }
+                    }
+                }
+            }
+        }
+        when {
+            state.scheduleSync.inProgress && source.isEmpty() -> Box(
+                Modifier.fillMaxWidth().padding(48.dp),
+                contentAlignment = Alignment.Center,
+            ) { CircularProgressIndicator(color = Teal) }
+
+            sessions.isEmpty() -> EmptyState(
+                "Nothing scheduled",
+                "This day is clear. Your readings remain available offline.",
+            )
+
+            else -> {
+                val heroEntry = highlights.entries
+                    .filter { it.value == ScheduleHighlightKind.HAPPENING_NOW || it.value == ScheduleHighlightKind.UP_NEXT }
+                    .minByOrNull { it.key.start }
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    heroEntry?.let { hero ->
+                        CurrentSessionHero(
+                            session = hero.key,
+                            happeningNow = hero.value == ScheduleHighlightKind.HAPPENING_NOW,
+                            now = clockNow,
+                            onOpen = { onSession(hero.key) },
+                            onMark = onMark,
+                            marking = hero.key.nid in markingSessionIds,
+                        )
+                    }
+                    sessions.forEach { session ->
+                        if (session == heroEntry?.key) return@forEach
+                        UpcomingSessionCard(
+                            session = session,
+                            highlight = highlights[session],
+                            now = clockNow,
+                            onOpen = { onSession(session) },
+                            onMark = onMark,
+                            marking = session.nid in markingSessionIds,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssessmentDueBanner(assessment: AssessmentItem, onOpen: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)
             .clip(RoundedCornerShape(16.dp)).background(Blush)
@@ -1064,14 +1223,22 @@ private fun AssessmentDueBanner(assessment: AssessmentItem) {
                 fontWeight = FontWeight.Bold,
             )
         }
-        Text(
-            "OPEN",
-            color = BlushInk,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.background(Color.White.copy(alpha = .55f), RoundedCornerShape(50))
-                .padding(horizontal = 9.dp, vertical = 5.dp),
-        )
+        OutlinedButton(
+            onClick = onOpen,
+            modifier = Modifier.heightIn(min = 48.dp),
+            shape = RoundedCornerShape(50),
+            border = androidx.compose.foundation.BorderStroke(1.25.dp, BlushAccent),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = BlushInk),
+            contentPadding = PaddingValues(horizontal = 11.dp, vertical = 7.dp),
+        ) {
+            Text("View", fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.width(4.dp))
+            androidx.compose.material3.Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+            )
+        }
     }
 }
 
@@ -1086,46 +1253,81 @@ private fun WeekStrip(
     rangeEndExclusive: LocalDate,
     onSelect: (LocalDate) -> Unit,
 ) {
-    val days = remember(selectedDate, today) {
-        val anchor = selectedDate
-        (-3..3).map { anchor.plusDays(it.toLong()) }
+    val days = remember(rangeStart, rangeEndExclusive) {
+        scheduleDates(rangeStart, rangeEndExclusive)
     }
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        days.forEach { day ->
+    val listState = rememberLazyListState()
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val horizontalPadding = 8.dp
+        val spacing = 2.dp
+        // A near-full seventh cell hints that the complete two-week range is horizontally available.
+        val dayWidth = (maxWidth - horizontalPadding * 2 - spacing * 6) / 6.85f
+        LazyRow(
+            state = listState,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).selectableGroup(),
+            contentPadding = PaddingValues(horizontal = horizontalPadding),
+            horizontalArrangement = Arrangement.spacedBy(spacing),
+        ) {
+            items(days, key = { it.toEpochDay() }) { day ->
             val selectable = day >= rangeStart && day < rangeEndExclusive
             val selected = day == selectedDate
             val isToday = day == today
+            val background by animateColorAsState(
+                targetValue = if (selected) TealDeep else Color.Transparent,
+                animationSpec = tween(180, easing = FastOutSlowInEasing),
+                label = "selected day color",
+            )
+            val scale by animateFloatAsState(
+                targetValue = if (selected) 1f else .96f,
+                animationSpec = tween(180, easing = FastOutSlowInEasing),
+                label = "selected day scale",
+            )
             Column(
                 modifier = Modifier
-                    .weight(1f)
+                    .width(dayWidth)
+                    .heightIn(min = 64.dp)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }
                     .clip(RoundedCornerShape(15.dp))
-                    .background(if (selected) TealDeep else Color.Transparent)
-                    .clickable(enabled = selectable) { onSelect(day) }
+                    .background(background)
+                    .semantics {
+                        contentDescription = buildString {
+                            append(day.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH)))
+                            if (isToday) append(", today")
+                            if (selected) append(", selected")
+                        }
+                    }
+                    .selectable(
+                        selected = selected,
+                        enabled = selectable,
+                        role = Role.Tab,
+                        onClick = { onSelect(day) },
+                    )
                     .padding(top = 8.dp, bottom = 7.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    day.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH)
-                        .uppercase(Locale.ENGLISH),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = .6.sp,
-                    color = if (selected) Color.White else Muted,
-                )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    day.dayOfMonth.toString(),
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = when {
-                        selected -> Color.White
-                        isToday -> Teal
-                        else -> Ink
-                    },
-                )
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        day.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH)
+                            .uppercase(Locale.ENGLISH),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = .6.sp,
+                        color = if (selected) Color.White else Muted,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        day.dayOfMonth.toString(),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = when {
+                            selected -> Color.White
+                            isToday -> Teal
+                            else -> Ink
+                        },
+                    )
+                }
             }
         }
     }
@@ -1138,6 +1340,7 @@ private fun CurrentSessionHero(
     now: java.time.Instant,
     onOpen: () -> Unit,
     onMark: (String) -> Unit,
+    marking: Boolean,
 ) {
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Blush).clickable(onClick = onOpen)) {
         Column(Modifier.fillMaxWidth().padding(20.dp)) {
@@ -1151,6 +1354,10 @@ private fun CurrentSessionHero(
                     letterSpacing = 1.2.sp,
                     color = BlushAccent,
                 )
+                if (session.state == SessionState.MARKED) {
+                    Spacer(Modifier.weight(1f))
+                    StateChip("✓ PRESENT", DoneSoft, Green)
+                }
             }
             Spacer(Modifier.height(9.dp))
             Text(session.name, fontSize = 22.sp, lineHeight = 25.sp, fontWeight = FontWeight.ExtraBold, color = BlushInk)
@@ -1166,13 +1373,15 @@ private fun CurrentSessionHero(
                 Text("Starts in ${formatSessionCountdown(minutes)} · ${TIME_FORMAT.format(session.start.atZone(IST))}", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = BlushInk)
             }
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                HeroChip(session.room ?: "Room not posted")
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    HeroChip(session.room ?: "Room not posted")
+                    HeroChip(
+                        session.floorLabel?.trim()?.takeIf { value -> value.any(Char::isLetterOrDigit) }
+                            ?: "Floor not posted",
+                    )
+                }
                 HeroChip("Trainer ${session.trainer ?: "not posted"}")
-                HeroChip(
-                    session.floorLabel?.trim()?.takeIf { value -> value.any(Char::isLetterOrDigit) }
-                        ?: "Floor not posted",
-                )
             }
             if (session.endEstimated) {
                 Spacer(Modifier.height(6.dp))
@@ -1195,12 +1404,12 @@ private fun CurrentSessionHero(
                     MarkCeremonyButton(
                         sessionId = heroNid,
                         onMark = onMark,
+                        inProgress = marking,
                         modifier = Modifier.padding(top = 16.dp),
                     )
                 }
             }
         }
-        CourseArtwork(0, BlushShape, Modifier.align(Alignment.BottomEnd).size(104.dp, 82.dp))
     }
 }
 
@@ -1208,9 +1417,9 @@ private fun CurrentSessionHero(
 private fun HeroChip(label: String) {
     Text(
         label,
-        fontSize = 10.sp,
+        fontSize = 11.sp,
         fontWeight = FontWeight.ExtraBold,
-        color = BlushInk.copy(alpha = .78f),
+        color = BlushInk.copy(alpha = .88f),
         maxLines = 1,
         modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .55f)).padding(horizontal = 10.dp, vertical = 5.dp),
     )
@@ -1223,37 +1432,45 @@ private fun UpcomingSessionCard(
     now: java.time.Instant,
     onOpen: () -> Unit,
     onMark: (String) -> Unit,
+    marking: Boolean,
 ) {
-    val past = session.state == SessionState.DONE || session.state == SessionState.MISSED || session.state == SessionState.NO_ATTENDANCE
+    val past = session.state == SessionState.MARKED || session.state == SessionState.DONE ||
+        session.state == SessionState.MISSED || session.state == SessionState.NO_ATTENDANCE
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
-        color = Color.White,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+        color = if (past && highlight == null) Soft.copy(alpha = .46f) else Color.White,
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (past && highlight == null) OutlineStrong else Line),
+        shadowElevation = if (past && highlight == null) 0.dp else 1.dp,
     ) {
         Row(
             Modifier.fillMaxWidth().clickable(onClick = onOpen)
-                .alpha(if (past && highlight == null) .55f else 1f)
                 .padding(horizontal = 17.dp, vertical = 15.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 TIME_FORMAT.format(session.start.atZone(IST)),
                 modifier = Modifier.width(72.dp),
-                color = Teal,
+                color = if (past && highlight == null) Muted else Teal,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
             Column(Modifier.weight(1f)) {
-                Text(session.name, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
+                Text(
+                    session.name,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (past && highlight == null) Muted else Ink,
+                )
                 Spacer(Modifier.height(3.dp))
                 Text(session.metaLine(), fontSize = 11.sp, color = Muted, maxLines = 1)
             }
             when {
                 highlight == ScheduleHighlightKind.UP_NEXT && session.state == SessionState.OPEN && session.nid != null -> {
                     val nid = session.nid
-                    MarkCeremonyButton(sessionId = nid, onMark = onMark)
+                    MarkCeremonyButton(sessionId = nid, onMark = onMark, inProgress = marking)
                 }
+                session.state == SessionState.MARKED -> StateChip("✓ PRESENT", DoneSoft, Green)
                 past -> StateChip("✓ DONE", Mint, Green)
                 else -> StateChip(TIME_FORMAT.format(session.end.atZone(IST)), Soft, Muted)
             }
@@ -1292,101 +1509,34 @@ internal fun sessionProgressFraction(now: Instant, start: Instant, end: Instant)
     return (elapsedSeconds.toFloat() / totalSeconds).coerceIn(0f, 1f)
 }
 
-private enum class MarkStage { IDLE, CHECKING, DONE }
-
 @Composable
 private fun MarkCeremonyButton(
     sessionId: String,
     onMark: (String) -> Unit,
+    inProgress: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    var stage by rememberSaveable(sessionId) { mutableStateOf(MarkStage.IDLE) }
-    var stampedAt by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
-    val container by animateColorAsState(
-        targetValue = if (stage == MarkStage.DONE) Green else TealDeep,
-        label = "mark container",
-    )
     Button(
-        onClick = {
-            if (stage == MarkStage.IDLE) {
-                stampedAt = TIME_FORMAT.format(Instant.now().atZone(IST))
-                stage = MarkStage.CHECKING
-                onMark(sessionId)
-            }
-        },
-        enabled = stage == MarkStage.IDLE,
+        onClick = { onMark(sessionId) },
+        enabled = !inProgress,
         colors = ButtonDefaults.buttonColors(
-            containerColor = container,
-            disabledContainerColor = container,
+            containerColor = TealDeep,
+            disabledContainerColor = TealDeep,
             disabledContentColor = Color.White,
         ),
         shape = RoundedCornerShape(50),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 48.dp),
     ) {
-        when (stage) {
-            MarkStage.IDLE -> Text("Mark attendance", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            MarkStage.CHECKING -> {
-                MarkSpinnerGlyph()
-                Spacer(Modifier.width(7.dp))
-                Text("Checking campus zone\u2026", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
-            MarkStage.DONE -> {
-                MarkCheckGlyph()
-                Spacer(Modifier.width(7.dp))
-                Text("Marked \u00b7 ${stampedAt.orEmpty()}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
+        if (inProgress) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                color = Color.White,
+                strokeWidth = 2.dp,
+            )
+            Spacer(Modifier.width(8.dp))
         }
-    }
-    LaunchedEffect(stage) {
-        if (stage == MarkStage.CHECKING) {
-            delay(950)
-            stage = MarkStage.DONE
-        }
-    }
-}
-
-@Composable
-private fun MarkSpinnerGlyph() {
-    val transition = rememberInfiniteTransition(label = "mark spinner")
-    val angle by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(durationMillis = 800, easing = LinearEasing)),
-        label = "spinner angle",
-    )
-    Canvas(Modifier.size(15.dp)) {
-        drawArc(
-            color = Color.White.copy(alpha = .85f),
-            startAngle = angle,
-            sweepAngle = 260f,
-            useCenter = false,
-            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
-        )
-    }
-}
-
-@Composable
-private fun MarkCheckGlyph() {
-    val progress = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        delay(60)
-        progress.animateTo(1f, tween(durationMillis = 320, easing = FastOutSlowInEasing))
-    }
-    Canvas(Modifier.size(15.dp)) {
-        val strokeWidth = 2.2.dp.toPx()
-        val start = Offset(size.width * .2f, size.height * .55f)
-        val elbow = Offset(size.width * .42f, size.height * .74f)
-        val end = Offset(size.width * .82f, size.height * .3f)
-        val value = progress.value.coerceIn(0f, 1f)
-        val firstT = (value / .42f).coerceIn(0f, 1f)
-        val secondT = ((value - .42f) / .58f).coerceIn(0f, 1f)
-        if (firstT > 0f) {
-            drawLine(Color.White, start, Offset(lerp(start.x, elbow.x, firstT), lerp(start.y, elbow.y, firstT)), strokeWidth, StrokeCap.Round)
-        }
-        if (secondT > 0f) {
-            drawLine(Color.White, elbow, Offset(lerp(elbow.x, end.x, secondT), lerp(elbow.y, end.y, secondT)), strokeWidth, StrokeCap.Round)
-        }
+        Text(if (inProgress) "Checking…" else "Mark attendance", fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -1396,11 +1546,14 @@ private fun ReadingsContent(
     onReading: (ReadingItem) -> Unit,
     onFacultyProfile: (FacultyProfile) -> Unit,
     onToggleDone: (String) -> Unit,
-    onOpenAssessment: (String) -> Unit,
+    onOpenCourseOutline: (String) -> Unit,
     onDownloadAssessment: (AssessmentItem) -> Unit,
+    onSetAssessmentDone: (String, Boolean) -> Unit,
+    focusedAssessmentId: String?,
 ) {
     var expandedCourseId by rememberSaveable { mutableStateOf<String?>(null) }
     var initialCourseChosen by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
     val expandedSections = remember { mutableStateListOf<String>() }
     val readingsByCourse = state.readings.groupBy { it.catId }
     val profilesByCourse = state.facultyProfiles.groupBy { it.courseCatId }
@@ -1413,7 +1566,11 @@ private fun ReadingsContent(
             initialCourseChosen = true
         }
     }
+    LaunchedEffect(focusedAssessmentId) {
+        if (focusedAssessmentId != null) listState.animateScrollToItem(0)
+    }
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1424,6 +1581,8 @@ private fun ReadingsContent(
                     assessments = state.assessments,
                     today = state.today,
                     onDownloadResource = onDownloadAssessment,
+                    onSetDone = onSetAssessmentDone,
+                    focusedAssessmentId = focusedAssessmentId,
                 )
             }
         }
@@ -1471,7 +1630,7 @@ private fun ReadingsContent(
                     onReading = onReading,
                     onFacultyProfile = onFacultyProfile,
                     onToggleDone = onToggleDone,
-                    onCourseOutline = onOpenAssessment,
+                    onCourseOutline = onOpenCourseOutline,
                 )
             }
         }
@@ -1484,18 +1643,26 @@ private fun AssessmentsCard(
     assessments: List<AssessmentItem>,
     today: LocalDate,
     onDownloadResource: (AssessmentItem) -> Unit,
+    onSetDone: (String, Boolean) -> Unit,
+    focusedAssessmentId: String?,
 ) {
     var expanded by rememberSaveable { mutableStateOf(true) }
-    val openCount = assessments.count { !it.isSubmitted() }
+    LaunchedEffect(focusedAssessmentId) {
+        if (focusedAssessmentId != null) expanded = true
+    }
     Surface(
         modifier = Modifier.fillMaxWidth().animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
         shape = RoundedCornerShape(20.dp),
         color = Color.White,
         border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+        shadowElevation = 1.dp,
     ) {
         Column {
             Box(
-                Modifier.fillMaxWidth().background(DonePurpleSoft).clickable { expanded = !expanded }.padding(16.dp),
+                Modifier.fillMaxWidth().background(DonePurpleSoft)
+                    .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
+                    .clickable(role = Role.Button) { expanded = !expanded }
+                    .padding(16.dp),
             ) {
                 Column(Modifier.fillMaxWidth(.82f)) {
                     Text("ASSESSMENTS", color = DonePurple, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = .6.sp)
@@ -1503,33 +1670,29 @@ private fun AssessmentsCard(
                     Text("Due work", color = Ink, fontSize = 19.sp, lineHeight = 21.sp, fontWeight = FontWeight.ExtraBold)
                     Spacer(Modifier.height(9.dp))
                     Text(
-                        if (openCount == 0) "All listed work submitted" else "$openCount ${if (openCount == 1) "assessment" else "assessments"} open",
+                        assessmentSummaryLabel(assessments),
                         color = Ink.copy(alpha = .72f),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                     )
-                    assessments.firstOrNull { !it.isSubmitted() }?.let { next ->
+                    nextScheduleAssessment(assessments)?.let { next ->
                         Spacer(Modifier.height(5.dp))
-                        Text("Next: ${next.title}", color = Ink.copy(alpha = .62f), fontSize = 10.sp, maxLines = 1)
+                        Text("Next: ${next.title}", color = Muted, fontSize = 11.sp, maxLines = 1)
                     }
                     Spacer(Modifier.height(10.dp))
                 }
                 Box(
-                    Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 16.dp),
+                    Modifier.align(Alignment.TopEnd).size(48.dp).clip(CircleShape).background(Color.White)
+                        .border(1.25.dp, OutlineStrong, CircleShape),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    IconButton(
-                        onClick = { expanded = !expanded },
-                        modifier = Modifier.size(40.dp).background(Color.White.copy(alpha = .82f), CircleShape),
-                    ) {
-                        androidx.compose.material3.Icon(
-                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (expanded) "Collapse assessments" else "Expand assessments",
-                            tint = DonePurple,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
+                    androidx.compose.material3.Icon(
+                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = DonePurple,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
-                CourseArtwork(0, DonePurple, Modifier.align(Alignment.BottomEnd).size(110.dp, 88.dp))
             }
             AnimatedVisibility(visible = expanded, enter = fadeIn() + slideInVertically { -it / 8 }, exit = fadeOut()) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
@@ -1538,6 +1701,8 @@ private fun AssessmentsCard(
                             assessment = assessment,
                             today = today,
                             onDownloadResource = onDownloadResource,
+                            onSetDone = onSetDone,
+                            focused = assessment.id == focusedAssessmentId,
                         )
                         if (index != assessments.lastIndex) HorizontalDivider(color = Line)
                     }
@@ -1547,16 +1712,29 @@ private fun AssessmentsCard(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AssessmentRow(
     assessment: AssessmentItem,
     today: LocalDate,
     onDownloadResource: (AssessmentItem) -> Unit,
+    onSetDone: (String, Boolean) -> Unit,
+    focused: Boolean,
 ) {
-    val submitted = assessment.isSubmitted()
-    val overdue = !submitted && assessment.dueDate?.isBefore(today) == true
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(focused) {
+        if (focused) {
+            delay(180)
+            bringIntoViewRequester.bringIntoView()
+        }
+    }
+    val submitted = assessment.isLmsSubmitted()
+    val locallyDone = assessment.done && !submitted
+    val complete = assessment.isAssessmentComplete()
+    val overdue = !complete && assessment.dueDate?.isBefore(today) == true
     val statusLabel = when {
         submitted -> assessment.status
+        locallyDone -> "LMS · ${assessment.status}"
         overdue -> "Overdue"
         else -> assessment.status
     }
@@ -1567,11 +1745,44 @@ private fun AssessmentRow(
     }
     val statusColor = when {
         submitted -> Color.White
-        overdue -> Color(0xFF8A5B0E)
+        overdue -> Color(0xFF7B4F00)
         else -> Teal
     }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 14.dp)) {
-        Text(assessment.title, color = Ink, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold)
+    val rowBackground by animateColorAsState(
+        targetValue = when {
+            locallyDone -> Color(0xFFE5E9E7)
+            focused -> DonePurpleSoft
+            else -> Color.Transparent
+        },
+        label = "assessment row background",
+    )
+    Column(
+        Modifier.fillMaxWidth().bringIntoViewRequester(bringIntoViewRequester)
+            .clip(RoundedCornerShape(15.dp)).background(rowBackground)
+            .then(if (focused) Modifier.border(1.5.dp, DonePurple, RoundedCornerShape(15.dp)) else Modifier)
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Text(
+                assessment.title,
+                modifier = Modifier.weight(1f),
+                color = if (complete) Muted else Ink,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            if (locallyDone) {
+                Text(
+                    "DONE ON PHONE",
+                    color = Muted,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.background(Color.White, RoundedCornerShape(50))
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
         Spacer(Modifier.height(7.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -1593,16 +1804,59 @@ private fun AssessmentRow(
             Text("PDF · $title", color = Muted, fontSize = 10.sp, maxLines = 1)
         }
         Spacer(Modifier.height(11.dp))
-        if (assessment.resourceUrl != null) {
-            Button(
-                onClick = { onDownloadResource(assessment) },
-                shape = RoundedCornerShape(50),
-                colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = TealDeep),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
-            ) {
-                androidx.compose.material3.Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(7.dp))
-                Text("PDF", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (assessment.resourceUrl != null) {
+                OutlinedButton(
+                    onClick = { onDownloadResource(assessment) },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(50),
+                    border = androidx.compose.foundation.BorderStroke(1.25.dp, OutlineStrong),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TealDeep),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
+                ) {
+                    androidx.compose.material3.Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("PDF", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (!submitted) {
+                if (locallyDone) {
+                    OutlinedButton(
+                        onClick = { onSetDone(assessment.id, false) },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(50),
+                        border = androidx.compose.foundation.BorderStroke(1.25.dp, OutlineStrong),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Muted),
+                        contentPadding = PaddingValues(horizontal = 13.dp, vertical = 7.dp),
+                    ) {
+                        androidx.compose.material3.Icon(
+                            Icons.AutoMirrored.Filled.Undo,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Undo", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    FilledTonalButton(
+                        onClick = { onSetDone(assessment.id, true) },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(50),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
+                        contentPadding = PaddingValues(horizontal = 13.dp, vertical = 7.dp),
+                    ) {
+                        androidx.compose.material3.Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Mark done", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
@@ -1610,11 +1864,6 @@ private fun AssessmentRow(
 
 internal fun formatAssessmentDueDate(dueDate: LocalDate?): String =
     dueDate?.let { "Due ${ASSESSMENT_DUE_FORMAT.format(it)}" } ?: "Due date not posted"
-
-private fun AssessmentItem.isSubmitted(): Boolean {
-    val value = status.lowercase(Locale.ENGLISH)
-    return "submitted" in value && "not submitted" !in value
-}
 
 @Composable
 private fun CourseReadingCard(
@@ -1643,10 +1892,14 @@ private fun CourseReadingCard(
         shape = RoundedCornerShape(20.dp),
         color = Color.White,
         border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+        shadowElevation = 1.dp,
     ) {
         Column {
             Box(
-                Modifier.fillMaxWidth().background(colors.panel).clickable(onClick = onToggleCourse).padding(16.dp),
+                Modifier.fillMaxWidth().background(colors.panel)
+                    .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
+                    .clickable(role = Role.Button, onClick = onToggleCourse)
+                    .padding(16.dp),
             ) {
                 Column(Modifier.fillMaxWidth(.82f)) {
                     Text("COURSE", color = colors.accent, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = .6.sp)
@@ -1668,26 +1921,22 @@ private fun CourseReadingCard(
                     )
                     readings.firstOrNull { !it.done }?.let { preview ->
                         Spacer(Modifier.height(5.dp))
-                        Text("Next: ${preview.title}", color = Ink.copy(alpha = .62f), fontSize = 10.sp, maxLines = 1)
+                        Text("Next: ${preview.title}", color = Muted, fontSize = 11.sp, maxLines = 1)
                     }
                     Spacer(Modifier.height(10.dp))
                 }
                 Box(
-                    Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 16.dp),
+                    Modifier.align(Alignment.TopEnd).size(48.dp).clip(CircleShape).background(Color.White)
+                        .border(1.25.dp, OutlineStrong, CircleShape),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    IconButton(
-                        onClick = onToggleCourse,
-                        modifier = Modifier.size(40.dp).background(Color.White.copy(alpha = .82f), CircleShape),
-                    ) {
-                        androidx.compose.material3.Icon(
-                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (expanded) "Collapse $courseName" else "Expand $courseName",
-                            tint = colors.accent,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
+                    androidx.compose.material3.Icon(
+                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
-                CourseArtwork(design, colors.shape, Modifier.align(Alignment.BottomEnd).size(110.dp, 88.dp))
             }
             AnimatedVisibility(visible = expanded, enter = fadeIn() + slideInVertically { -it / 8 }, exit = fadeOut()) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
@@ -1695,7 +1944,9 @@ private fun CourseReadingCard(
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
                                 .background(colors.panel)
-                                .clickable { onCourseOutline(outlineUrl) }
+                                .border(1.dp, OutlineStrong, RoundedCornerShape(14.dp))
+                                .clickable(role = Role.Button) { onCourseOutline(outlineUrl) }
+                                .heightIn(min = 48.dp)
                                 .padding(horizontal = 12.dp, vertical = 13.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -1760,7 +2011,10 @@ private fun CourseReadingCard(
                         val sectionId = "$courseId:$kind"
                         val open = sectionId in expandedSections
                         Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onToggleSection(sectionId) }.padding(vertical = 12.dp, horizontal = 3.dp),
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
+                                .semantics { stateDescription = if (open) "Expanded" else "Collapsed" }
+                                .clickable(role = Role.Button) { onToggleSection(sectionId) }
+                                .padding(vertical = 12.dp, horizontal = 3.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -1834,16 +2088,6 @@ private fun ReadingRow(
         if (reading.done) DonePurpleSoft else Color.Transparent,
         label = "reading done",
     )
-    val popScale = remember { Animatable(1f) }
-    var popInitialized by remember { mutableStateOf(false) }
-    LaunchedEffect(reading.done) {
-        if (!popInitialized) {
-            popInitialized = true
-            return@LaunchedEffect
-        }
-        popScale.snapTo(0.78f)
-        popScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
-    }
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
             .background(rowBackground)
@@ -1867,20 +2111,25 @@ private fun ReadingRow(
                 Text(reading.progress.label, color = Muted, fontSize = 10.sp)
             }
         }
-        Box(
-            Modifier.size(34.dp).graphicsLayer {
-                scaleX = popScale.value
-                scaleY = popScale.value
-            }.clip(CircleShape).background(if (reading.done) DonePurple else Color.White)
-                .border(1.5.dp, if (reading.done) DonePurple else Muted.copy(alpha = .55f), CircleShape)
-                .clickable {
+        Checkbox(
+            checked = reading.done,
+            onCheckedChange = {
                     performReadingHaptic(view)
                     onToggleDone(reading.vid)
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            androidx.compose.material3.Icon(Icons.Default.Check, contentDescription = if (reading.done) "Undo Done" else "Mark Done", tint = if (reading.done) Color.White else Color.Transparent, modifier = Modifier.size(18.dp))
-        }
+            },
+            modifier = Modifier.semantics {
+                contentDescription = if (reading.done) {
+                    "Mark ${reading.title} not done"
+                } else {
+                    "Mark ${reading.title} done"
+                }
+            },
+            colors = CheckboxDefaults.colors(
+                checkedColor = DonePurple,
+                uncheckedColor = OutlineStrong,
+                checkmarkColor = Color.White,
+            ),
+        )
     }
 }
 
@@ -1901,7 +2150,13 @@ private fun CourseArtwork(design: Int, color: Color, modifier: Modifier = Modifi
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LectureSheet(session: Session, state: CompanionState, onDismiss: () -> Unit, onMark: (String) -> Unit) {
+private fun LectureSheet(
+    session: Session,
+    state: CompanionState,
+    marking: Boolean,
+    onDismiss: () -> Unit,
+    onMark: (String) -> Unit,
+) {
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color.White, shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)) {
         Column {
             Box(Modifier.fillMaxWidth().background(Blush).padding(24.dp)) {
@@ -1926,6 +2181,7 @@ private fun LectureSheet(session: Session, state: CompanionState, onDismiss: () 
                         MarkCeremonyButton(
                             sessionId = sheetNid,
                             onMark = onMark,
+                            inProgress = marking,
                             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                         )
                     }
@@ -2699,36 +2955,55 @@ private fun errorText(error: EngineError): String = when (error) {
 private fun companionColors() = androidx.compose.material3.lightColorScheme(
     primary = Teal,
     onPrimary = Color.White,
+    primaryContainer = Color(0xFF9EF2E3),
+    onPrimaryContainer = Color(0xFF00201C),
+    secondary = DonePurple,
+    onSecondary = Color.White,
+    secondaryContainer = DonePurpleSoft,
+    onSecondaryContainer = Color(0xFF21143B),
+    tertiary = BlushAccent,
+    onTertiary = Color.White,
+    tertiaryContainer = Blush,
+    onTertiaryContainer = BlushInk,
     background = Paper,
+    onBackground = Ink,
     surface = Color.White,
+    onSurface = Ink,
     surfaceVariant = Soft,
-    error = Color(0xFFB42318),
+    onSurfaceVariant = Muted,
+    outline = OutlineStrong,
+    outlineVariant = Line,
+    error = Color(0xFFBA1A1A),
+    onError = Color.White,
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002),
 )
 
 private data class CourseColors(val panel: Color, val accent: Color, val shape: Color)
 private val COURSE_COLORS = listOf(
     CourseColors(Color(0xFFE8BFDD), Color(0xFF8F1B3A), Color(0xFFBD82AA)),
     CourseColors(Color(0xFFD8EBE3), Color(0xFF17665E), Color(0xFF8FBEB1)),
-    CourseColors(Color(0xFFF4DF9F), Color(0xFF8A5B0E), Color(0xFFE0AE4D)),
+    CourseColors(Color(0xFFF4DF9F), Color(0xFF7B4F00), Color(0xFFE0AE4D)),
     CourseColors(Color(0xFFD9E7F2), Color(0xFF315F7D), Color(0xFF8DB7D0)),
 )
 
-private val Ink = Color(0xFF15201F)
-private val Paper = Color(0xFFF4F8F7)
-private val Teal = Color(0xFF0D5F5C)
-private val TealDeep = Color(0xFF073B3A)
-private val Muted = Color(0xFF65706D)
-private val Line = Color(0xFFDCE5E2)
-private val Soft = Color(0xFFE4ECE9)
-private val Green = Color(0xFF28755A)
-private val DoneSoft = Color(0xFFDFF1E8)
-private val DonePurple = Color(0xFF7151A1)
-private val DonePurpleSoft = Color(0xFFF0EAF8)
-private val Blush = Color(0xFFE8BFDD)
-private val BlushInk = Color(0xFF2C2630)
-private val BlushAccent = Color(0xFFB45558)
-private val BlushShape = Color(0xFFBD82AA)
-private val Mint = Color(0xFFD8EBE3)
+private val Ink = Color(0xFF171D1B)
+private val Paper = Color(0xFFF6FAF8)
+private val Teal = Color(0xFF006A60)
+private val TealDeep = Color(0xFF005047)
+private val Muted = Color(0xFF3F4946)
+private val Line = Color(0xFFBEC9C5)
+private val OutlineStrong = Color(0xFF6F7975)
+private val Soft = Color(0xFFDBE5E1)
+private val Green = Color(0xFF176B50)
+private val DoneSoft = Color(0xFFCDEDDD)
+private val DonePurple = Color(0xFF65558F)
+private val DonePurpleSoft = Color(0xFFEADDFF)
+private val Blush = Color(0xFFFFD9E1)
+private val BlushInk = Color(0xFF3E001D)
+private val BlushAccent = Color(0xFF8F1B3A)
+private val BlushShape = Color(0xFFC87F98)
+private val Mint = Color(0xFFD2E9E2)
 private val Butter = Color(0xFFF4DF9F)
 private val ButterStrong = Color(0xFFE0AE4D)
 private val SkyAccent = Color(0xFF315F7D)

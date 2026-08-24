@@ -91,6 +91,7 @@ class CompanionApplication : Application() {
             gateway = lmsAdapter,
             notifier = AndroidNotifier(this),
             readingDoneStore = localStore,
+            assessmentDoneStore = localStore,
             cacheStore = localStore,
             diagnostics = diagnostics,
             attendanceLocationGate = locationGate,

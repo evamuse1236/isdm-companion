@@ -12,8 +12,8 @@ android {
         applicationId = "org.isdm.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.5.1-beta"
+        versionCode = 10
+        versionName = "0.5.2-beta"
 
         buildConfigField(
             "String",
