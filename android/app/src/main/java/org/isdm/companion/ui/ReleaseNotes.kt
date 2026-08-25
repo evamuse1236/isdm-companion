@@ -15,9 +15,9 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
-        "A fresh lavender look across Schedule, Readings, and Profile.",
-        "Navigation moved to a bottom bar with the report button beside it.",
-        "Schedule days now show one card per session, with the same up-next focus.",
+        "Choose Lavender, Ocean, Forest, Amber, or Slate in Profile. Your accent stays on this phone.",
+        "Profile now links directly to Android settings for automatic-attendance access.",
+        "Bottom navigation has clearer, larger tab targets.",
     ),
 )
 

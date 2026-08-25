@@ -1,5 +1,12 @@
 # ISDM Companion changelog
 
+## 0.5.4 beta
+
+- Profile now offers Lavender, Ocean, Forest, Amber, and Slate accent colors. The selected accent
+  applies across the app and stays on the phone.
+- Automatic-attendance settings now open the relevant Android app settings, and bottom navigation
+  uses clearer, larger tab targets.
+
 ## 0.5.3 beta
 
 - Restores the familiar compact Schedule, Readings, and Profile interface while retaining
