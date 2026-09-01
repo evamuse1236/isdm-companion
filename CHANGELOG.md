@@ -1,5 +1,11 @@
 # ISDM Companion changelog
 
+## 0.5.5 beta
+
+- Mark attendance no longer appears before the LMS attendance window opens.
+- Slow location acquisition now uses the time when the fix arrives, so fresh campus evidence is
+  not rejected as stale.
+
 ## 0.5.4 beta
 
 - Profile now offers Lavender, Ocean, Forest, Amber, and Slate accent colors. The selected accent

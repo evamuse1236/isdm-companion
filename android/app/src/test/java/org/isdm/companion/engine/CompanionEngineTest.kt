@@ -409,7 +409,7 @@ class CompanionEngineTest {
     }
 
     @Test
-    fun `automatic monitoring keeps a live attendance session open for manual fallback`() = runBlocking {
+    fun `automatic monitoring does not offer a manual mark before the LMS window opens`() = runBlocking {
         clock.current = Instant.parse("2026-08-08T04:50:00Z") // 10:20 IST
         gateway.markabilityMap["1285348"] = Markability(markable = false)
         val engine = engine()
@@ -419,8 +419,8 @@ class CompanionEngineTest {
         clock.current = Instant.parse("2026-08-08T05:01:00Z") // 10:31 IST
         engine.dispatch(Command.MonitorTick)
 
-        assertEquals(SessionState.OPEN, engine.state.value.sessions.single().state)
-        assertTrue(engine.state.value.sessions.single().markable)
+        assertFalse(engine.state.value.sessions.single().state == SessionState.OPEN)
+        assertFalse(engine.state.value.sessions.single().markable)
     }
 
     @Test

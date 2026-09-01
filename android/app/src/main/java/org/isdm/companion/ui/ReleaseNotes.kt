@@ -15,9 +15,8 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
-        "Choose Lavender, Ocean, Forest, Amber, or Slate in Profile. Your accent stays on this phone.",
-        "Profile now links directly to Android settings for automatic-attendance access.",
-        "Bottom navigation has clearer, larger tab targets.",
+        "Mark attendance now appears only when the LMS attendance window is open.",
+        "Slow location checks no longer reject a fresh campus location as stale.",
     ),
 )
 

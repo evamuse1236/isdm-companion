@@ -8,6 +8,7 @@ import org.isdm.companion.data.RealLmsAdapter
 import org.isdm.companion.data.LmsDiagnosticReporter
 import org.isdm.companion.domain.AttendanceLocationGate
 import org.isdm.companion.domain.AttendanceLocationGateDecision
+import org.isdm.companion.domain.LocationEvidence
 import org.isdm.companion.domain.LocationGateReason
 import org.isdm.companion.domain.parseCohortOverride
 import org.isdm.companion.engine.AttendanceLocationGatePort
@@ -85,7 +86,8 @@ class CompanionApplication : Application() {
         )
         val locationEvidenceProvider = AndroidLocationEvidenceProvider(this, diagnostics = diagnostics)
         val locationGate = AndroidAttendanceLocationGatePort(
-            evidenceProvider = locationEvidenceProvider,
+            currentEvidence = { locationEvidenceProvider.currentEvidence() },
+            bestRecentEvidence = locationEvidenceProvider::bestRecentLastKnownEvidence,
             diagnostics = diagnostics,
         )
         engine = CompanionEngine(
@@ -159,16 +161,18 @@ internal fun restoreAutoAttendanceOnProcessStart(
 }
 
 /** Android boundary that never exposes raw location to the engine or diagnostic logs. */
-private class AndroidAttendanceLocationGatePort(
-    private val evidenceProvider: AndroidLocationEvidenceProvider,
+internal class AndroidAttendanceLocationGatePort(
+    private val currentEvidence: suspend () -> LocationEvidence?,
+    private val bestRecentEvidence: (Instant) -> LocationEvidence?,
     private val diagnostics: DiagnosticsLogger,
     private val gate: AttendanceLocationGate = AttendanceLocationGate(),
+    private val currentTime: () -> Instant = Instant::now,
 ) : AttendanceLocationGatePort {
     override suspend fun evaluate(now: Instant): AttendanceLocationGateDecision {
         val decision = try {
-            val evidence = evidenceProvider.currentEvidence()
-                ?: evidenceProvider.bestRecentLastKnownEvidence(now)
-            gate.evaluate(evidence, now)
+            val evidence = currentEvidence()
+            val evaluatedAt = currentTime()
+            gate.evaluate(evidence ?: bestRecentEvidence(evaluatedAt), evaluatedAt)
         } catch (error: CancellationException) {
             throw error
         } catch (_: Throwable) {

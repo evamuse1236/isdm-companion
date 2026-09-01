@@ -241,19 +241,7 @@ class CompanionEngine(
             val drafts = buildSessions(todayEvents, cohorts)
             var markabilityError: EngineError? = null
             val markMap = if (!includeMarkability) {
-                val monitor = currentMonitor()
-                // Manual fallback stays available during an armed window while mark() keeps the
-                // authoritative LMS check behind the Attendance Location Gate.
-                _state.value.sessions.mapNotNull { session ->
-                    session.nid?.let { nid ->
-                        val targeted = monitor.targetSessionIds.isEmpty() || nid in monitor.targetSessionIds
-                        nid to Markability(
-                            markable = session.markable ||
-                                (monitor.active && monitor.mode == MonitoringMode.AUTO_MARK && targeted &&
-                                    isInsideAutoAttendanceWindow(session, now)),
-                        )
-                    }
-                }.toMap()
+                emptyMap()
             } else if (drafts.any { it.nid != null }) {
                 try {
                     gateway.markability()
