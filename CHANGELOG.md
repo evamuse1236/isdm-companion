@@ -1,5 +1,14 @@
 # ISDM Companion changelog
 
+## 0.5.6 beta
+
+- Assessments retain their task-list title and deadline when optional LMS detail pages fail;
+  other assessments continue refreshing, and successful detail fields remain available.
+- Schedule clocks pause in the background and on empty or completed days. Upcoming countdowns
+  update near their displayed minute changes; active classes retain second-by-second progress.
+- Past dates no longer highlight a completed class as Up next.
+- Includes the 0.5.5 attendance-window and slow-location fixes. Attendance safety gates are unchanged.
+
 ## 0.5.5 beta
 
 - Mark attendance no longer appears before the LMS attendance window opens.

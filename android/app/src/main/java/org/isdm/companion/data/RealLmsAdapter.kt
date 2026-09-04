@@ -38,6 +38,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 
 /**
  * LMS implementation backed by OkHttp and Jsoup.
@@ -188,28 +189,32 @@ class RealLmsAdapter(
 
     override suspend fun assessments(): List<AssessmentItem> {
         val drafts = parseAssessmentTasks(authed("/my-activities").body, baseUrl.toString())
-        val sectionPages = mutableMapOf<Pair<String, String>, String>()
+        val sectionPages = mutableMapOf<Pair<String, String>, String?>()
         return buildList {
             for (draft in drafts) {
-                val activityPage = authed(draft.submissionUrl).body
-                val frameUrl = parseAssessmentFrameUrl(activityPage, baseUrl.toString())
-                val framePage = frameUrl?.let { authed(it).body }
+                val activityPage = optionalAssessmentEnrichment { authed(draft.submissionUrl).body }
+                val frameUrl = activityPage?.let { parseAssessmentFrameUrl(it, baseUrl.toString()) }
+                val framePage = frameUrl?.let { optionalAssessmentEnrichment { authed(it).body } }
                 val dates = framePage
                     ?.let(::parseAssessmentDates)
                     ?: AssessmentDates(dueDate = null, endDate = null)
                 val sectionKey = draft.courseId to draft.sectionId
-                var sectionPage = sectionPages[sectionKey]
-                if (sectionPage == null) {
-                    sectionPage = authed(
-                        "/course/details?cat_id=${draft.courseId}&course_id=${draft.sectionId}",
-                    ).body
-                    sectionPages[sectionKey] = sectionPage
+                val sectionPage = if (sectionPages.containsKey(sectionKey)) {
+                    sectionPages.getValue(sectionKey)
+                } else {
+                    optionalAssessmentEnrichment {
+                        authed(
+                            "/course/details?cat_id=${draft.courseId}&course_id=${draft.sectionId}",
+                        ).body
+                    }.also { sectionPages[sectionKey] = it }
                 }
-                val resource = parseAssessmentResource(
-                    html = sectionPage,
-                    assessmentTitle = draft.title,
-                    baseUrl = baseUrl.toString(),
-                )
+                val resource = sectionPage?.let {
+                    parseAssessmentResource(
+                        html = it,
+                        assessmentTitle = draft.title,
+                        baseUrl = baseUrl.toString(),
+                    )
+                }
                 add(
                     AssessmentItem(
                         id = draft.id,
@@ -224,6 +229,21 @@ class RealLmsAdapter(
                 )
             }
         }
+    }
+
+    private suspend fun <T> optionalAssessmentEnrichment(block: suspend () -> T): T? = try {
+        block()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: LmsAuthenticationException) {
+        throw error
+    } catch (error: LmsHttpException) {
+        if (error.status == 401) throw error
+        null
+    } catch (_: LmsException) {
+        null
+    } catch (_: IOException) {
+        null
     }
 
     override suspend fun classroom(nid: String): ClassroomDetail {

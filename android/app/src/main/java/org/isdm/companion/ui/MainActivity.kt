@@ -140,6 +140,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -1007,14 +1008,16 @@ private fun ScheduleContent(
 ) {
     val source = state.scheduleSessions.ifEmpty { state.sessions }
     val sessions = source.filter { it.start.atZone(IST).toLocalDate() == selectedDate }
-    var clockNow by remember { mutableStateOf(Instant.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            clockNow = Instant.now()
-            delay(1_000)
+    val clockNow by remember(sessions) {
+        flow {
+            while (true) {
+                val now = Instant.now()
+                emit(now)
+                delay(scheduleClockDelayMillis(sessions, now) ?: break)
+            }
         }
-    }
-    val highlights = scheduleHighlights(source, selectedDate, state.today, clockNow)
+    }.collectAsStateWithLifecycle(initialValue = Instant.now())
+    val highlights = scheduleHighlights(source, selectedDate, clockNow.atZone(IST).toLocalDate(), clockNow)
         .associate { it.session to it.kind }
     var mismatchOpen by rememberSaveable(selectedDate) { mutableStateOf(false) }
     var mismatchNote by rememberSaveable(selectedDate) { mutableStateOf("") }

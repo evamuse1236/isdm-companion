@@ -15,6 +15,9 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
+        "A missing assessment detail page no longer stops other assessments from refreshing.",
+        "Schedule clocks do less work between classes and pause when the app is in the background.",
+        "Past dates no longer label a completed class as Up next.",
         "Mark attendance now appears only when the LMS attendance window is open.",
         "Slow location checks no longer reject a fresh campus location as stale.",
     ),

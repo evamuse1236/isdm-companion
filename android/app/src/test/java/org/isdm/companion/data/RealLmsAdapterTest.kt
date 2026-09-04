@@ -374,6 +374,117 @@ class RealLmsAdapterTest {
     }
 
     @Test
+    fun `assessment refresh retains task drafts when optional resource access is denied`() = runBlocking {
+        val server = MockWebServer()
+        var failedSectionFetches = 0
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.method == "GET" && request.path == "/user/login" -> MockResponse()
+                    .setHeader("Set-Cookie", "SESSassessmentPartial=one; Path=/")
+                    .setBody(loginForm())
+                request.method == "POST" && request.path == "/user/login" -> MockResponse()
+                    .setResponseCode(302).setHeader("Location", "/home")
+                request.method == "GET" && request.path == "/home" -> MockResponse()
+                    .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
+                request.path == "/my-activities" -> MockResponse().setBody(
+                    """
+                    <table>
+                      <tr><td><p>B10 - T1 - PMDL - Reflection 1 from topic Assessments</p><span>Starts On: 17-Aug-2026</span><span>Due On: 20-Sep-2026</span><span>Status: Not Submitted</span></td><td><a href='/subtopic/view?sid=101&amp;vid=1301&amp;cid=11&amp;cat_id=1&amp;destination=my-activities'>Take Activity</a></td></tr>
+                      <tr><td><p>B10 - T1 - PMDL - Reflection 2 from topic Assessments</p><span>Starts On: 17-Aug-2026</span><span>Due On: 21-Sep-2026</span><span>Status: Not Submitted</span></td><td><a href='/subtopic/view?sid=102&amp;vid=1302&amp;cid=12&amp;cat_id=2&amp;destination=my-activities'>Take Activity</a></td></tr>
+                      <tr><td><p>B10 - T1 - PMDL - Reflection 3 from topic Assessments</p><span>Starts On: 17-Aug-2026</span><span>Due On: 22-Sep-2026</span><span>Status: Not Submitted</span></td><td><a href='/subtopic/view?sid=103&amp;vid=1303&amp;cid=13&amp;cat_id=3&amp;destination=my-activities'>Take Activity</a></td></tr>
+                      <tr><td><p>B10 - T1 - PMDL - Reflection 4 from topic Assessments</p><span>Starts On: 17-Aug-2026</span><span>Due On: 23-Sep-2026</span><span>Status: Not Submitted</span></td><td><a href='/subtopic/view?sid=103&amp;vid=1304&amp;cid=14&amp;cat_id=3&amp;destination=my-activities'>Take Activity</a></td></tr>
+                    </table>
+                    """.trimIndent(),
+                )
+                request.path?.startsWith("/subtopic/view?sid=101&vid=1301") == true -> MockResponse().setBody(
+                    "<iframe id='iframe_load' src='/activity/user/attempt?nid=1201&amp;videoid=1301'></iframe>",
+                )
+                request.path == "/activity/user/attempt?nid=1201&videoid=1301" -> MockResponse().setBody(
+                    "<div>Due Date : 19/09/2026</div><div>End Date : 20/09/2026</div>",
+                )
+                request.path == "/course/details?cat_id=1&course_id=101" -> MockResponse().setBody(
+                    """
+                    <a href='/subtopic/view?sid=101&amp;vid=1301&amp;cid=11&amp;cat_id=1'>Reflection Prompt 1</a>
+                    <a href='/download/video?sid=101&amp;vid=1301&amp;cid=11&amp;cat_id=1'></a>
+                    """.trimIndent(),
+                )
+                request.path?.startsWith("/subtopic/view?sid=102&vid=1302") == true -> MockResponse()
+                    .setResponseCode(403)
+                request.path?.startsWith("/subtopic/view?sid=103&vid=1303") == true -> MockResponse().setBody(
+                    "<iframe id='iframe_load' src='/activity/user/attempt?nid=1203&amp;videoid=1303'></iframe>",
+                )
+                request.path?.startsWith("/subtopic/view?sid=103&vid=1304") == true -> MockResponse()
+                    .setResponseCode(503)
+                request.path == "/activity/user/attempt?nid=1203&videoid=1303" -> MockResponse().setBody(
+                    "<div>Due Date : 18/09/2026</div><div>End Date : 22/09/2026</div>",
+                )
+                request.path == "/course/details?cat_id=3&course_id=103" -> {
+                    failedSectionFetches += 1
+                    MockResponse().setResponseCode(503)
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+
+        try {
+            val assessments = RealLmsAdapter("a@b.c", "password", server.url("/").toString())
+                .assessments()
+
+            assertEquals(4, assessments.size)
+            assertEquals(java.time.LocalDate.of(2026, 9, 19), assessments[0].dueDate)
+            assertTrue(assessments[0].submissionUrl.contains("/activity/user/attempt"))
+            assertEquals("Reflection Prompt 1", assessments[0].resourceTitle)
+            assertEquals(java.time.LocalDate.of(2026, 9, 21), assessments[1].dueDate)
+            assertTrue(assessments[1].submissionUrl.contains("vid=1302"))
+            assertEquals(null, assessments[1].resourceUrl)
+            assertEquals(java.time.LocalDate.of(2026, 9, 18), assessments[2].dueDate)
+            assertTrue(assessments[2].submissionUrl.contains("/activity/user/attempt"))
+            assertEquals(null, assessments[2].resourceUrl)
+            assertEquals(java.time.LocalDate.of(2026, 9, 23), assessments[3].dueDate)
+            assertEquals(1, failedSectionFetches)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `assessment refresh propagates an unauthenticated optional request`() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.method == "GET" && request.path == "/user/login" -> MockResponse()
+                    .setHeader("Set-Cookie", "SESSassessmentUnauthorized=one; Path=/")
+                    .setBody(loginForm())
+                request.method == "POST" && request.path == "/user/login" -> MockResponse()
+                    .setResponseCode(302).setHeader("Location", "/home")
+                request.method == "GET" && request.path == "/home" -> MockResponse()
+                    .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
+                request.path == "/my-activities" -> MockResponse().setBody(
+                    """
+                    <table><tr><td><p>B10 - T1 - PMDL - Reflection 1 from topic Assessments</p><span>Starts On: 17-Aug-2026</span><span>Due On: 20-Sep-2026</span><span>Status: Not Submitted</span></td><td><a href='/subtopic/view?sid=101&amp;vid=1301&amp;cid=11&amp;cat_id=1&amp;destination=my-activities'>Take Activity</a></td></tr></table>
+                    """.trimIndent(),
+                )
+                request.path?.startsWith("/subtopic/view?sid=101&vid=1301") == true -> MockResponse()
+                    .setResponseCode(401)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+
+        try {
+            val error = runCatching {
+                RealLmsAdapter("a@b.c", "password", server.url("/").toString()).assessments()
+            }.exceptionOrNull()
+
+            assertTrue(error is LmsHttpException)
+            assertEquals(401, (error as LmsHttpException).status)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun assessmentSubmitOpensTheEmbeddedLmsForm() = runBlocking {
         val server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
