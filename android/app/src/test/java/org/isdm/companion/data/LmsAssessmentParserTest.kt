@@ -6,6 +6,30 @@ import org.junit.Test
 
 class LmsAssessmentParserTest {
     @Test
+    fun `disabled upcoming cards stay visible without inventing an activity link`() {
+        val html = """<div class="mytasks"><p class="tasktitle">Methods Quiz</p>
+          <p class="startdate">Starts On: 11-Sep-2026 - 10:00 AM</p>
+          <p class="enddate">Due On: 12-Sep-2026 - 10:00 AM</p><button disabled>Take Activity</button></div>"""
+        val task = parseAssessmentTasks(html, "https://lms.isdm.org.in/").single()
+        assertEquals("", task.submissionUrl)
+        assertEquals("Upcoming", task.status)
+        assertEquals(LocalDate.of(2026, 9, 12), task.dueDate)
+        assertEquals(task.id, parseAssessmentTasks(html, "https://lms.isdm.org.in/").single().id)
+    }
+
+    @Test
+    fun `AJAX wrapper preserves identifiers and rejects unrelated or cross origin frames`() {
+        val loader = assessmentLoaderUrl("https://lms.isdm.org.in/subtopic/view?sid=11&vid=22&cid=33&cat_id=44")!!
+        org.junit.Assert.assertTrue(loader.contains("/load/video?"))
+        org.junit.Assert.assertTrue(loader.contains("course_id=11"))
+        org.junit.Assert.assertTrue(loader.contains("topic_id=33"))
+        assertEquals(null, assessmentLoaderUrl("https://lms.isdm.org.in/subtopic/view?vid=22"))
+        for (src in listOf("https://evil.test/activity/user/attempt", "/quiz/start", "http://lms.isdm.org.in/activity/user/attempt", "https://lms.isdm.org.in:8443/activity/user/attempt")) {
+            assertEquals(null, parseAssessmentFrameUrl("<iframe id='iframe_load' src='$src'></iframe>", "https://lms.isdm.org.in/"))
+        }
+    }
+
+    @Test
     fun `active assessment parses its task-list due date and keeps its submission link`() {
         val assessment = parseAssessmentTasks(
             """

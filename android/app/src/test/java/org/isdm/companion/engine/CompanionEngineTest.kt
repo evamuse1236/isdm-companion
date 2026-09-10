@@ -4,6 +4,9 @@ import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.isdm.companion.domain.AttendanceLocationGateDecision
 import org.isdm.companion.domain.LocationGateReason
 import org.isdm.companion.domain.parseLmsTime
@@ -46,6 +49,29 @@ class CompanionEngineTest {
             status = "Not Marked",
         )
         gateway.markabilityMap["1285348"] = Markability(markable = true, uid = "1042")
+    }
+
+    @Test
+    fun `manual and automatic attendance both require a fresh access decision`() = runBlocking {
+        for (automatic in listOf(false, true)) {
+            var freshChecks = 0
+            val engine = engine(accessGate = CompanionAccessPort { fresh, _ ->
+                if (fresh) {
+                    freshChecks++
+                    throw CompanionAccessException("suspended")
+                }
+            })
+            configureAndRefresh(engine)
+            if (automatic) {
+                engine.dispatch(Command.ArmMonitoring(MonitoringMode.AUTO_MARK))
+                engine.dispatch(Command.MonitorTick)
+            } else {
+                val result = engine.dispatch(Command.Mark("1285348")) as CommandResult.Rejected
+                assertTrue(result.error is EngineError.AccessDenied)
+            }
+            assertTrue(freshChecks > 0)
+            assertEquals(0, gateway.markPresentCalls)
+        }
     }
 
     @Test
@@ -621,11 +647,73 @@ class CompanionEngineTest {
         assertEquals(setOf("501"), doneStore.load())
     }
 
+    @Test
+    fun `local done and manual attendance do not wait for a slow content refresh`() = runBlocking {
+        val course = LmsCourse("12", "Policy")
+        gateway.courseRows += course
+        gateway.readingRows["12"] = mutableListOf(
+            ReadingItem("501", "91", "7", "12", "Policy reading", "Policy", "Readings", "https://lms/501"),
+        )
+        val engine = engine()
+        configureAndRefresh(engine)
+        engine.dispatch(Command.RefreshReadings)
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        gateway.beforeReading = { started.complete(Unit); release.await() }
+        val refresh = launch { engine.dispatch(Command.RefreshReadings) }
+        started.await()
+        try {
+            withTimeout(500) {
+                engine.dispatch(Command.ToggleReadingDone("501"))
+                engine.dispatch(Command.Mark("1285348"))
+            }
+            assertTrue(engine.state.value.readings.single().done)
+            assertTrue(engine.state.value.sessions.single().marked)
+        } finally {
+            release.complete(Unit)
+            refresh.join()
+        }
+        assertTrue("Refresh must preserve a local edit made during the fetch", engine.state.value.readings.single().done)
+    }
+
+    @Test
+    fun `sign out cancels a blocked content refresh and clears its loading flags`() = runBlocking {
+        gateway.courseRows += LmsCourse("12", "Policy")
+        val engine = engine()
+        configureAndRefresh(engine)
+        val started = CompletableDeferred<Unit>()
+        gateway.beforeReading = { started.complete(Unit); CompletableDeferred<Unit>().await() }
+        val refresh = launch { engine.dispatch(Command.RefreshReadings) }
+        started.await()
+        try {
+            withTimeout(500) { engine.dispatch(Command.SignOut) }
+            assertFalse(engine.state.value.credentialsConfigured)
+            assertFalse(engine.state.value.readingSync.inProgress)
+            assertTrue(engine.state.value.readings.isEmpty())
+        } finally {
+            refresh.cancel()
+            refresh.join()
+        }
+    }
+
+    @Test
+    fun `a timeout at the login URL is a network failure not rejected credentials`() = runBlocking {
+        gateway.loginError = IOException("LMS network request failed for https://lms.isdm.org.in/user/login.")
+        val engine = engine()
+        engine.dispatch(Command.ConfigureCredentials("learner@example.test", "test-only"))
+        val result = engine.dispatch(Command.RefreshToday) as CommandResult.Rejected
+        assertTrue("A network timeout must not ask for credentials again", result.error is EngineError.NetworkFailure)
+        assertTrue(engine.state.value.credentialsConfigured)
+        gateway.loginError = null
+        assertTrue(engine.dispatch(Command.RefreshToday) is CommandResult.Completed)
+    }
+
     private fun engine(
         locationGate: AttendanceLocationGatePort = AllowAttendanceLocationGate,
         diagnostics: DiagnosticsLogger = NoopDiagnosticsLogger,
         attendanceTelemetry: AttendanceTelemetryPort = NoopAttendanceTelemetry,
         cohortPreference: () -> Cohorts? = { null },
+        accessGate: CompanionAccessPort = AllowCompanionAccess,
     ) = CompanionEngine(
         gateway,
         clock,
@@ -636,6 +724,7 @@ class CompanionEngineTest {
         diagnostics = diagnostics,
         attendanceTelemetry = attendanceTelemetry,
         cohortPreference = cohortPreference,
+        accessGate = accessGate,
     )
 
     private fun deniedLocationGate() = AttendanceLocationGatePort {
@@ -691,17 +780,23 @@ private class FakeGateway : LmsGateway {
     var calendarCalls = 0
     var classroomCalls = 0
     var resetSessionCalls = 0
+    var beforeReading: suspend () -> Unit = {}
     var readingCalls = 0
     var readingFailuresRemaining = 0
     var attendance = AttendanceSummary(0, 0, 0, 0, java.math.BigDecimal.ZERO)
     var attendanceCalls = 0
 
-    override suspend fun login(credentials: Credentials): Identity = Identity("1042", "Student")
+    var loginError: Throwable? = null
+    override suspend fun login(credentials: Credentials): Identity {
+        loginError?.let { throw it }
+        return Identity("1042", "Student")
+    }
 
     override suspend fun courses(): List<LmsCourse> = courseRows.toList()
 
     override suspend fun readings(course: LmsCourse): List<ReadingItem> {
         readingCalls++
+        beforeReading()
         if (readingFailuresRemaining > 0) {
             readingFailuresRemaining--
             throw IOException("temporary reading network failure")

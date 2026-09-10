@@ -4,6 +4,11 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,8 +51,13 @@ class CompanionEngine(
     private val roomFloors: Map<String, Double> = mapOf("sahyog" to 3.0, "majlis" to 6.0),
     private val lateAfterMinutes: Long = 10,
     private val facultyDirectory: FacultyDirectory? = null,
+    private val accessGate: CompanionAccessPort = AllowCompanionAccess,
 ) {
     private val mutex = Mutex()
+    private val accountChangeMutex = Mutex()
+    private var contentRequest: Deferred<CommandResult>? = null
+    private var accountGeneration = 0L
+    private val contentLoader = LmsContentLoader(gateway, facultyDirectory)
     private val _state = MutableStateFlow(initialState())
     val state: StateFlow<CompanionState> = _state.asStateFlow()
 
@@ -64,7 +74,49 @@ class CompanionEngine(
     private var cohortCache: CacheEntry<Cohorts>? = null
     private val detailCache = mutableMapOf<String, CacheEntry<ClassroomDetail>>()
 
-    suspend fun dispatch(command: Command): CommandResult = mutex.withLock {
+    suspend fun dispatch(command: Command): CommandResult = withContext(Dispatchers.IO) {
+        if (command !is Command.ConfigureCredentials && command !in setOf(
+                Command.SignOut, Command.DisarmMonitoring, Command.SystemLimitReached,
+            )) {
+            try {
+                accessGate.requireAccess(fresh = false, allowEnrollment = command is Command.RefreshSchedule ||
+                    command == Command.RefreshToday || command == Command.RefreshReadings ||
+                    command == Command.RefreshAttendance || command == Command.RefreshAll)
+            } catch (error: CompanionAccessException) {
+                return@withContext mutex.withLock { reject(EngineError.AccessDenied(error.reason)) }
+            }
+        }
+        when (command) {
+            Command.RefreshReadings -> contentRefresh()
+            Command.RefreshAll -> refreshAll()
+            Command.SignOut, is Command.ConfigureCredentials -> accountChangeMutex.withLock {
+                val pending = mutex.withLock {
+                    // A background caller may configure the same account during a refresh.
+                    val changing = command !is Command.ConfigureCredentials ||
+                        credentials != Credentials(command.email.trim(), command.password)
+                    if (changing) contentRequest?.also { it.cancel() } else null
+                }
+                // Never wait for content cancellation while holding its commit lock.
+                pending?.join()
+                dispatchLocked(command)
+            }
+            else -> dispatchLocked(command)
+        }
+    }
+
+    private suspend fun contentRefresh(): CommandResult = coroutineScope {
+        val request = accountChangeMutex.withLock {
+            mutex.withLock {
+                contentRequest?.takeUnless { it.isCompleted }
+                    ?: async(start = CoroutineStart.LAZY) { refreshReadings() }
+                        .also { contentRequest = it }
+            }
+        }
+        request.start()
+        request.await()
+    }
+
+    private suspend fun dispatchLocked(command: Command): CommandResult = mutex.withLock {
         val commandName = commandName(command)
         val startedAtNanos = System.nanoTime()
         diagnostics.log("command_started", mapOf("command" to commandName))
@@ -159,6 +211,7 @@ class CompanionEngine(
         cacheStore.selectAccount(email)
         val cachedSchedule = cacheStore.loadSchedule()
         val today = clock.now().atZone(LMS_ZONE).toLocalDate()
+        accountGeneration++
         credentials = configured
         identity = null
         authenticated = false
@@ -171,6 +224,8 @@ class CompanionEngine(
         clearCaches()
         _state.value = stateNow().copy(
             credentialsConfigured = true,
+            detectedCohorts = Cohorts(),
+            cohortDetectionFresh = false,
             identity = null,
             sessions = emptyList(),
             scheduleStart = cachedSchedule?.start ?: today,
@@ -195,6 +250,7 @@ class CompanionEngine(
 
     private suspend fun signOut(): CommandResult {
         val wasMonitoring = currentMonitor().active
+        accountGeneration++
         credentials = null
         identity = null
         authenticated = false
@@ -273,6 +329,7 @@ class CompanionEngine(
                 credentialsConfigured = true,
                 identity = identity,
                 detectedCohorts = cohorts,
+                cohortDetectionFresh = true,
                 sessions = assembled,
                 scheduleSessions = scheduleSessions,
                 sync = SyncStatus(inProgress = false, lastSuccess = now, error = markabilityError),
@@ -297,12 +354,15 @@ class CompanionEngine(
     }
 
     private suspend fun refreshAll(): CommandResult {
-        val todayResult = refreshToday(allowMonitoringEffects = false)
+        val todayResult = dispatch(Command.RefreshToday)
         if (todayResult is CommandResult.Rejected) return todayResult
-        refreshSchedule(DEFAULT_SCHEDULE_DAYS)
-        refreshReadings()
-        refreshAttendance()
-        return CommandResult.Completed(_state.value)
+        val results = listOf(
+            dispatch(Command.RefreshSchedule(DEFAULT_SCHEDULE_DAYS)),
+            dispatch(Command.RefreshAttendance),
+            dispatch(Command.RefreshReadings),
+        )
+        return results.filterIsInstance<CommandResult.Rejected>().firstOrNull()
+            ?: CommandResult.Completed(_state.value)
     }
 
     private suspend fun refreshAttendance(): CommandResult {
@@ -356,6 +416,7 @@ class CompanionEngine(
                 scheduleStart = start,
                 scheduleEndExclusive = end,
                 detectedCohorts = cohorts,
+                cohortDetectionFresh = true,
                 scheduleSessions = scheduleSessions,
                 scheduleSync = SyncStatus(lastSuccess = now),
             )
@@ -372,104 +433,108 @@ class CompanionEngine(
     }
 
     private suspend fun refreshReadings(): CommandResult {
-        val saved = credentials ?: return reject(EngineError.CredentialsMissing)
-        val now = clock.now()
-        _state.value = stateNow().copy(
-            readingSync = _state.value.readingSync.copy(inProgress = true, error = null),
-            assessmentSync = _state.value.assessmentSync.copy(inProgress = true, error = null),
-        )
-        return try {
-            authenticateIfNeeded(saved)
-            val assessmentFetch = captureFetchWithRetry { gateway.assessments() }
-            if (assessmentFetch.error == null) {
-                val freshAssessments = assessmentFetch.value.orEmpty()
-                    .distinctBy { it.id }
-                val assessments = applyLocalAssessmentDone(freshAssessments)
+        val generation = mutex.withLock {
+            if (credentials == null) return reject(EngineError.CredentialsMissing)
+            accountGeneration.also {
                 _state.value = stateNow().copy(
-                    assessments = assessments,
-                    assessmentSync = SyncStatus(lastSuccess = now),
+                    readingSync = _state.value.readingSync.copy(inProgress = true, error = null),
+                    assessmentSync = _state.value.assessmentSync.copy(inProgress = true, error = null),
                 )
-                cacheStore.saveAssessments(freshAssessments)
-                diagnostics.log("assessments_refreshed", mapOf("assessments" to assessments.size.toString()))
-            } else {
-                val mapped = mapError(assessmentFetch.error)
-                _state.value = stateNow().copy(assessmentSync = SyncStatus(error = mapped))
-                diagnostics.log("assessments_refresh_failed", error = assessmentFetch.error)
             }
-            val courses = gateway.courses()
-            val semaphore = Semaphore(3)
-            val courseContent = coroutineScope {
-                courses.map { course ->
-                    async {
-                        semaphore.withPermit {
-                            CourseContent(
-                                readings = captureFetchWithRetry { gateway.readings(course) },
-                                facultyProfiles = facultyDirectory?.let { directory ->
-                                    captureFetchWithRetry { directory.facultyProfiles(course) }
-                                },
-                            )
-                        }
+        }
+        val now = clock.now()
+        val startedAtNanos = System.nanoTime()
+        diagnostics.log("command_started", mapOf("command" to "refresh_readings"))
+        try {
+            mutex.withLock { authenticateIfNeeded(requireNotNull(credentials)) }
+            val fetch = contentLoader.load { assessmentFetch ->
+                mutex.withLock {
+                    checkContentAccount(generation)
+                    if (assessmentFetch.error == null) {
+                        val fresh = assessmentFetch.value.orEmpty().distinctBy { it.id }
+                        _state.value = stateNow().copy(
+                            assessments = applyLocalAssessmentDone(fresh),
+                            assessmentSync = SyncStatus(lastSuccess = now),
+                        )
+                        cacheStore.saveAssessments(fresh)
+                    } else {
+                        _state.value = stateNow().copy(
+                            assessmentSync = _state.value.assessmentSync.copy(
+                                inProgress = false, error = mapError(assessmentFetch.error),
+                            ),
+                        )
+                        diagnostics.log("assessments_refresh_failed", error = assessmentFetch.error)
                     }
-                }.awaitAll()
+                }
             }
-
-            val readingFailures = courseContent.mapNotNull { it.readings.error }
-            val profileFetches = courseContent.mapNotNull { it.facultyProfiles }
-            val profileFailures = profileFetches.mapNotNull { it.error }
-            var updated = stateNow()
-
-            if (readingFailures.isEmpty()) {
-                val fresh = courseContent.flatMap { it.readings.value.orEmpty() }.distinctBy { it.vid }
-                val done = readingDoneStore.load()
-                updated = updated.copy(
-                    readings = fresh.map { it.copy(done = it.vid in done) }.sortedBy { it.done },
-                    readingSync = SyncStatus(lastSuccess = now),
-                )
-                cacheStore.saveReadings(fresh)
-                diagnostics.log(
-                    "readings_refreshed",
-                    mapOf("courses" to courses.size.toString(), "readings" to fresh.size.toString()),
-                )
-            } else {
-                diagnostics.log(
-                    "readings_refresh_failed",
-                    mapOf("courses" to courses.size.toString(), "failed_courses" to readingFailures.size.toString()),
-                )
-            }
-
-            if (facultyDirectory != null && profileFailures.isEmpty()) {
-                val profiles = profileFetches.flatMap { it.value.orEmpty() }
-                    .distinctBy { it.courseCatId to it.sourceUrl }
-                updated = updated.copy(facultyProfiles = profiles)
-                cacheStore.saveFacultyProfiles(profiles)
-                diagnostics.log(
-                    "faculty_profiles_refreshed",
-                    mapOf("courses" to courses.size.toString(), "profiles" to profiles.size.toString()),
-                )
-            } else if (profileFailures.isNotEmpty()) {
-                diagnostics.log(
-                    "faculty_profiles_refresh_failed",
-                    mapOf("courses" to courses.size.toString(), "failed_courses" to profileFailures.size.toString()),
-                )
-            }
-
-            _state.value = updated
-            if (readingFailures.isEmpty()) {
-                CommandResult.Completed(_state.value)
-            } else {
-                val mapped = mapError(readingFailures.first())
-                _state.value = stateNow().copy(readingSync = SyncStatus(error = mapped))
-                CommandResult.Rejected(mapped, _state.value)
+            fetch.error?.let { throw it }
+            val courses = fetch.value.orEmpty()
+            return mutex.withLock {
+                checkContentAccount(generation)
+                val readingFailures = courses.mapNotNull { it.readings.error }
+                val profileFetches = courses.mapNotNull { it.facultyProfiles }
+                if (readingFailures.isEmpty()) {
+                    val fresh = courses.flatMap { it.readings.value.orEmpty() }.distinctBy { it.vid }
+                    // Read local edits at commit time, never from a pre-fetch snapshot.
+                    val done = readingDoneStore.load()
+                    _state.value = stateNow().copy(
+                        readings = fresh.map { it.copy(done = it.vid in done) }.sortedBy { it.done },
+                        readingSync = SyncStatus(lastSuccess = now),
+                    )
+                    cacheStore.saveReadings(fresh)
+                    diagnostics.log("readings_refreshed", mapOf("courses" to courses.size.toString(), "readings" to fresh.size.toString()))
+                } else {
+                    _state.value = stateNow().copy(readingSync = _state.value.readingSync.copy(
+                        inProgress = false, error = mapError(readingFailures.first()),
+                    ))
+                }
+                if (facultyDirectory != null && profileFetches.all { it.error == null }) {
+                    val profiles = profileFetches.flatMap { it.value.orEmpty() }
+                        .distinctBy { it.courseCatId to it.sourceUrl }
+                    _state.value = stateNow().copy(facultyProfiles = profiles)
+                    cacheStore.saveFacultyProfiles(profiles)
+                }
+                val error = _state.value.readingSync.error ?: _state.value.assessmentSync.error
+                val result = error?.let { CommandResult.Rejected(it, _state.value) }
+                    ?: CommandResult.Completed(_state.value)
+                diagnostics.log("command_finished", mapOf(
+                    "command" to "refresh_readings", "result" to resultName(result),
+                    "duration_ms" to ((System.nanoTime() - startedAtNanos) / 1_000_000).toString(),
+                ))
+                result
             }
         } catch (error: CancellationException) {
+            diagnostics.log("command_cancelled", mapOf("command" to "refresh_readings"))
             throw error
         } catch (error: Throwable) {
-            val mapped = mapError(error)
-            _state.value = stateNow().copy(
-                readingSync = SyncStatus(error = mapped),
-                assessmentSync = if (_state.value.assessmentSync.inProgress) SyncStatus(error = mapped) else _state.value.assessmentSync,
-            )
-            CommandResult.Rejected(mapped, _state.value)
+            return mutex.withLock {
+                checkContentAccount(generation)
+                val mapped = mapError(error)
+                _state.value = stateNow().copy(
+                    readingSync = _state.value.readingSync.copy(inProgress = false, error = mapped),
+                    assessmentSync = if (_state.value.assessmentSync.inProgress)
+                        _state.value.assessmentSync.copy(inProgress = false, error = mapped)
+                    else _state.value.assessmentSync,
+                )
+                CommandResult.Rejected(mapped, _state.value)
+            }
+        } finally {
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    if (generation == accountGeneration) {
+                        _state.value = stateNow().copy(
+                            readingSync = _state.value.readingSync.copy(inProgress = false),
+                            assessmentSync = _state.value.assessmentSync.copy(inProgress = false),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun checkContentAccount(generation: Long) {
+        if (generation != accountGeneration || credentials == null) {
+            throw CancellationException("Content belongs to a replaced account")
         }
     }
 
@@ -762,6 +827,13 @@ class CompanionEngine(
         var telemetryOutcome = "unknown"
         var telemetryResult = "unknown"
         try {
+            try {
+                accessGate.requireAccess(fresh = true, allowEnrollment = false)
+            } catch (error: CompanionAccessException) {
+                telemetryOutcome = "blocked"
+                telemetryResult = "access_denied"
+                return reject(EngineError.AccessDenied(error.reason))
+            }
             val locationDecision = try {
                 attendanceLocationGate.evaluate(clock.now())
             } catch (error: CancellationException) {
@@ -962,11 +1034,10 @@ class CompanionEngine(
 
     private fun mapError(error: Throwable): EngineError {
         val message = error.message?.takeIf { it.isNotBlank() } ?: "The LMS request failed."
-        val lower = message.lowercase()
         return when {
-            "login" in lower || "password" in lower || "logged out" in lower || "auth" in lower ->
-                EngineError.AuthenticationFailed(message)
-            error is java.io.IOException || "network" in lower || "fetch" in lower || "timeout" in lower ->
+            error is CompanionAccessException -> EngineError.AccessDenied(error.reason)
+            error is AuthenticationFailure -> EngineError.AuthenticationFailed(message)
+            generateSequence(error) { it.cause }.any { it is java.io.IOException } ->
                 EngineError.NetworkFailure(message)
             else -> EngineError.LmsFailure(message)
         }
@@ -1000,26 +1071,6 @@ class CompanionEngine(
             .sortedWith(ASSESSMENT_ORDER)
     }
 
-    private suspend fun <T> captureFetchWithRetry(block: suspend () -> T): Fetch<T> {
-        for (attempt in 1..MAX_COURSE_FETCH_ATTEMPTS) {
-            try {
-                return Fetch(value = block())
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                if (attempt == MAX_COURSE_FETCH_ATTEMPTS || !isRetryableFetch(error)) {
-                    return Fetch(error = error)
-                }
-            }
-        }
-        error("unreachable")
-    }
-
-    private fun isRetryableFetch(error: Throwable): Boolean {
-        val message = error.message.orEmpty().lowercase()
-        return error is java.io.IOException || "network" in message || "fetch" in message || "timeout" in message
-    }
-
     private suspend fun authenticateIfNeeded(saved: Credentials) {
         if (authenticated) return
         identity = gateway.login(saved)
@@ -1027,13 +1078,6 @@ class CompanionEngine(
     }
 
     private data class CacheEntry<T>(val loadedAt: Instant, val value: T)
-
-    private data class CourseContent(
-        val readings: Fetch<List<ReadingItem>>,
-        val facultyProfiles: Fetch<List<FacultyProfile>>?,
-    )
-
-    private data class Fetch<T>(val value: T? = null, val error: Throwable? = null)
 
     private data class DayCache(
         val date: LocalDate,
@@ -1043,7 +1087,6 @@ class CompanionEngine(
 
     private companion object {
         const val DEFAULT_SCHEDULE_DAYS = 14
-        const val MAX_COURSE_FETCH_ATTEMPTS = 2
         const val MAX_SCHEDULE_DAYS = 31
         const val MAX_AUTO_ATTEMPTS = 3
         const val LIVE_CALENDAR_TTL_SECONDS = 60L
@@ -1087,6 +1130,7 @@ private fun errorName(error: EngineError): String = when (error) {
     EngineError.CredentialsMissing -> "credentials_missing"
     is EngineError.InvalidCommand -> "invalid_command"
     is EngineError.AuthenticationFailed -> "authentication_failed"
+    is EngineError.AccessDenied -> "access_denied"
     is EngineError.NetworkFailure -> "network_failure"
     is EngineError.LmsFailure -> "lms_failure"
     is EngineError.MarkWindowClosed -> "mark_window_closed"

@@ -330,7 +330,7 @@ class RealLmsAdapterTest {
                     .setResponseCode(302).setHeader("Location", "/home")
                 request.method == "GET" && request.path == "/home" -> MockResponse()
                     .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
-                request.path == "/my-activities" -> MockResponse().setBody(
+                request.requestUrl?.encodedPath == "/my-activities" -> MockResponse().setBody(
                     """
                     <table><tr>
                       <td><p>B10 - T1 - PMDL - Reflection 2 from topic Assessments</p>
@@ -352,6 +352,7 @@ class RealLmsAdapterTest {
                     <a href='/download/video?sid=1298915&amp;vid=1306062&amp;cid=1298950&amp;cat_id=70954'></a>
                     """.trimIndent(),
                 )
+                request.requestUrl?.encodedPath == "/load/video" -> MockResponse().setBody("<div>No detail frame available</div>")
                 else -> MockResponse().setResponseCode(404)
             }
         }
@@ -385,7 +386,7 @@ class RealLmsAdapterTest {
                     .setResponseCode(302).setHeader("Location", "/home")
                 request.method == "GET" && request.path == "/home" -> MockResponse()
                     .setBody("<a href='/user/1042/edit/chgpwd'>x</a>")
-                request.path == "/my-activities" -> MockResponse().setBody(
+                request.requestUrl?.encodedPath == "/my-activities" -> MockResponse().setBody(
                     """
                     <table><tr>
                       <td><p>B10 - T1 - PMDL - Reflection 2 from topic Assessments</p>
@@ -398,6 +399,9 @@ class RealLmsAdapterTest {
                     """.trimIndent(),
                 )
                 request.path?.startsWith("/subtopic/view?sid=1298915&vid=1305879") == true -> MockResponse().setBody(
+                    "<main>Frame is loaded by JavaScript</main>",
+                )
+                request.requestUrl?.encodedPath == "/load/video" -> MockResponse().setBody(
                     "<iframe id='iframe_load' src='/activity/user/attempt?nid=1305877&amp;videoid=1305879'></iframe>",
                 )
                 request.path == "/activity/user/attempt?nid=1305877&videoid=1305879" -> MockResponse().setBody(
@@ -418,6 +422,7 @@ class RealLmsAdapterTest {
             val assessment = RealLmsAdapter("a@b.c", "password", server.url("/").toString())
                 .assessments().single()
 
+            assertTrue(assessment.datesVerified)
             assertEquals(java.time.LocalDate.of(2026, 8, 20), assessment.dueDate)
             assertEquals(java.time.LocalDate.of(2026, 9, 20), assessment.endDate)
             assertTrue(assessment.submissionUrl.contains("/activity/user/attempt"))

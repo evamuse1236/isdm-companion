@@ -1,5 +1,6 @@
 package org.isdm.companion.platform
 
+import org.isdm.companion.BuildConfig
 import java.io.IOException
 import java.time.Instant
 import java.util.Base64
@@ -71,6 +72,7 @@ class BetaApiException(val statusCode: Int, val code: String) : IOException(code
 class BetaApiClient(
     private val baseUrl: String,
     private val client: OkHttpClient = OkHttpClient(),
+    private val appVersionCode: Int = BuildConfig.VERSION_CODE,
 ) {
     fun enroll(enrollment: BetaEnrollment): BetaInstallation {
         val body = JSONObject()
@@ -85,6 +87,23 @@ class BetaApiClient(
             installationId = response.getString("installation_id"),
             installToken = response.getString("install_token"),
         )
+    }
+
+    fun accessConfig(installation: BetaInstallation): BetaAccessSnapshot {
+        val response = request("config", null, installation)
+        if (!response.has("access_suspended") || response.opt("access_suspended") !is Boolean) {
+            throw IOException("Access configuration is unavailable")
+        }
+        val status = when {
+            response.getBoolean("access_suspended") -> BetaAccessStatus.SUSPENDED
+            response.optBoolean("update_required", false) -> BetaAccessStatus.UPDATE_REQUIRED
+            else -> BetaAccessStatus.ALLOWED
+        }
+        val validUntil = response.optStringOrNull("access_valid_until")?.let {
+            runCatching { Instant.parse(it) }.getOrNull()
+        }
+        if (status == BetaAccessStatus.ALLOWED && validUntil == null) throw IOException("Access lease is missing")
+        return BetaAccessSnapshot(status, validUntil = validUntil)
     }
 
     fun autoPreflight(installation: BetaInstallation): AutoPreflight {
@@ -186,14 +205,22 @@ class BetaApiClient(
         body: JSONObject,
         installation: BetaInstallation? = null,
         acceptedStatuses: Set<Int> = setOf(200, 201),
+    ): JSONObject = request(route, body, installation, acceptedStatuses)
+
+    private fun request(
+        route: String,
+        body: JSONObject?,
+        installation: BetaInstallation? = null,
+        acceptedStatuses: Set<Int> = setOf(200, 201),
     ): JSONObject {
         val request = Request.Builder()
             .url("$baseUrl/$route")
-            .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .apply { if (body == null) get() else post(body.toString().toRequestBody(JSON_MEDIA_TYPE)) }
             .apply {
                 if (installation != null) {
                     header("x-installation-id", installation.installationId)
                     header("x-install-token", installation.installToken)
+                    header("x-app-version-code", appVersionCode.toString())
                 }
             }
             .build()

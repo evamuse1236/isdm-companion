@@ -1,3 +1,4 @@
+import { updateTesterAccess, type AccessStore } from "./access.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.112.3";
 import { summarizeProcessExits } from "./reliability.ts";
 
@@ -11,16 +12,30 @@ Deno.serve(async (request) => {
     if (!(await isAdmin(request))) return json({ error: "unauthorized" }, 401);
     const route = new URL(request.url).pathname.split("/").filter(Boolean).at(-1);
 
-    if (route === "dashboard" && request.method === "GET") return dashboard();
-    if (route === "control" && request.method === "POST") return updateControl(request);
-    if (route === "report" && request.method === "PATCH") return updateReport(request);
-    if (route === "attendance" && request.method === "PATCH") return updateAttendance(request);
+    if (route === "dashboard" && request.method === "GET") return await dashboard();
+    if (route === "access" && request.method === "POST") return await updateTesterAccess(request, accessStore);
+    if (route === "control" && request.method === "POST") return await updateControl(request);
+    if (route === "report" && request.method === "PATCH") return await updateReport(request);
+    if (route === "attendance" && request.method === "PATCH") return await updateAttendance(request);
     return json({ error: "not_found" }, 404);
   } catch (error) {
     console.error("beta_admin_unhandled", error instanceof Error ? error.message : "unknown");
     return json({ error: "internal_error" }, 500);
   }
 });
+
+const accessStore: AccessStore = {
+  async setAccess(update) {
+    const { data, error } = await db.rpc("set_beta_tester_access", {
+      p_tester_code: update.tester_code,
+      p_suspended: update.suspended,
+      p_reason: update.reason,
+      p_expected_changed_at: update.expected_changed_at,
+    });
+    if (error) throw error;
+    return data;
+  },
+};
 
 async function isAdmin(request: Request): Promise<boolean> {
   const secret = request.headers.get("x-admin-secret");
@@ -34,13 +49,13 @@ async function dashboard(): Promise<Response> {
   const todayIst = startOfTodayIst();
   const [config, installations, events, schedules, attendance, reports, attachments, audit, failures, cancellations, exits] = await Promise.all([
     db.from("beta_config").select("auto_attendance_blocked, minimum_version_code, beta_starts_at, beta_ends_at, updated_at").eq("singleton", true).single(),
-    db.from("beta_installations").select("tester_code, installation_id, consent_version, consented_at, support_name, profile_confirmed_at, support_name_deleted_at, self_section, self_plc, manufacturer, model, android_version, app_version, app_version_code, detected_sections, detected_groups, schedule_status, auto_attendance_enabled, last_sync_status, last_sync_at, first_seen_at, last_seen_at, claimed_at").order("tester_code"),
+    db.from("beta_installations").select("tester_code, installation_id, access_suspended, access_changed_at, access_reason, consent_version, consented_at, support_name, profile_confirmed_at, support_name_deleted_at, self_section, self_plc, manufacturer, model, android_version, app_version, app_version_code, detected_sections, detected_groups, schedule_status, auto_attendance_enabled, last_sync_status, last_sync_at, first_seen_at, last_seen_at, claimed_at").order("tester_code"),
     db.from("beta_events").select("id, tester_code, event_type, occurred_at, payload, received_at").order("occurred_at", { ascending: false }).limit(300),
     db.from("beta_schedule_confirmations").select("id, tester_code, confirmed_at, status, selected_date, app_session_count, note, snapshot").order("confirmed_at", { ascending: false }).limit(100),
     db.from("beta_attendance_decisions").select("id, tester_code, occurred_at, method, session_label, latitude, longitude, accuracy_m, location_age_ms, distance_m, gate_allowed, gate_reason, lms_markable, outcome, suspected_incorrect, details").order("occurred_at", { ascending: false }).limit(200),
     db.from("beta_issue_reports").select("id, tester_code, category, title, description, status, owner_note, linked_attendance_id, app_context, created_at, updated_at").order("created_at", { ascending: false }).limit(200),
     db.from("beta_report_attachments").select("id, report_id, storage_path, content_type, size_bytes, created_at").order("created_at", { ascending: false }).limit(400),
-    db.from("beta_control_audit").select("id, action, reason, actor_label, created_at").order("created_at", { ascending: false }).limit(20),
+    db.from("beta_control_audit").select("id, action, tester_code, reason, actor_label, created_at").order("created_at", { ascending: false }).limit(20),
     db.from("beta_events").select("id", { count: "exact", head: true })
       .gte("occurred_at", todayIst)
       .in("event_type", ["command_crashed", "background_sync_failed", "background_reading_sync_failed"]),

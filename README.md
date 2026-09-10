@@ -58,7 +58,7 @@ Release preparation and tester distribution are separate actions. Distribution r
 recipient/artifact preview and explicit approval; see
 [`docs/beta-release-script.md`](docs/beta-release-script.md).
 
-Root Node tooling is private and exists only for beta API and release checks:
+Root Node tooling requires Node.js 22.13 or newer and exists only for beta API and release checks:
 
 ```bash
 npm test
@@ -75,3 +75,8 @@ npm test
 ## Licence
 
 MIT — see [`LICENSE`](LICENSE).
+
+## Performance and access review
+
+See [the performance, access-control, and theme-polish review](docs/performance-access-review.md)
+for the implemented boundaries, Hermes parser contracts, validation, and rollout order.

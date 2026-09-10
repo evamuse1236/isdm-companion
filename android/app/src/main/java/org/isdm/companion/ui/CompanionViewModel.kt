@@ -14,6 +14,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import org.isdm.companion.platform.BetaAccessStatus
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,6 +46,11 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     private val app = application as CompanionApplication
     private val releaseNotesStore = ReleaseNotesStore(app)
     val state = app.engine.state
+    val access = app.betaManager.access.state
+    private val _savedLmsEmail = MutableStateFlow<String?>(null)
+    val savedLmsEmail = _savedLmsEmail.asStateFlow()
+    private var refreshJob: Job? = null
+    private var accessJob: Job? = null
 
     private val _releaseNotes = MutableStateFlow(releaseNotesStore.pending())
     val releaseNotes = _releaseNotes.asStateFlow()
@@ -86,34 +96,60 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
 
     init {
         viewModelScope.launch {
-            val saved = app.credentialStore.load()
-            if (saved == null) {
-                _initializing.value = false
-                return@launch
+            val saved = withContext(Dispatchers.IO) { app.credentialStore.load() }
+            if (saved != null) {
+                _savedLmsEmail.value = saved.email
+                app.engine.dispatch(Command.ConfigureCredentials(saved.email, saved.password))
             }
-            app.engine.dispatch(Command.ConfigureCredentials(saved.email, saved.password))
-            app.engine.dispatch(Command.RefreshToday)
+            // The account cache is ready. A network round trip is not a launch requirement.
             _initializing.value = false
-            refreshScheduleAndReadings()
+            if (saved != null) refresh()
+            refreshAccess()
+        }
+        viewModelScope.launch {
+            access.collectLatest { snapshot ->
+                if (snapshot.status in setOf(BetaAccessStatus.SUSPENDED, BetaAccessStatus.INVALID_INSTALLATION, BetaAccessStatus.UPDATE_REQUIRED)) {
+                    refreshJob?.cancel()
+                    _autoAttendanceEnabled.value = false
+                }
+            }
         }
     }
 
     fun signIn(email: String, password: String) {
-        viewModelScope.launch {
-            if (email.isBlank() || password.isBlank()) {
-                _message.value = "Enter your LMS email and password."
-                return@launch
-            }
+        if (email.isBlank() || password.isBlank()) {
+            _message.value = "Enter your LMS email and password."
+            return
+        }
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             _message.value = null
             app.engine.dispatch(Command.ConfigureCredentials(email, password))
-            when (app.engine.dispatch(Command.RefreshToday)) {
-                is CommandResult.Completed -> {
-                    app.credentialStore.save(email, password)
-                    refreshScheduleAndReadings()
-                }
-                else -> Unit
+            val result = app.engine.dispatch(Command.RefreshToday)
+            // A valid login is worth saving even if a subsequent schedule request times out.
+            if (state.value.identity != null && state.value.error !is EngineError.AuthenticationFailed) {
+                withContext(Dispatchers.IO) { app.credentialStore.save(email, password) }
+                _savedLmsEmail.value = email.trim()
             }
+            if (result is CommandResult.Completed) refreshScheduleAndReadings()
         }
+    }
+
+    fun refreshAccess() {
+        if (accessJob?.isActive == true) return
+        accessJob = viewModelScope.launch {
+            val before = access.value.status
+            val updated = app.betaManager.access.refresh()
+            _autoAttendanceEnabled.value = app.autoAttendanceStore.isEnabled()
+            if (before != BetaAccessStatus.ALLOWED && updated.status == BetaAccessStatus.ALLOWED && _savedLmsEmail.value != null) refresh()
+        }
+    }
+
+    fun onForeground() {
+        refreshAccess()
+        if (_initializing.value || _savedLmsEmail.value == null) return
+        val latest = state.value.sync.lastSuccess
+        if (latest == null || state.value.sync.error != null || Instant.now().isAfter(latest.plusSeconds(120))) refresh()
     }
 
     fun enrollBeta(
@@ -147,6 +183,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }.onSuccess { (installation, profile) ->
                 _betaEnrolled.value = true
+                refreshAccess()
                 _betaProfile.value = profile
                 _message.value = "${installation.testerCode} joined the beta."
                 onSuccess()
@@ -280,10 +317,16 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun refresh() {
-        viewModelScope.launch {
-            app.engine.dispatch(Command.RefreshAll)
-            reconcileDetectedCohorts()
-            scheduleAutoAttendance(showMessage = false)
+        if (refreshJob?.isActive == true || _signingOut.value) return
+        refreshJob = viewModelScope.launch {
+            var result = app.engine.dispatch(Command.RefreshToday)
+            // Retry a transient connection failure with the existing secure login.
+            for (waitMs in listOf(1_000L, 3_000L)) {
+                if ((result as? CommandResult.Rejected)?.error !is EngineError.NetworkFailure) break
+                delay(waitMs)
+                result = app.engine.dispatch(Command.RefreshToday)
+            }
+            if (result is CommandResult.Completed) refreshScheduleAndReadings()
         }
     }
 
@@ -355,6 +398,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 return@launch
             }
             runCatching {
+                app.betaManager.access.requireAccess(fresh = true, allowEnrollment = false)
                 val url = app.lmsAdapter.readingDownloadUrl(
                     Credentials(stored.email, stored.password),
                     sourceUrl,
@@ -391,7 +435,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 val result = app.engine.dispatch(Command.Mark(sessionId))
                 showMarkError(result)
-                _attendanceFeedback.value = AttendanceFeedback(result is CommandResult.Completed, System.nanoTime())
+                _attendanceFeedback.value = AttendanceFeedback(result is CommandResult.Marked || result is CommandResult.AlreadyMarked, System.nanoTime())
             } finally {
                 _markingSessionIds.value = _markingSessionIds.value - sessionId
             }
@@ -409,7 +453,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 }
                 val result = app.engine.dispatch(Command.Mark(sessionId))
                 showMarkError(result)
-                _attendanceFeedback.value = AttendanceFeedback(result is CommandResult.Completed, System.nanoTime())
+                _attendanceFeedback.value = AttendanceFeedback(result is CommandResult.Marked || result is CommandResult.AlreadyMarked, System.nanoTime())
             } finally {
                 _markingSessionIds.value = _markingSessionIds.value - sessionId
             }
@@ -451,6 +495,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun signOut() {
         if (_signingOut.value) return
         _signingOut.value = true
+        refreshJob?.cancel()
         viewModelScope.launch {
             val failures = runCatching {
                 withContext(NonCancellable) {
@@ -467,6 +512,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     if (!backgroundWorkStopped) failed += "background sync"
                     if (!app.credentialStore.clear()) failed += "saved LMS login"
+                    else _savedLmsEmail.value = null
                     if (app.engine.dispatch(Command.SignOut) !is CommandResult.Completed) failed += "live LMS session"
                     if (!clearLmsBrowserSessionAndWait()) failed += "browser session"
                     if (backgroundWorkStopped && app.credentialStore.load() == null) {
@@ -507,6 +553,9 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             }
             is EngineError.MarkWindowClosed -> "The LMS attendance window is closed."
             is EngineError.MarkRejected -> error.message
+            is EngineError.AccessDenied -> if (error.reason == "needs_connection") {
+                "Connect to the internet before marking attendance, then try again."
+            } else "Companion access is paused or needs attention. Check access again."
             else -> null
         }
     }
@@ -549,12 +598,12 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         app.engine.dispatch(Command.RefreshSchedule())
         reconcileDetectedCohorts()
         scheduleAutoAttendance(showMessage = false)
-        app.engine.dispatch(Command.RefreshReadings)
         app.engine.dispatch(Command.RefreshAttendance)
+        app.engine.dispatch(Command.RefreshReadings)
     }
 
     private fun reconcileDetectedCohorts() {
-        if (state.value.scheduleSync.lastSuccess == null) return
+        if (!state.value.cohortDetectionFresh) return
         val saved = app.betaManager.profile ?: return
         val current = state.value.detectedCohorts
         if (saved.detectedSections != current.sections || saved.detectedGroups != current.groups) {

@@ -18,6 +18,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -87,6 +88,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -122,6 +124,9 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.filter
@@ -278,6 +283,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         publishSetupPermissions()
+        viewModel.onForeground()
         val app = application as CompanionApplication
         if (!pendingAutoAttendance && app.autoAttendanceStore.isEnabled() &&
             (!hasBackgroundLocationAccess() || !canScheduleExactAlarms())
@@ -481,7 +487,7 @@ private const val PENDING_MARK_SESSION_ID = "pending_mark_session_id"
 private const val PENDING_MARK_FROM_INTENT = "pending_mark_from_intent"
 private const val PENDING_AUTO_ATTENDANCE = "pending_auto_attendance"
 
-private enum class Destination { SCHEDULE, READINGS, PROFILE }
+internal enum class Destination { SCHEDULE, READINGS, PROFILE }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -493,10 +499,13 @@ private fun CompanionScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val initializing by viewModel.initializing.collectAsStateWithLifecycle()
+    val savedLmsEmail by viewModel.savedLmsEmail.collectAsStateWithLifecycle()
+    val access by viewModel.access.collectAsStateWithLifecycle()
     val signingOut by viewModel.signingOut.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val autoAttendanceEnabled by viewModel.autoAttendanceEnabled.collectAsStateWithLifecycle()
     val betaEnrolled by viewModel.betaEnrolled.collectAsStateWithLifecycle()
+    val accessBlocked = betaEnrolledAccessBlocked(betaEnrolled, access.status)
     val betaEnrolling by viewModel.betaEnrolling.collectAsStateWithLifecycle()
     val betaTourRequired by viewModel.betaTourRequired.collectAsStateWithLifecycle()
     val betaProfile by viewModel.betaProfile.collectAsStateWithLifecycle()
@@ -517,7 +526,7 @@ private fun CompanionScreen(
     var issueReportOpen by rememberSaveable { mutableStateOf(false) }
     var signOutOpen by rememberSaveable { mutableStateOf(false) }
     val currentDetected = detectedProfileCohorts(state)
-    val detectionLoaded = state.scheduleSync.lastSuccess != null
+    val detectionLoaded = state.cohortDetectionFresh
     val confirmedDetectionCurrent = betaProfile != null && if (detectionLoaded) {
         currentDetected.first.isNotEmpty() && betaProfile?.detectedSections == currentDetected.first &&
             betaProfile?.detectedGroups == currentDetected.second
@@ -530,6 +539,22 @@ private fun CompanionScreen(
         permissions = setupPermissions,
     )
 
+    LaunchedEffect(accessBlocked) {
+        if (accessBlocked) {
+            selectedSession = null
+            selectedReading = null
+            issueReportOpen = false
+        }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                viewModel.refreshAccess()
+                delay(60_000)
+            }
+        }
+    }
     LaunchedEffect(state.today, state.scheduleStart, state.scheduleEndExclusive) {
         if (selectedDate < state.scheduleStart || selectedDate >= state.scheduleEndExclusive) {
             selectedDate = when {
@@ -565,7 +590,7 @@ private fun CompanionScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             val mainExperienceVisible = !initializing && !signingOut && !betaTourRequired &&
-                state.identity != null && betaEnrolled && betaProfile != null && setupExplained
+                !accessBlocked && !requiresLmsSignIn(state, savedLmsEmail != null) && betaEnrolled && betaProfile != null && setupExplained
             if (mainExperienceVisible) {
                 SmallFloatingActionButton(
                     onClick = { issueReportOpen = true },
@@ -586,14 +611,22 @@ private fun CompanionScreen(
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator(color = Teal) }
 
+            accessBlocked -> AccessRestrictedContent(
+                status = access.status,
+                onRetry = viewModel::refreshAccess,
+                onSignOut = viewModel::signOut,
+                modifier = Modifier.padding(padding),
+            )
+
             betaTourRequired -> BetaTourContent(
                 onFinish = viewModel::finishTour,
                 modifier = Modifier.padding(padding),
             )
 
-            state.identity == null -> LoginContent(
+            requiresLmsSignIn(state, savedLmsEmail != null) -> LoginContent(
                 state = state,
                 onSignIn = viewModel::signIn,
+                initialEmail = savedLmsEmail.orEmpty(),
                 modifier = Modifier.padding(padding),
             )
 
@@ -648,8 +681,8 @@ private fun CompanionScreen(
                 AnimatedContent(
                     targetState = destination,
                     transitionSpec = {
-                        (fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + slideInVertically { it / 18 })
-                            .togetherWith(fadeOut() + slideOutVertically { -it / 18 })
+                        (fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 18 })
+                            .togetherWith(fadeOut(tween(120)) + slideOutVertically(tween(120)) { -it / 18 })
                     },
                     label = "destination",
                     modifier = Modifier.weight(1f),
@@ -800,7 +833,7 @@ private fun CompanionScreen(
 }
 
 @Composable
-private fun CompanionHeader(
+internal fun CompanionHeader(
     state: CompanionState,
     autoAttendanceEnabled: Boolean,
     onRefresh: () -> Unit,
@@ -859,7 +892,10 @@ private fun CompanionHeader(
                 Box(Modifier.size(7.dp).background(if (syncing) SkyAccent else Green, CircleShape))
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    if (syncing) "Updating…" else latest?.let { "Updated ${TIME_FORMAT.format(it.atZone(IST))}" } ?: "Update",
+                    if (syncing) "Updating…" else latest?.let {
+                        if (it.atZone(IST).toLocalDate() == state.today) "Updated ${TIME_FORMAT.format(it.atZone(IST))}"
+                        else "Saved ${it.atZone(IST).format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))}"
+                    } ?: "Update",
                     fontSize = 11.sp,
                     color = if (syncing) SkyAccent else Green,
                     fontWeight = FontWeight.Bold,
@@ -870,11 +906,11 @@ private fun CompanionHeader(
 }
 
 @Composable
-private fun DestinationTabs(destination: Destination, onChange: (Destination) -> Unit) {
+internal fun DestinationTabs(destination: Destination, onChange: (Destination) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Destination.entries.forEach { item ->
             val active = item == destination
-            val color by animateColorAsState(if (active) TealDeep else Soft, label = "tab")
+            val color by animateColorAsState(if (active) TealDeep else Soft, animationSpec = tween(160), label = "tab")
             Box(
                 Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(color)
                     .clickable { onChange(item) }.padding(vertical = 13.dp),
@@ -896,7 +932,7 @@ private fun DestinationTabs(destination: Destination, onChange: (Destination) ->
 }
 
 @Composable
-private fun ScheduleContent(
+internal fun ScheduleContent(
     state: CompanionState,
     selectedDate: LocalDate,
     onStepDate: (Int) -> Unit,
@@ -912,16 +948,20 @@ private fun ScheduleContent(
     markingSessionIds: Set<String>,
 ) {
     val source = state.scheduleSessions.ifEmpty { state.sessions }
-    val sessions = source.filter { it.start.atZone(IST).toLocalDate() == selectedDate }
-    var clockNow by remember { mutableStateOf(Instant.now()) }
+    val sessions = remember(source, selectedDate) { source.filter { it.start.atZone(IST).toLocalDate() == selectedDate } }
+    val clockNow = remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(Unit) {
         while (true) {
-            clockNow = Instant.now()
+            clockNow.value = Instant.now()
             delay(1_000)
         }
     }
-    val highlights = scheduleHighlights(source, selectedDate, state.today, clockNow)
-        .associate { it.session to it.kind }
+    val highlights by remember(sessions, selectedDate, state.today) {
+        derivedStateOf {
+            scheduleHighlights(sessions, selectedDate, state.today, clockNow.value)
+                .associate { it.session to it.kind }
+        }
+    }
     var mismatchOpen by rememberSaveable(selectedDate) { mutableStateOf(false) }
     var mismatchNote by rememberSaveable(selectedDate) { mutableStateOf("") }
     LazyColumn(
@@ -1007,7 +1047,7 @@ private fun ScheduleContent(
                         SessionRow(
                             session = session,
                             highlight = highlights[session],
-                            now = clockNow,
+                            nowProvider = { clockNow.value },
                             onOpen = { onSession(session) },
                             onMark = onMark,
                             marking = session.nid in markingSessionIds,
@@ -1016,7 +1056,7 @@ private fun ScheduleContent(
                 }
             }
         }
-        state.scheduleSync.error?.let { error ->
+        (state.scheduleSync.error ?: state.sync.error)?.let { error ->
             item { InlineError("Schedule may be stale. ${errorText(error)}") }
         }
         item {
@@ -1053,7 +1093,7 @@ private fun AssessmentDueBanner(assessment: AssessmentItem, onOpen: () -> Unit) 
                 maxLines = 1,
             )
             Text(
-                formatAssessmentDueDate(assessment.dueDate),
+                assessmentDateLabel(assessment),
                 color = Muted,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
@@ -1107,11 +1147,14 @@ private fun DateArrow(forward: Boolean, enabled: Boolean, onClick: () -> Unit) {
 private fun SessionRow(
     session: Session,
     highlight: ScheduleHighlightKind?,
-    now: java.time.Instant,
+    nowProvider: () -> Instant,
     onOpen: () -> Unit,
     onMark: (String) -> Unit,
     marking: Boolean,
 ) {
+    // Only the highlighted row observes the ticking clock. Static rows and the
+    // surrounding list do not need recomposition every second.
+    val now = if (highlight != null) nowProvider() else session.start
     val focus = highlight != null
     val background by animateColorAsState(if (focus) Blush else Color.White, label = "session focus")
     val past = session.state == SessionState.MARKED || session.state == SessionState.DONE ||
@@ -1275,8 +1318,8 @@ private fun ReadingsContent(
     var initialCourseChosen by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val expandedSections = remember { mutableStateListOf<String>() }
-    val readingsByCourse = state.readings.groupBy { it.catId }
-    val profilesByCourse = state.facultyProfiles.groupBy { it.courseCatId }
+    val readingsByCourse = remember(state.readings) { state.readings.groupBy { it.catId } }
+    val profilesByCourse = remember(state.facultyProfiles) { state.facultyProfiles.groupBy { it.courseCatId } }
     val readingCourseIds = orderedReadingCourseIds(state.readings, state.scheduleSessions, state.now)
     val courseIds = readingCourseIds + profilesByCourse.keys.filterNot { it in readingCourseIds }
     val initialScheduleReady = state.scheduleSync.lastSuccess != null || state.scheduleSync.error != null
@@ -1445,7 +1488,7 @@ private fun AssessmentRow(
     val submitted = assessment.isLmsSubmitted()
     val locallyDone = assessment.done && !submitted
     val complete = assessment.isAssessmentComplete()
-    val overdue = !complete && assessment.dueDate?.isBefore(today) == true
+    val overdue = assessment.datesVerified && !complete && assessment.dueDate?.isBefore(today) == true
     val statusLabel = when {
         submitted -> assessment.status
         locallyDone -> "LMS · ${assessment.status}"
@@ -1507,11 +1550,15 @@ private fun AssessmentRow(
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                formatAssessmentDueDate(assessment.dueDate),
+                assessmentDateLabel(assessment),
                 color = if (overdue) BlushAccent else Ink.copy(alpha = .72f),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
             )
+        }
+        assessment.detailNotice?.let { notice ->
+            Spacer(Modifier.height(6.dp))
+            Text(notice, color = Muted, fontSize = 11.sp)
         }
         assessment.resourceTitle?.let { title ->
             Spacer(Modifier.height(6.dp))
@@ -1565,6 +1612,10 @@ private fun AssessmentRow(
         }
     }
 }
+
+internal fun assessmentDateLabel(assessment: AssessmentItem): String =
+    if (assessment.datesVerified) formatAssessmentDueDate(assessment.dueDate)
+    else assessment.dueDate?.let { "LMS lists ${ASSESSMENT_DUE_FORMAT.format(it)}" } ?: "Deadline not verified"
 
 internal fun formatAssessmentDueDate(dueDate: LocalDate?): String =
     dueDate?.let { "Due ${ASSESSMENT_DUE_FORMAT.format(it)}" } ?: "Due date not posted"
@@ -2546,8 +2597,8 @@ private fun BetaEnrollmentContent(
 }
 
 @Composable
-private fun LoginContent(state: CompanionState, onSignIn: (String, String) -> Unit, modifier: Modifier = Modifier) {
-    var email by rememberSaveable { mutableStateOf("") }
+private fun LoginContent(state: CompanionState, onSignIn: (String, String) -> Unit, modifier: Modifier = Modifier, initialEmail: String = "") {
+    var email by rememberSaveable(initialEmail) { mutableStateOf(initialEmail) }
     var password by rememberSaveable { mutableStateOf("") }
     Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
         Box(Modifier.size(14.dp).background(ButterStrong, RoundedCornerShape(5.dp)))
@@ -2619,6 +2670,7 @@ private fun errorText(error: EngineError): String = when (error) {
     EngineError.CredentialsMissing -> "Enter your LMS login to continue."
     is EngineError.InvalidCommand -> error.message
     is EngineError.AuthenticationFailed -> error.message
+    is EngineError.AccessDenied -> "Companion access needs attention. Retry the access check."
     is EngineError.NetworkFailure -> "The LMS could not be reached. Check your connection and retry."
     is EngineError.LmsFailure -> error.message
     is EngineError.MarkWindowClosed -> "The LMS marking window is no longer open."
@@ -2634,7 +2686,7 @@ private fun errorText(error: EngineError): String = when (error) {
 }
 
 @Composable
-private fun companionColors() = androidx.compose.material3.lightColorScheme(
+internal fun companionColors() = androidx.compose.material3.lightColorScheme(
     primary = Teal,
     onPrimary = Color.White,
     background = Paper,

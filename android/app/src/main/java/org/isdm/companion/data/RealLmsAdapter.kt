@@ -1,9 +1,22 @@
 package org.isdm.companion.data
 
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
@@ -53,15 +66,31 @@ class RealLmsAdapter(
     baseUrl: String = DEFAULT_BASE_URL,
     private val lmsDiagnosticReporter: LmsDiagnosticReporter = NoopLmsDiagnosticReporter,
     private val now: () -> Instant = Instant::now,
+    private val beforeRequest: suspend () -> Unit = {},
 ) : LmsGateway, FacultyDirectory {
     private val baseUrl: HttpUrl = baseUrl.trimEnd('/').toHttpUrl()
     private val cookies = SessionCookieJar()
     private val client: OkHttpClient = OkHttpClient.Builder()
         .cookieJar(cookies)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.SECONDS)
         .followRedirects(false)
         .followSslRedirects(false)
         .build()
     private val loginMutex = Mutex()
+    private val sessionRevision = AtomicLong()
+    private val contentPages = ConcurrentHashMap<String, String>()
+    private val contentLocks = ConcurrentHashMap<String, Mutex>()
+    private val contentPermits = Semaphore(4)
+
+    override fun invalidateContentCache() { contentPages.clear() }
+
+    private suspend fun contentPage(path: String): String =
+        contentLocks.getOrPut(path) { Mutex() }.withLock {
+            contentPages[path] ?: contentPermits.withPermit { authed(path).body }
+                .also { contentPages[path] = it }
+        }
 
     @Volatile
     private var uid: String? = null
@@ -166,16 +195,14 @@ class RealLmsAdapter(
 
     override suspend fun readings(course: LmsCourse): List<ReadingItem> {
         requireNumericId(course.catId, "course")
-        val coursePage = authed("/course/details?cat_id=${course.catId}")
-        val courseOutline = parseCourseOutlineLink(coursePage.body, course, baseUrl.toString())
-        val sections = parseReadingSections(coursePage.body, course, baseUrl.toString())
+        val coursePage = contentPage("/course/details?cat_id=${course.catId}")
+        val courseOutline = parseCourseOutlineLink(coursePage, course, baseUrl.toString())
+        val sections = parseReadingSections(coursePage, course, baseUrl.toString())
         return buildList {
             for (section in sections) {
-                val page = authed(
-                    "/course/details?cat_id=${course.catId}&course_id=${section.sid}",
-                )
+                val page = contentPage("/course/details?cat_id=${course.catId}&course_id=${section.sid}")
                 addAll(
-                    parseReadingItems(page.body, course, section, baseUrl.toString()).map { reading ->
+                    parseReadingItems(page, course, section, baseUrl.toString()).map { reading ->
                         reading.copy(
                             courseOutlineTitle = courseOutline?.title,
                             courseOutlineUrl = courseOutline?.sourceUrl,
@@ -186,44 +213,49 @@ class RealLmsAdapter(
         }.distinctBy { it.vid }
     }
 
-    override suspend fun assessments(): List<AssessmentItem> {
-        val drafts = parseAssessmentTasks(authed("/my-activities").body, baseUrl.toString())
-        val sectionPages = mutableMapOf<Pair<String, String>, String>()
-        return buildList {
-            for (draft in drafts) {
-                val activityPage = authed(draft.submissionUrl).body
-                val frameUrl = parseAssessmentFrameUrl(activityPage, baseUrl.toString())
-                val framePage = frameUrl?.let { authed(it).body }
-                val dates = framePage
-                    ?.let(::parseAssessmentDates)
-                    ?: AssessmentDates(dueDate = null, endDate = null)
-                val sectionKey = draft.courseId to draft.sectionId
-                var sectionPage = sectionPages[sectionKey]
-                if (sectionPage == null) {
-                    sectionPage = authed(
-                        "/course/details?cat_id=${draft.courseId}&course_id=${draft.sectionId}",
-                    ).body
-                    sectionPages[sectionKey] = sectionPage
+    override suspend fun assessments(): List<AssessmentItem> = coroutineScope {
+        val drafts = listOf(0, 3).map { status ->
+            async { parseAssessmentTasks(authed("/my-activities?status=$status").body, baseUrl.toString()) }
+        }.awaitAll().flatten().distinctBy { it.id }
+        val permits = Semaphore(3)
+        drafts.map { draft -> async { permits.withPermit { assessment(draft) } } }.awaitAll()
+    }
+
+    private suspend fun assessment(draft: AssessmentTaskDraft): AssessmentItem {
+        var dates = AssessmentDates(null, null)
+        var frameUrl: String? = null
+        var resource: AssessmentResource? = null
+        var notice: String? = if (draft.submissionUrl.isBlank()) "The LMS has not opened this activity yet." else null
+        if (draft.submissionUrl.isNotBlank()) {
+            try {
+                val activityPage = contentPage(draft.submissionUrl)
+                frameUrl = parseAssessmentFrameUrl(activityPage, baseUrl.toString())
+                if (frameUrl == null) {
+                    assessmentLoaderUrl(draft.submissionUrl)?.let { loader ->
+                        frameUrl = parseAssessmentFrameUrl(contentPage(loader), baseUrl.toString())
+                    }
                 }
-                val resource = parseAssessmentResource(
-                    html = sectionPage,
-                    assessmentTitle = draft.title,
-                    baseUrl = baseUrl.toString(),
+                if (frameUrl != null) dates = parseAssessmentDates(contentPage(frameUrl!!))
+                if (dates.dueDate == null) notice = "Deadline not verified; check the LMS activity."
+                resource = parseAssessmentResource(
+                    contentPage("/course/details?cat_id=${draft.courseId}&course_id=${draft.sectionId}"),
+                    draft.title, baseUrl.toString(),
                 )
-                add(
-                    AssessmentItem(
-                        id = draft.id,
-                        title = draft.title,
-                        status = draft.status,
-                        dueDate = dates.dueDate ?: draft.dueDate,
-                        endDate = dates.endDate,
-                        submissionUrl = frameUrl ?: draft.submissionUrl,
-                        resourceTitle = resource?.title,
-                        resourceUrl = resource?.sourceUrl,
-                    ),
-                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (error is org.isdm.companion.engine.AuthenticationFailure ||
+                    error is org.isdm.companion.engine.CompanionAccessException) throw error
+                notice = "Activity details could not refresh; check the LMS."
             }
         }
+        return AssessmentItem(
+            id = draft.id, title = draft.title, status = draft.status,
+            dueDate = dates.dueDate ?: draft.dueDate, endDate = dates.endDate,
+            submissionUrl = frameUrl ?: draft.submissionUrl,
+            resourceTitle = resource?.title, resourceUrl = resource?.sourceUrl,
+            datesVerified = dates.dueDate != null, detailNotice = notice,
+        )
     }
 
     override suspend fun classroom(nid: String): ClassroomDetail {
@@ -264,8 +296,8 @@ class RealLmsAdapter(
 
     override suspend fun facultyProfiles(course: LmsCourse): List<FacultyProfile> {
         requireNumericId(course.catId, "course")
-        val coursePage = authed("/course/details?cat_id=${course.catId}")
-        return parseFacultyProfiles(coursePage.body, course, baseUrl.toString())
+        val coursePage = contentPage("/course/details?cat_id=${course.catId}")
+        return parseFacultyProfiles(coursePage, course, baseUrl.toString())
     }
 
     override suspend fun markability(): Map<String, Markability> {
@@ -328,6 +360,8 @@ class RealLmsAdapter(
         uid = null
         displayName = null
         activeCredentials = null
+        sessionRevision.incrementAndGet()
+        invalidateContentCache()
         cookies.clear()
     }
 
@@ -345,6 +379,7 @@ class RealLmsAdapter(
         displayName = null
 
         val loginPage = requestRaw("/user/login")
+        if (loginPage.status >= 400) throw LmsHttpException(loginPage.status, loginPage.url)
         val form = findLoginForm(loginPage.body)
             ?: throw LmsProtocolException("Could not find the LMS login form.")
 
@@ -383,6 +418,7 @@ class RealLmsAdapter(
             }.build(),
         )
 
+        if (loginResult.status >= 400) throw LmsHttpException(loginResult.status, loginResult.url)
         if (looksLoggedOut(loginResult)) {
             throw LmsAuthenticationException(loginError(loginResult.body))
         }
@@ -398,6 +434,7 @@ class RealLmsAdapter(
 
         val identity = uid?.let { Identity(it, displayName) }
             ?: throw LmsAuthenticationException("Logged in but could not determine the user id.")
+        sessionRevision.incrementAndGet()
         return identity
     }
 
@@ -418,6 +455,7 @@ class RealLmsAdapter(
         body: RequestBody? = null,
     ): ResponseData {
         ensureLoggedIn()
+        val observedRevision = sessionRevision.get()
         var response = requestRaw(path, method, headers, body)
         if (!looksLoggedOut(response)) {
             if (response.status >= 400) throw LmsHttpException(response.status, response.url)
@@ -425,8 +463,14 @@ class RealLmsAdapter(
         }
 
         val credentials = activeCredentials ?: defaultCredentials()
-        resetSession()
-        login(credentials)
+        loginMutex.withLock {
+            // Only the first expired response replaces the session. Late responses
+            // from the old cookie must not clear the freshly authenticated cookie.
+            if (sessionRevision.get() == observedRevision) {
+                activeCredentials = credentials
+                doLogin(credentials)
+            }
+        }
         response = requestRaw(path, method, headers, body)
         if (looksLoggedOut(response)) {
             throw LmsAuthenticationException("Still logged out after re-authenticating ($path).")
@@ -447,6 +491,7 @@ class RealLmsAdapter(
         var currentHeaders = headers.toMutableMap()
 
         repeat(MAX_REDIRECTS + 1) {
+            beforeRequest()
             val builder = Request.Builder().url(url)
             currentHeaders.forEach { (key, value) -> builder.header(key, value) }
             if (currentMethod == "GET" || currentMethod == "HEAD") {
@@ -456,22 +501,21 @@ class RealLmsAdapter(
             }
 
             val response = try {
-                withContext(Dispatchers.IO) { client.newCall(builder.build()).execute() }
+                client.newCall(builder.build()).awaitBody()
             } catch (error: IOException) {
                 lmsDiagnosticReporter.record(lmsEndpointLabel(url.encodedPath), null, "network")
-                throw LmsException("LMS network request failed for $url.", error)
+                throw LmsException("LMS network request failed for ${lmsEndpointLabel(url.encodedPath)}.", error)
             }
-
-            val status = response.code
-            if (status >= 400) {
-                lmsDiagnosticReporter.record(lmsEndpointLabel(url.encodedPath), status, "http")
+            if (response.status >= 400) {
+                lmsDiagnosticReporter.record(lmsEndpointLabel(url.encodedPath), response.status, "http")
             }
-            val location = response.header("Location")
-            if (status in REDIRECT_STATUSES && location != null) {
-                val next = response.request.url.resolve(location)
-                response.close()
-                url = next ?: throw LmsProtocolException("LMS returned an invalid redirect.")
-                if (currentMethod == "POST" && status !in PRESERVE_METHOD_REDIRECTS) {
+            val location = response.headers.entries.firstOrNull { it.key.equals("Location", true) }?.value
+            if (response.status in REDIRECT_STATUSES && location != null) {
+                val next = response.url.toHttpUrl().resolve(location)
+                    ?: throw LmsProtocolException("LMS returned an invalid redirect.")
+                requireSameOrigin(next)
+                url = next
+                if (currentMethod == "POST" && response.status !in PRESERVE_METHOD_REDIRECTS) {
                     currentMethod = "GET"
                     currentBody = null
                     currentHeaders = currentHeaders
@@ -480,20 +524,46 @@ class RealLmsAdapter(
                 }
                 return@repeat
             }
-
-            val text = response.body?.string().orEmpty()
-            val responseUrl = response.request.url.toString()
-            val responseHeaders = response.headers.toMultimap()
-                .mapValues { (_, values) -> values.joinToString(",") }
-            response.close()
-            return ResponseData(status, responseUrl, responseHeaders, text)
+            return response
         }
 
         throw LmsProtocolException("Too many redirects starting at $path.")
     }
 
-    private fun urlFor(path: String): HttpUrl = baseUrl.resolve(path)
-        ?: throw LmsProtocolException("Invalid LMS URL: $path")
+    /** The callback consumes and closes the body on OkHttp's thread, never the UI thread. */
+    private suspend fun Call.awaitBody(): ResponseData = suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel() }
+        enqueue(object : Callback {
+            override fun onFailure(call: Call, error: IOException) {
+                if (continuation.isActive) continuation.resumeWithException(error)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val value = response.use {
+                        ResponseData(
+                            it.code,
+                            it.request.url.toString(),
+                            it.headers.toMultimap().mapValues { (_, values) -> values.joinToString(",") },
+                            it.body?.string().orEmpty(),
+                        )
+                    }
+                    if (continuation.isActive) continuation.resume(value)
+                } catch (error: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(error)
+                }
+            }
+        })
+    }
+
+    private fun requireSameOrigin(url: HttpUrl) {
+        if (url.scheme != baseUrl.scheme || url.host != baseUrl.host || url.port != baseUrl.port) {
+            throw LmsProtocolException("LMS request left the trusted origin.")
+        }
+    }
+
+    private fun urlFor(path: String): HttpUrl = (baseUrl.resolve(path)
+        ?: throw LmsProtocolException("Invalid LMS URL")).also(::requireSameOrigin)
 
     private fun findLoginForm(html: String): Element? {
         val document = Jsoup.parse(html)

@@ -1,4 +1,5 @@
 import { getChatGPTUser } from "../../chatgpt-auth";
+import { isDashboardOwner } from "../../owner-access";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +12,24 @@ export async function GET() {
 export async function POST(request: Request) {
   const denied = await requireOwner();
   if (denied) return denied;
+  if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
+    return Response.json({ error: "json_required" }, { status: 415 });
+  }
+  const origin = request.headers.get("origin");
+  if (origin && origin !== new URL(request.url).origin) {
+    return Response.json({ error: "origin_not_allowed" }, { status: 403 });
+  }
   const body = await request.json().catch(() => null) as { action?: string; [key: string]: unknown } | null;
   if (!body?.action) return Response.json({ error: "action_required" }, { status: 400 });
 
+  if (body.action === "access") {
+    return proxy("access", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tester_code: body.tester_code, suspended: body.suspended,
+        reason: body.reason, expected_changed_at: body.expected_changed_at }),
+    });
+  }
   if (body.action === "control") {
     return proxy("control", {
       method: "POST",
@@ -40,7 +56,7 @@ export async function POST(request: Request) {
 
 async function requireOwner(): Promise<Response | null> {
   const user = await getChatGPTUser();
-  if (user || process.env.NODE_ENV !== "production") return null;
+  if (isDashboardOwner(user)) return null;
   return Response.json({ error: "unauthorized" }, { status: 401 });
 }
 

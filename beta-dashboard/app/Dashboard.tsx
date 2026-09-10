@@ -107,7 +107,7 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
   const selectedTester = data.installations.find((item) => item.tester_code === selectedTesterCode) ?? null;
   const sections = unique(data.installations.map((item) => item.self_section).filter(Boolean) as string[]);
   const plcs = unique(data.installations.map((item) => item.self_plc).filter(Boolean) as string[]);
-  const lastAudit = data.control_audit[0] ?? null;
+  const lastAudit = data.control_audit.find((item) => item.action === "stop_auto_attendance" || item.action === "allow_auto_attendance") ?? null;
 
   const filteredInstallations = useMemo(() => data.installations.filter((item) => {
     if (sectionFilter !== "all" && item.self_section !== sectionFilter) return false;
@@ -423,7 +423,7 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
 
       {selectedReport && <ReportModal report={selectedReport} data={data} onClose={() => setSelectedReportId(null)} onSaved={() => refresh(true)} />}
       {selectedAttendance && <AttendanceModal attendance={selectedAttendance} onClose={() => setSelectedAttendanceId(null)} onSaved={() => refresh(true)} />}
-      {selectedTester && <TesterModal code={selectedTester.tester_code} data={data} nowMs={nowMs} onClose={() => setSelectedTesterCode(null)} onReviewAttendance={setSelectedAttendanceId} />}
+      {selectedTester && <TesterModal key={selectedTester.tester_code} onSaved={() => void refresh(true)} code={selectedTester.tester_code} data={data} nowMs={nowMs} onClose={() => setSelectedTesterCode(null)} onReviewAttendance={setSelectedAttendanceId} />}
       {loading && <div className="loading-line" role="status">Loading beta data…</div>}
     </main>
   );
@@ -506,6 +506,7 @@ function TesterRow({ item, attendance, remoteBlocked, nowMs, onAttendance, onTes
       </td>
       <td>
         <strong className="cell-strong">{testerDisplayName(item)}</strong>
+        {item.access_suspended && <span className="status-chip rust">ACCESS PAUSED</span>}
         <small className="cell-note">{profileStatus === "confirmed" ? "✓ LMS confirmed" : profileStatus === "mismatch" ? "! Profile mismatch" : "· LMS cohort missing"}</small>
       </td>
       <td>
@@ -528,12 +529,13 @@ function TesterRow({ item, attendance, remoteBlocked, nowMs, onAttendance, onTes
   );
 }
 
-function TesterModal({ code, data, nowMs, onClose, onReviewAttendance }: {
+function TesterModal({ code, data, nowMs, onClose, onReviewAttendance, onSaved }: {
   code: string;
   data: DashboardData;
   nowMs: number;
   onClose: () => void;
   onReviewAttendance: (id: string) => void;
+  onSaved: () => void;
 }) {
   const tester = data.installations.find((item) => item.tester_code === code);
   if (!tester) return null;
@@ -563,6 +565,7 @@ function TesterModal({ code, data, nowMs, onClose, onReviewAttendance }: {
           <Row term="Last seen" value={`${formatIst(tester.last_seen_at)} · ${relativeTime(tester.last_seen_at, nowMs)}`} />
           <Row term="Last sync" value={`${tester.last_sync_status ?? "—"} · ${relativeTime(tester.last_sync_at, nowMs)}`} />
         </dl>
+        <TesterAccessControl key={tester.access_changed_at ?? "initial"} tester={tester} onSaved={onSaved} />
         {decisions.length > 0 && (
           <>
             <p className="eyebrow spaced">RECENT ATTENDANCE DECISIONS</p>
@@ -613,6 +616,51 @@ function TesterModal({ code, data, nowMs, onClose, onReviewAttendance }: {
       </section>
     </div>
   );
+}
+
+function TesterAccessControl({ tester, onSaved }: { tester: BetaInstallation; onSaved: () => void }) {
+  const [reason, setReason] = useState("");
+  const [confirmedCode, setConfirmedCode] = useState("");
+  const [pending, setPending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const suspended = tester.access_suspended === true;
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (pending || confirmedCode !== tester.tester_code || reason.trim().length < 3) return;
+    setPending(true);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/dashboard", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "access", tester_code: tester.tester_code,
+          suspended: !suspended, reason: reason.trim(), expected_changed_at: tester.access_changed_at ?? null }),
+      });
+      if (response.status === 409) {
+        setConfirmedCode("");
+        onSaved();
+        throw new Error("Access changed in another session. Review the current state before trying again.");
+      }
+      if (!response.ok) throw new Error(`Could not change access (${response.status}).`);
+      setConfirmedCode("");
+      setReason("");
+      setNotice(suspended ? "Access restored. The learner can check access again." : "Access paused. New attendance checks are blocked.");
+      onSaved();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not reach the server. Try again.");
+    } finally {
+      setPending(false);
+    }
+  }
+  return <form onSubmit={save} className="access-control">
+    <p className="eyebrow spaced">COMPANION ACCESS</p>
+    <p><span className={`status-chip ${suspended ? "rust" : "teal"}`}>{suspended ? "PAUSED" : "ALLOWED"}</span></p>
+    <p>Pausing blocks this tester’s beta requests and automatic attendance. Updated apps also block manual attendance and app use. Connected apps check within one minute; cached viewing can last up to six hours offline.</p>
+    {tester.access_changed_at && <p>Changed {formatIst(tester.access_changed_at)} · {tester.access_reason}</p>}
+    <label>Reason (recorded for the owner)<textarea value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} maxLength={1000} required disabled={pending} /></label>
+    <label>Type {tester.tester_code} to confirm<input value={confirmedCode} onChange={(event) => setConfirmedCode(event.target.value.toUpperCase())} required autoComplete="off" disabled={pending} /></label>
+    {notice && <p role="status">{notice}</p>}
+    <div className="modal-actions"><button className={suspended ? "primary-button" : "danger-button"} disabled={pending || confirmedCode !== tester.tester_code || reason.trim().length < 3}>{pending ? "Saving…" : suspended ? "Restore access" : "Pause access"}</button></div>
+  </form>;
 }
 
 function ReportModal({ report, data, onClose, onSaved }: { report: IssueReport; data: DashboardData; onClose: () => void; onSaved: () => void }) {

@@ -729,3 +729,7 @@ button.mini-row:hover { background: var(--paper); transform: scale(1.005); }
     transition-duration: .01ms !important;
   }
 }
+
+.access-control { border-block: 1px solid var(--line, #d4dfdb); padding-block: 16px; margin-block: 16px; }
+.access-control label { display: grid; gap: 6px; margin-block: 12px; }
+.access-control textarea, .access-control input { width: 100%; padding: 10px; font: inherit; }

@@ -1,5 +1,7 @@
 package org.isdm.companion.platform
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
@@ -62,6 +64,29 @@ class BetaManager(
     private val autoAttendanceEnabled: () -> Boolean,
 ) {
     private val uiPreferences = context.getSharedPreferences("beta_ui", Context.MODE_PRIVATE)
+    val access = BetaAccessController(
+        installation = { installation },
+        fetch = { current -> withContext(Dispatchers.IO) { api.accessConfig(current) } },
+        store = object : BetaAccessStore {
+            override fun load(): BetaAccessSnapshot? = runCatching {
+                val status = uiPreferences.getString("access_status", null) ?: return null
+                BetaAccessSnapshot(
+                    BetaAccessStatus.valueOf(status),
+                    uiPreferences.getString("access_checked_at", null)?.let(Instant::parse),
+                    uiPreferences.getString("access_valid_until", null)?.let(Instant::parse),
+                )
+            }.getOrNull()
+
+            override fun save(snapshot: BetaAccessSnapshot) {
+                uiPreferences.edit()
+                    .putString("access_status", snapshot.status.name)
+                    .putString("access_checked_at", snapshot.checkedAt?.toString())
+                    .putString("access_valid_until", snapshot.validUntil?.toString())
+                    .apply()
+            }
+        },
+    )
+
     val installation: BetaInstallation?
         get() = installationStore.load()
 

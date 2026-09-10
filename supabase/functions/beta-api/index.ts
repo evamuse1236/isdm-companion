@@ -1,3 +1,4 @@
+import { accessConfig, installationAccessResponse } from "./access.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.112.3";
 import { deriveSyncUpdate } from "./telemetry.ts";
 import {
@@ -24,20 +25,22 @@ Deno.serve(async (request) => {
     if (request.method === "OPTIONS") return new Response(null, { status: 204 });
     const route = new URL(request.url).pathname.split("/").filter(Boolean).at(-1);
 
-    if (route === "enroll" && request.method === "POST") return enroll(request);
+    if (route === "enroll" && request.method === "POST") return await enroll(request);
 
     const installation = await authenticateInstallation(request);
     if (installation instanceof Response) return installation;
+    const accessDenied = installationAccessResponse(installation, route);
+    if (accessDenied) return accessDenied;
 
-    if (route === "config" && request.method === "GET") return configResponse(installation);
-    if (route === "auto-preflight" && request.method === "POST") return autoPreflight(installation);
-    if (route === "events" && request.method === "POST") return ingestEvents(request, installation);
-    if (route === "profile" && request.method === "POST") return updateBetaProfile(request, installation, profileStore);
-    if (route === "profile-delete" && request.method === "POST") return deleteBetaSupportName(installation, profileDeleteStore);
-    if (route === "schedule" && request.method === "POST") return recordSchedule(request, installation);
-    if (route === "attendance" && request.method === "POST") return recordAttendance(request, installation);
-    if (route === "report" && request.method === "POST") return recordReport(request, installation);
-    if (route === "lms-diagnostic" && request.method === "POST") return recordLmsDiagnostic(request, installation);
+    if (route === "config" && request.method === "GET") return await configResponse(installation);
+    if (route === "auto-preflight" && request.method === "POST") return await autoPreflight(installation);
+    if (route === "events" && request.method === "POST") return await ingestEvents(request, installation);
+    if (route === "profile" && request.method === "POST") return await updateBetaProfile(request, installation, profileStore);
+    if (route === "profile-delete" && request.method === "POST") return await deleteBetaSupportName(installation, profileDeleteStore);
+    if (route === "schedule" && request.method === "POST") return await recordSchedule(request, installation);
+    if (route === "attendance" && request.method === "POST") return await recordAttendance(request, installation);
+    if (route === "report" && request.method === "POST") return await recordReport(request, installation);
+    if (route === "lms-diagnostic" && request.method === "POST") return await recordLmsDiagnostic(request, installation);
 
     return json({ error: "not_found" }, 404);
   } catch (error) {
@@ -51,6 +54,7 @@ type Installation = {
   tester_code: string;
   installation_id: string;
   app_version_code: number | null;
+  access_suspended: boolean;
 };
 
 const profileStore: BetaProfileStore = {
@@ -95,17 +99,18 @@ async function enroll(request: Request): Promise<Response> {
 
   const { data: invite, error: lookupError } = await db
     .from("beta_installations")
-    .select("tester_code, installation_id")
+    .select("tester_code, installation_id, access_suspended")
     .eq("invite_code_hash", inviteHash)
     .maybeSingle();
   if (lookupError) throw lookupError;
   if (!invite) return json({ error: "invalid_invite" }, 404);
+  if (invite.access_suspended) return json({ error: "access_suspended" }, 423);
   const reclaimed = Boolean(invite.installation_id);
 
   const installationId = crypto.randomUUID();
   const installToken = randomToken();
   const now = new Date().toISOString();
-  const { error } = await db
+  let claim = db
     .from("beta_installations")
     .update({
       installation_id: installationId,
@@ -124,8 +129,16 @@ async function enroll(request: Request): Promise<Response> {
       last_seen_at: now,
       updated_at: now,
     })
-    .eq("tester_code", invite.tester_code);
+    .eq("tester_code", invite.tester_code)
+    .eq("access_suspended", false);
+  // Postgres rechecks this predicate after a concurrent owner update takes the row lock.
+  // Compare the old installation as well so two simultaneous claims cannot both win.
+  claim = invite.installation_id == null
+    ? claim.is("installation_id", null)
+    : claim.eq("installation_id", invite.installation_id);
+  const { data: claimed, error } = await claim.select("tester_code").maybeSingle();
   if (error) throw error;
+  if (!claimed) return json({ error: "enrollment_changed" }, 409);
 
   return json({
     tester_code: invite.tester_code,
@@ -142,19 +155,24 @@ async function authenticateInstallation(request: Request): Promise<Installation 
 
   const { data, error } = await db
     .from("beta_installations")
-    .select("tester_code, installation_id, app_version_code")
+    .select("tester_code, installation_id, app_version_code, access_suspended")
     .eq("installation_id", installationId)
     .eq("install_token_hash", await sha256(installToken))
     .maybeSingle();
   if (error) throw error;
   if (!data) return json({ error: "installation_auth_invalid" }, 401);
-  return data as Installation;
+  // An upgraded app must not remain locked behind its previous telemetry version.
+  // Version is advisory client metadata; the tester suspension remains server-owned.
+  const reportedVersion = request.headers.get("x-app-version-code");
+  const version = reportedVersion && /^\d{1,9}$/.test(reportedVersion) ? Number(reportedVersion) : null;
+  return { ...data, app_version_code: version ?? data.app_version_code } as Installation;
 }
 
 async function configResponse(installation: Installation): Promise<Response> {
   await touch(installation.tester_code);
   const config = await loadConfig();
   return json({
+    ...accessConfig(installation.access_suspended),
     auto_attendance_blocked: config.auto_attendance_blocked,
     minimum_version_code: config.minimum_version_code,
     update_required: (installation.app_version_code ?? 0) < config.minimum_version_code,

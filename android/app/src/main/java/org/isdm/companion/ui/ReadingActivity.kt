@@ -28,8 +28,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.collectLatest
+import org.isdm.companion.platform.BetaAccessStatus
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.isdm.companion.CompanionApplication
 import org.isdm.companion.engine.Credentials
@@ -53,6 +59,26 @@ class ReadingActivity : ComponentActivity() {
             app.diagnostics.log("reading_open_rejected", mapOf("reason" to "credentials_missing"))
             finish()
             return
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                coroutineScope {
+                    launch {
+                        while (true) {
+                            app.betaManager.access.refresh()
+                            delay(60_000)
+                        }
+                    }
+                    launch {
+                        app.betaManager.access.state.collectLatest { access ->
+                            if (app.betaManager.isEnrolled && access.status != BetaAccessStatus.ALLOWED) {
+                                webView?.stopLoading()
+                                finish()
+                            }
+                        }
+                    }
+                }
+            }
         }
         lifecycleScope.launch {
             val cookieHeaders = runCatching {

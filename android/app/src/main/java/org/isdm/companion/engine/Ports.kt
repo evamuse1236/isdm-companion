@@ -28,6 +28,9 @@ val AUTO_ATTENDANCE_GRACE: Duration = Duration.ofMinutes(15)
 
 data class Credentials(val email: String, val password: String)
 
+/** Only an explicit rejected login should ask the learner to enter credentials again. */
+interface AuthenticationFailure
+
 fun interface Clock {
     fun now(): Instant
 }
@@ -85,6 +88,8 @@ object NoopAttendanceTelemetry : AttendanceTelemetryPort {
 interface LmsGateway {
     suspend fun login(credentials: Credentials): Identity
     suspend fun calendar(start: LocalDate, endExclusive: LocalDate): List<CalendarEvent>
+    /** Starts a new content scan; attendance responses must never enter this cache. */
+    fun invalidateContentCache() = Unit
     suspend fun courses(): List<LmsCourse>
     suspend fun readings(course: LmsCourse): List<ReadingItem>
     suspend fun assessments(): List<AssessmentItem> = emptyList()
@@ -206,6 +211,8 @@ data class AssessmentItem(
     val resourceTitle: String? = null,
     val resourceUrl: String? = null,
     val done: Boolean = false,
+    val datesVerified: Boolean = false,
+    val detailNotice: String? = null,
 )
 
 internal fun AssessmentItem.isLmsSubmitted(): Boolean {
@@ -297,6 +304,7 @@ data class CompanionState(
     val credentialsConfigured: Boolean = false,
     val identity: Identity? = null,
     val detectedCohorts: Cohorts = Cohorts(),
+    val cohortDetectionFresh: Boolean = false,
     val sessions: List<CompanionSession> = emptyList(),
     val scheduleStart: LocalDate = today,
     val scheduleEndExclusive: LocalDate = today.plusDays(14),
@@ -319,6 +327,7 @@ sealed interface EngineError {
     data class InvalidCommand(val message: String) : EngineError
     data class AuthenticationFailed(val message: String) : EngineError
     data class NetworkFailure(val message: String) : EngineError
+    data class AccessDenied(val reason: String) : EngineError
     data class LmsFailure(val message: String) : EngineError
     data class MarkWindowClosed(val sessionId: String) : EngineError
     data class AttendanceLocationDenied(val reason: LocationGateReason) : EngineError

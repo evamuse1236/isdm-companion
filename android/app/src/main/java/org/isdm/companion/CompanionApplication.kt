@@ -4,6 +4,15 @@ import android.app.Application
 import android.os.Build
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
+import android.content.Intent
+import org.isdm.companion.engine.Command
+import org.isdm.companion.platform.BetaAccessStatus
+import org.isdm.companion.platform.MonitoringService
 import org.isdm.companion.data.RealLmsAdapter
 import org.isdm.companion.data.LmsDiagnosticReporter
 import org.isdm.companion.domain.AttendanceLocationGate
@@ -79,6 +88,7 @@ class CompanionApplication : Application() {
             schedule = { cached -> autoAttendanceScheduler.schedule(cached.sessions, Instant.now()) },
         )
         lmsAdapter = RealLmsAdapter(
+            beforeRequest = { betaManager.access.requireAccess(fresh = false, allowEnrollment = true) },
             lmsDiagnosticReporter = LmsDiagnosticReporter { endpointLabel, httpStatus, failureType ->
                 betaManager.queueLmsDiagnostic(endpointLabel, httpStatus, failureType)
             },
@@ -108,7 +118,18 @@ class CompanionApplication : Application() {
                 }
             },
             facultyDirectory = lmsAdapter,
+            accessGate = betaManager.access,
         )
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            betaManager.access.state.collectLatest { access ->
+                if (access.status in setOf(BetaAccessStatus.SUSPENDED, BetaAccessStatus.INVALID_INSTALLATION, BetaAccessStatus.UPDATE_REQUIRED)) {
+                    autoAttendanceStore.setEnabled(false)
+                    autoAttendanceScheduler.cancel()
+                    stopService(Intent(this@CompanionApplication, MonitoringService::class.java))
+                    engine.dispatch(Command.DisarmMonitoring)
+                }
+            }
+        }
         AndroidNotifier.createChannels(this)
         CompanionSyncWorker.schedule(this)
         diagnostics.log(

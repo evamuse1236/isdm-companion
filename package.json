@@ -5,10 +5,10 @@
   "description": "Repository tooling and tests for the ISDM Companion Android beta.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "beta:release": "node scripts/send-beta-release.mjs",
-    "test": "node --test tests/beta-admin-reliability-edge.test.mjs tests/beta-profile-edge.test.mjs tests/beta-telemetry-edge.test.mjs tests/send-beta-release.test.mjs"
+    "test": "node --test tests/*.test.mjs"
   }
 }

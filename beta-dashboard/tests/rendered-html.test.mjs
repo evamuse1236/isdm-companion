@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
+async function render(path = "/", init = {}) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
+    new Request(`http://localhost${path}`, {
+      headers: { accept: "text/html" }, ...init,
     }),
     {
       ASSETS: {
@@ -52,4 +52,14 @@ test("keeps the dashboard dynamic and owner-aware", async () => {
   assert.match(layout, /title:\s*"ISDM Companion Beta Control"/);
   assert.match(dashboard, /Stop auto attendance for everyone/);
   assert.match(dashboard, /role=\{latestSuspected \? "alert" : "status"\}/);
+});
+
+
+test("production API rejects other users, text forms and cross-origin mutations", async () => {
+  const owner = { "oai-authenticated-user-email": "vishwajit1236@gmail.com" };
+  const other = { "oai-authenticated-user-email": "someone@example.test" };
+  assert.equal((await render("/api/dashboard")).status, 401);
+  assert.equal((await render("/api/dashboard", { headers: other })).status, 401);
+  assert.equal((await render("/api/dashboard", { method: "POST", headers: { ...owner, "content-type": "text/plain" }, body: "{}" })).status, 415);
+  assert.equal((await render("/api/dashboard", { method: "POST", headers: { ...owner, "content-type": "application/json", origin: "https://untrusted.test" }, body: "{}" })).status, 403);
 });

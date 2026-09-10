@@ -191,6 +191,8 @@ class CompanionLocalStore(context: Context) : ReadingDoneStore, AssessmentDoneSt
         .put("status", value.status)
         .putNullable("dueDate", value.dueDate?.toString())
         .putNullable("endDate", value.endDate?.toString())
+        .put("datesVerified", value.datesVerified)
+        .putNullable("detailNotice", value.detailNotice)
         .put("submissionUrl", value.submissionUrl)
         .putNullable("resourceTitle", value.resourceTitle)
         .putNullable("resourceUrl", value.resourceUrl)
@@ -202,6 +204,8 @@ class CompanionLocalStore(context: Context) : ReadingDoneStore, AssessmentDoneSt
         dueDate = value.nullableString("dueDate")?.let(LocalDate::parse),
         endDate = value.nullableString("endDate")?.let(LocalDate::parse),
         submissionUrl = value.getString("submissionUrl"),
+        datesVerified = value.optBoolean("datesVerified", false),
+        detailNotice = value.nullableString("detailNotice"),
         resourceTitle = value.nullableString("resourceTitle"),
         resourceUrl = value.nullableString("resourceUrl"),
     )

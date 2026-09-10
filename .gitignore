@@ -9,3 +9,4 @@ android/**/build/
 android/screenshots/
 .release-private/
 .release-batches/
+supabase/.temp/

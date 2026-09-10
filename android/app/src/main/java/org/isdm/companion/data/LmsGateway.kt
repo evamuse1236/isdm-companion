@@ -9,7 +9,8 @@ typealias LmsGateway = org.isdm.companion.engine.LmsGateway
 
 open class LmsException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
-class LmsAuthenticationException(message: String, cause: Throwable? = null) : LmsException(message, cause)
+class LmsAuthenticationException(message: String, cause: Throwable? = null) :
+    LmsException(message, cause), org.isdm.companion.engine.AuthenticationFailure
 
 class LmsHttpException(
     val status: Int,

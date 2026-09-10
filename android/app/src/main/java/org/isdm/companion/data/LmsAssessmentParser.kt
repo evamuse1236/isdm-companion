@@ -1,5 +1,6 @@
 package org.isdm.companion.data
 
+import java.security.MessageDigest
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeFormatterBuilder
@@ -30,19 +31,21 @@ internal data class AssessmentResource(
 internal fun parseAssessmentTasks(html: String, baseUrl: String): List<AssessmentTaskDraft> {
     val tasks = linkedMapOf<String, AssessmentTaskDraft>()
     val document = Jsoup.parse(html, baseUrl)
+    val base = baseUrl.toHttpUrlOrNull() ?: return emptyList()
     for (anchor in document.select("a[href]")) {
         val submissionUrl = anchor.absUrl("href")
         val url = submissionUrl.toHttpUrlOrNull() ?: continue
+        if (url.scheme != base.scheme || url.host != base.host || url.port != base.port) continue
         if (!url.encodedPath.endsWith("/subtopic/view")) continue
         if (url.queryParameter("destination") != "my-activities") continue
         val sectionId = url.queryParameter("sid")?.takeIf(::isAssessmentId) ?: continue
         val id = url.queryParameter("vid")?.takeIf(::isAssessmentId) ?: continue
         val courseId = url.queryParameter("cat_id")?.takeIf(::isAssessmentId) ?: continue
-        val row = anchor.parents().firstOrNull { parent ->
-            parent.tagName() == "tr" && "Starts On:" in parent.text()
-        } ?: continue
+        val row = anchor.parents().firstOrNull { it.hasClass("mytasks") }
+            ?: anchor.parents().firstOrNull { it.tagName() == "tr" && "Starts On:" in it.text() }
+            ?: continue
         val rowText = row.text().trim().replace(Regex("\\s+"), " ")
-        val title = row.selectFirst("p")?.text()?.trim()
+        val title = row.selectFirst(".tasktitle, p")?.text()?.trim()
             ?.substringBefore(" from topic Assessments")
             ?.takeIf { it.isNotBlank() }
             ?: ASSESSMENT_TITLE.find(rowText)?.groupValues?.get(1)?.trim().orEmpty()
@@ -62,6 +65,18 @@ internal fun parseAssessmentTasks(html: String, baseUrl: String): List<Assessmen
             ),
         )
     }
+    for (card in document.select(".mytasks")) {
+        if (card.select("a[href]").any { it.attr("href").contains("/subtopic/view?") }) continue
+        val title = card.selectFirst(".tasktitle")?.text()?.trim()?.takeIf { it.isNotBlank() } ?: continue
+        val due = ASSESSMENT_TASK_DUE.find(card.text())?.groupValues?.get(1)?.toTaskAssessmentDate() ?: continue
+        val digest = MessageDigest.getInstance("SHA-256").digest(title.toByteArray())
+            .take(10).joinToString("") { "%02x".format(it) }
+        val id = "unlinked-$digest"
+        tasks.putIfAbsent(id, AssessmentTaskDraft(id, title, "Upcoming", "", "", due, ""))
+    }
+    if (document.select(".mytasks").isNotEmpty() && tasks.isEmpty()) {
+        throw LmsProtocolException("LMS task cards were not recognized.")
+    }
     return tasks.values.toList()
 }
 
@@ -71,9 +86,24 @@ internal fun parseAssessmentFrameUrl(html: String, baseUrl: String): String? {
         ?.absUrl("src")
         ?.toHttpUrlOrNull()
         ?: return null
-    if (!frame.host.equals(base.host, ignoreCase = true)) return null
-    if (base.isHttps && !frame.isHttps) return null
+    if (frame.host != base.host || frame.scheme != base.scheme || frame.port != base.port) return null
+    if (frame.encodedPath != "/activity/user/attempt") return null
     return frame.toString()
+}
+
+/** Observed Hermes/LMS AJAX wrapper; this GET never submits an assignment. */
+internal fun assessmentLoaderUrl(submissionUrl: String): String? {
+    val source = submissionUrl.toHttpUrlOrNull() ?: return null
+    val values = listOf("sid", "vid", "cid", "cat_id").associateWith { key ->
+        source.queryParameter(key)?.takeIf(::isAssessmentId) ?: return null
+    }
+    return source.newBuilder().encodedPath("/load/video").query(null).apply {
+        mapOf("vid" to values["vid"], "course_id" to values["sid"], "topic_id" to values["cid"],
+            "cid" to values["cid"], "cat_id" to values["cat_id"], "load" to "true", "src" to "youtube",
+            "autoplay" to "0", "embed" to "0", "showvideo" to "true", "viewer" to "null",
+            "mobile" to "false", "width" to "1309", "height" to "570", "portal" to "1")
+            .forEach { (key, value) -> addQueryParameter(key, value) }
+    }.build().toString()
 }
 
 internal fun parseAssessmentDates(html: String): AssessmentDates {
