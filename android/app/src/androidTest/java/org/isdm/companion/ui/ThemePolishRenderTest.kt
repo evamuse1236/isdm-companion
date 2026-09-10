@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
@@ -49,12 +50,14 @@ class ThemePolishRenderTest {
         compose.setContent {
             val density = LocalDensity.current.density
             CompositionLocalProvider(LocalDensity provides Density(density, fontScale.value)) {
-                MaterialTheme(colorScheme = companionColors(), typography = companionTypography) {
-                    Column(Modifier.fillMaxSize().background(Color(0xFFF4F8F7))) {
+                CompanionTheme(AccentChoice.LAVENDER) {
+                    Column(Modifier.fillMaxSize().background(Color(0xFFF8F7FC))) {
                         CompanionHeader(state, false, {}, {}, {})
-                        DestinationTabs(Destination.SCHEDULE, {})
-                        ScheduleContent(state, today, {}, {}, {}, {}, true, { _, _ -> },
-                            BetaSetupStatus(true, true), false, {}, {}, emptySet())
+                        Box(Modifier.weight(1f)) {
+                            ScheduleContent(state, today, {}, {}, {}, true, { _, _ -> },
+                                BetaSetupStatus(true, true), false, {}, {}, emptySet())
+                        }
+                        CompanionNavBar(Destination.SCHEDULE, {}, {})
                     }
                 }
             }

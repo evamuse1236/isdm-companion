@@ -1,6 +1,8 @@
 # Performance, access control, and theme polish
 
 11 September 2026. Implemented on `codex/performance-access-polish`.
+The changes include `codex/companion-release-0.5.6` (`cb7b48e`), preserving its
+Google theme, attendance safeguards, partial assessment recovery, and lifecycle clock.
 Android remains the learner product; the existing private beta dashboard is the
 owner control surface. These changes are prepared locally, not deployed or distributed.
 
@@ -22,7 +24,7 @@ owner control surface. These changes are prepared locally, not deployed or distr
   replacement cancels and joins the scan; result commits check the account
   generation and apply local Done changes at commit time.
 - `LmsContentLoader` runs three courses concurrently. Readings, faculty, and
-  assessment resources share content pages within a refresh, with four content
+  assessment resources share successful pages and recoverable failures within a refresh, with four content
   requests at most. Assessment details use three concurrent tasks and can appear
   before the course scan completes. Attendance and markability are never served
   from this content cache.
@@ -86,14 +88,17 @@ An action already authorized and in flight cannot be recalled.
 
 ## Visual contract and review
 
-The existing Google-inspired palette, typography, card geometry, top navigation,
-and layout are preserved. Imagegen was used against the actual rendered schedule
-as a conservative polish reference; no generated bitmap or texture is shipped.
+The existing Google-inspired palette, typography, card geometry, bottom navigation,
+accent picker, and layout from the 0.5.6 release branch are preserved. Imagegen was used against the actual rendered schedule
+as a conservative polish reference. Its incidental gradients were rejected;
+no generated bitmap, texture, or palette change is shipped.
 
-- Destination transitions settle in 180 ms; tab color feedback takes 160 ms.
+- Destination transitions settle in 180 ms.
 - Schedule filtering and reading/faculty grouping are remembered.
 - Only a highlighted schedule row observes the ticking clock; static rows and
-  the surrounding list no longer rebuild every second.
+  the surrounding list no longer rebuild every second. The release branch's
+  lifecycle-aware clock is retained: active classes tick each second, future
+  classes near minute changes, and empty or completed days stop ticking.
 - Old cached timestamps say “Saved” with the date. Network failures surface a
   stale-data message without discarding the saved LMS login.
 
@@ -108,12 +113,12 @@ Validation completed successfully:
 
 | Check | Result |
 | --- | --- |
-| Android JVM suite | 184 tests passed |
-| Android 16 instrumentation | 10 tests passed |
+| Android JVM suite | 194 tests passed |
+| Android 16 instrumentation | 13 tests passed |
 | Root Edge Function and tooling suite | 21 tests passed |
 | Dashboard suite and production build | 15 tests passed; build passed |
 | Dashboard TypeScript / ESLint | Passed; one image-optimization warning remains |
-| Android lint / debug APK | Passed; 46 advisory warnings remain |
+| Android lint / debug APK | Passed; 48 advisory warnings remain |
 | Local database transaction verification | All assertions passed |
 
 In the delayed-HTTP-body fixture, a heartbeat scheduled after 100 ms ran at

@@ -80,7 +80,7 @@ class RealLmsAdapter(
         .build()
     private val loginMutex = Mutex()
     private val sessionRevision = AtomicLong()
-    private val contentPages = ConcurrentHashMap<String, String>()
+    private val contentPages = ConcurrentHashMap<String, Result<String>>()
     private val contentLocks = ConcurrentHashMap<String, Mutex>()
     private val contentPermits = Semaphore(4)
 
@@ -88,8 +88,17 @@ class RealLmsAdapter(
 
     private suspend fun contentPage(path: String): String =
         contentLocks.getOrPut(path) { Mutex() }.withLock {
-            contentPages[path] ?: contentPermits.withPermit { authed(path).body }
-                .also { contentPages[path] = it }
+            contentPages[path]?.getOrThrow() ?: try {
+                contentPermits.withPermit { authed(path).body }
+                    .also { contentPages[path] = Result.success(it) }
+            } catch (error: Exception) {
+                if (error is CancellationException ||
+                    error is org.isdm.companion.engine.AuthenticationFailure ||
+                    error is org.isdm.companion.engine.CompanionAccessException ||
+                    (error is LmsHttpException && error.status == 401)) throw error
+                contentPages[path] = Result.failure(error)
+                throw error
+            }
         }
 
     @Volatile
@@ -222,40 +231,54 @@ class RealLmsAdapter(
     }
 
     private suspend fun assessment(draft: AssessmentTaskDraft): AssessmentItem {
-        var dates = AssessmentDates(null, null)
-        var frameUrl: String? = null
-        var resource: AssessmentResource? = null
-        var notice: String? = if (draft.submissionUrl.isBlank()) "The LMS has not opened this activity yet." else null
-        if (draft.submissionUrl.isNotBlank()) {
-            try {
-                val activityPage = contentPage(draft.submissionUrl)
-                frameUrl = parseAssessmentFrameUrl(activityPage, baseUrl.toString())
-                if (frameUrl == null) {
-                    assessmentLoaderUrl(draft.submissionUrl)?.let { loader ->
-                        frameUrl = parseAssessmentFrameUrl(contentPage(loader), baseUrl.toString())
-                    }
-                }
-                if (frameUrl != null) dates = parseAssessmentDates(contentPage(frameUrl!!))
-                if (dates.dueDate == null) notice = "Deadline not verified; check the LMS activity."
-                resource = parseAssessmentResource(
-                    contentPage("/course/details?cat_id=${draft.courseId}&course_id=${draft.sectionId}"),
-                    draft.title, baseUrl.toString(),
-                )
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                if (error is org.isdm.companion.engine.AuthenticationFailure ||
-                    error is org.isdm.companion.engine.CompanionAccessException) throw error
-                notice = "Activity details could not refresh; check the LMS."
+        if (draft.submissionUrl.isBlank()) return AssessmentItem(
+            id = draft.id, title = draft.title, status = draft.status, dueDate = draft.dueDate,
+            endDate = null, submissionUrl = "", datesVerified = false,
+            detailNotice = "The LMS has not opened this activity yet.",
+        )
+        val activityPage = optionalAssessmentEnrichment { contentPage(draft.submissionUrl) }
+        var frameUrl = activityPage?.let { parseAssessmentFrameUrl(it, baseUrl.toString()) }
+        if (frameUrl == null && activityPage != null) {
+            assessmentLoaderUrl(draft.submissionUrl)?.let { loader ->
+                frameUrl = optionalAssessmentEnrichment { contentPage(loader) }
+                    ?.let { parseAssessmentFrameUrl(it, baseUrl.toString()) }
             }
         }
+        val framePage = frameUrl?.let { optionalAssessmentEnrichment { contentPage(it) } }
+        val dates = framePage?.let(::parseAssessmentDates) ?: AssessmentDates(null, null)
+        // Each optional source is independent: preserve successful dates or resources
+        // even when another enrichment request fails.
+        val sectionPage = optionalAssessmentEnrichment {
+            contentPage("/course/details?cat_id=${draft.courseId}&course_id=${draft.sectionId}")
+        }
+        val resource = sectionPage?.let { parseAssessmentResource(it, draft.title, baseUrl.toString()) }
         return AssessmentItem(
             id = draft.id, title = draft.title, status = draft.status,
             dueDate = dates.dueDate ?: draft.dueDate, endDate = dates.endDate,
             submissionUrl = frameUrl ?: draft.submissionUrl,
             resourceTitle = resource?.title, resourceUrl = resource?.sourceUrl,
-            datesVerified = dates.dueDate != null, detailNotice = notice,
+            datesVerified = dates.dueDate != null,
+            detailNotice = when {
+                activityPage == null -> "Activity details could not refresh; check the LMS."
+                dates.dueDate == null -> "Deadline not verified; check the LMS activity."
+                else -> null
+            },
         )
+    }
+
+    private suspend fun <T> optionalAssessmentEnrichment(block: suspend () -> T): T? = try {
+        block()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: LmsAuthenticationException) {
+        throw error
+    } catch (error: LmsHttpException) {
+        if (error.status == 401) throw error
+        null
+    } catch (_: LmsException) {
+        null
+    } catch (_: IOException) {
+        null
     }
 
     override suspend fun classroom(nid: String): ClassroomDetail {

@@ -11,6 +11,15 @@ class ScheduleHighlightTest {
     private val today = LocalDate.parse("2026-08-16")
 
     @Test
+    fun `past dates never advertise a completed class as up next`() {
+        val yesterday = session("Past class", "2026-08-15T04:30:00Z", "2026-08-15T06:00:00Z")
+        assertEquals(
+            emptyList<ScheduleHighlight>(),
+            scheduleHighlights(listOf(yesterday), today.minusDays(1), today, Instant.parse("2026-08-16T05:00:00Z")),
+        )
+    }
+
+    @Test
     fun `today session stays highlighted from its start until its end`() {
         val session = session(
             name = "Public Policy",

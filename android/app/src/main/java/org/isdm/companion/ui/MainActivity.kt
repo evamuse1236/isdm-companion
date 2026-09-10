@@ -1,6 +1,7 @@
 package org.isdm.companion.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -42,6 +43,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,6 +53,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -57,13 +62,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
@@ -80,7 +94,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -89,6 +102,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -97,6 +112,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -129,6 +145,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -247,11 +264,19 @@ class MainActivity : ComponentActivity() {
             pendingAutoAttendance = pending.autoAttendance
         }
         diagnostics.log("main_activity_created", mapOf("restored" to (savedInstanceState != null).toString()))
+        val accentPreferences = AccentPreferenceStore(this)
         setContent {
-            MaterialTheme(colorScheme = companionColors(), typography = companionTypography) {
+            var accent by remember { mutableStateOf(accentPreferences.load()) }
+            CompanionTheme(accent = accent) {
                 CompanionScreen(
                     viewModel = viewModel,
+                    accent = accent,
+                    onAccentChange = { selected ->
+                        accentPreferences.save(selected)
+                        accent = selected
+                    },
                     onAutoAttendance = ::requestAutoAttendance,
+                    onOpenAutomaticAttendanceSettings = ::openAutomaticAttendanceSettings,
                     onMarkAttendance = { requestMark(it) },
                     onOpenReading = { url ->
                         startActivity(
@@ -339,6 +364,16 @@ class MainActivity : ComponentActivity() {
         } else {
             requestBackgroundLocationAccess()
         }
+    }
+
+    private fun openAutomaticAttendanceSettings() {
+        diagnostics.log(
+            "permission_settings_opened",
+            mapOf("permission" to "automatic_attendance"),
+        )
+        appLocationSettings.launch(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
+        )
     }
 
     private fun requestMark(sessionId: String, fromIntent: Boolean = false) {
@@ -493,7 +528,10 @@ internal enum class Destination { SCHEDULE, READINGS, PROFILE }
 @Composable
 private fun CompanionScreen(
     viewModel: CompanionViewModel,
+    accent: AccentChoice,
+    onAccentChange: (AccentChoice) -> Unit,
     onAutoAttendance: (Boolean) -> Unit,
+    onOpenAutomaticAttendanceSettings: () -> Unit,
     onMarkAttendance: (String) -> Unit,
     onOpenReading: (String) -> Unit,
 ) {
@@ -588,20 +626,15 @@ private fun CompanionScreen(
     Scaffold(
         containerColor = Paper,
         snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = {
+        bottomBar = {
             val mainExperienceVisible = !initializing && !signingOut && !betaTourRequired &&
                 !accessBlocked && !requiresLmsSignIn(state, savedLmsEmail != null) && betaEnrolled && betaProfile != null && setupExplained
             if (mainExperienceVisible) {
-                SmallFloatingActionButton(
-                    onClick = { issueReportOpen = true },
-                    containerColor = Teal,
-                    contentColor = Color.White,
-                ) {
-                    androidx.compose.material3.Icon(
-                        Icons.Default.BugReport,
-                        contentDescription = ISSUE_REPORT_FAB_CONTENT_DESCRIPTION,
-                    )
-                }
+                CompanionNavBar(
+                    destination = destination,
+                    onChange = { destination = it },
+                    onIssueReport = { issueReportOpen = true },
+                )
             }
         },
     ) { padding ->
@@ -677,7 +710,6 @@ private fun CompanionScreen(
                     onAutoAttendance = onAutoAttendance,
                     onShowReleaseNotes = viewModel::showReleaseNotes,
                 )
-                DestinationTabs(destination, onChange = { destination = it })
                 AnimatedContent(
                     targetState = destination,
                     transitionSpec = {
@@ -699,7 +731,6 @@ private fun CompanionScreen(
                             },
                             onSession = { selectedSession = it },
                             onMark = onMarkAttendance,
-                            onSignOut = { signOutOpen = true },
                             scheduleFeedbackRecorded = viewModel.hasScheduleFeedback(
                                 selectedDate,
                                 state.scheduleSessions.count { it.start.atZone(IST).toLocalDate() == selectedDate },
@@ -745,11 +776,14 @@ private fun CompanionScreen(
                         ProfileContent(
                             state = state,
                             profile = betaProfile,
+                            accent = accent,
                             autoAttendanceEnabled = autoAttendanceEnabled,
                             setupStatus = setupStatus,
                             detectedSections = detectedProfileCohorts(state).first,
                             detectedGroups = detectedProfileCohorts(state).second,
                             onAutoAttendance = onAutoAttendance,
+                            onAccentChange = onAccentChange,
+                            onOpenAutomaticAttendanceSettings = onOpenAutomaticAttendanceSettings,
                             onSaveProfile = { name, section, group ->
                                 viewModel.updateBetaProfile(
                                     name, section, group,
@@ -841,7 +875,7 @@ internal fun CompanionHeader(
     onShowReleaseNotes: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 11.dp),
+        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 17.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -906,28 +940,90 @@ internal fun CompanionHeader(
 }
 
 @Composable
-internal fun DestinationTabs(destination: Destination, onChange: (Destination) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Destination.entries.forEach { item ->
-            val active = item == destination
-            val color by animateColorAsState(if (active) TealDeep else Soft, animationSpec = tween(160), label = "tab")
-            Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(color)
-                    .clickable { onChange(item) }.padding(vertical = 13.dp),
-                contentAlignment = Alignment.Center,
+internal fun CompanionNavBar(
+    destination: Destination,
+    onChange: (Destination) -> Unit,
+    onIssueReport: () -> Unit,
+) {
+    Box(
+        Modifier.fillMaxWidth().background(Paper).navigationBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            color = BottomNav,
+            shadowElevation = 2.dp,
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    when (item) {
-                        Destination.SCHEDULE -> "Schedule"
-                        Destination.READINGS -> "Readings"
-                        Destination.PROFILE -> "Profile"
-                    },
-                    color = if (active) Color.White else Muted,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+                Destination.entries.forEach { item ->
+                    NavTab(
+                        icon = when (item) {
+                            Destination.SCHEDULE -> Icons.Filled.CalendarMonth
+                            Destination.READINGS -> Icons.AutoMirrored.Filled.MenuBook
+                            Destination.PROFILE -> Icons.Filled.Person
+                        },
+                        label = when (item) {
+                            Destination.SCHEDULE -> "Schedule"
+                            Destination.READINGS -> "Readings"
+                            Destination.PROFILE -> "Profile"
+                        },
+                        active = item == destination,
+                        onClick = { onChange(item) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                IconButton(
+                    onClick = onIssueReport,
+                    modifier = Modifier.size(48.dp).clip(CircleShape).background(Primary),
+                ) {
+                    androidx.compose.material3.Icon(
+                        Icons.Default.BugReport,
+                        contentDescription = ISSUE_REPORT_FAB_CONTENT_DESCRIPTION,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun NavTab(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier.heightIn(min = 60.dp).clip(RoundedCornerShape(24.dp))
+            .background(if (active) Primary else Color.Transparent)
+            .semantics(mergeDescendants = true) {}
+            .selectable(selected = active, role = Role.Tab, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        androidx.compose.material3.Icon(
+            icon,
+            contentDescription = null,
+            tint = if (active) Color.White else TealDeep,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            label,
+            color = if (active) Color.White else TealDeep,
+            fontSize = 12.sp,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+            maxLines = 1,
+        )
     }
 }
 
@@ -938,7 +1034,6 @@ internal fun ScheduleContent(
     onStepDate: (Int) -> Unit,
     onSession: (Session) -> Unit,
     onMark: (String) -> Unit,
-    onSignOut: () -> Unit,
     scheduleFeedbackRecorded: Boolean,
     onScheduleFeedback: (Boolean, String?) -> Unit,
     setupStatus: BetaSetupStatus,
@@ -949,16 +1044,19 @@ internal fun ScheduleContent(
 ) {
     val source = state.scheduleSessions.ifEmpty { state.sessions }
     val sessions = remember(source, selectedDate) { source.filter { it.start.atZone(IST).toLocalDate() == selectedDate } }
-    val clockNow = remember { mutableStateOf(Instant.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            clockNow.value = Instant.now()
-            delay(1_000)
+    val clockNow = remember(sessions) {
+        flow {
+            while (true) {
+                val now = Instant.now()
+                emit(now)
+                delay(scheduleClockDelayMillis(sessions, now) ?: break)
+            }
         }
-    }
-    val highlights by remember(sessions, selectedDate, state.today) {
+    }.collectAsStateWithLifecycle(initialValue = Instant.now())
+    val highlights by remember(sessions, selectedDate, clockNow) {
         derivedStateOf {
-            scheduleHighlights(sessions, selectedDate, state.today, clockNow.value)
+            val now = clockNow.value
+            scheduleHighlights(sessions, selectedDate, now.atZone(IST).toLocalDate(), now)
                 .associate { it.session to it.kind }
         }
     }
@@ -967,6 +1065,7 @@ internal fun ScheduleContent(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
             DateHeader(
@@ -1038,32 +1137,28 @@ internal fun ScheduleContent(
         } else if (sessions.isEmpty()) {
             item { EmptyState("Nothing scheduled", "This day is clear. Your readings remain available offline.") }
         } else {
-            item {
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).border(1.dp, Line, RoundedCornerShape(20.dp)).background(Color.White),
+            items(sessions) { session ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.White,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Line),
                 ) {
-                    sessions.forEachIndexed { index, session ->
-                        if (index > 0) HorizontalDivider(color = Line)
-                        SessionRow(
-                            session = session,
-                            highlight = highlights[session],
-                            nowProvider = { clockNow.value },
-                            onOpen = { onSession(session) },
-                            onMark = onMark,
-                            marking = session.nid in markingSessionIds,
-                        )
-                    }
+                    SessionRow(
+                        session = session,
+                        highlight = highlights[session],
+                        nowProvider = { clockNow.value },
+                        onOpen = { onSession(session) },
+                        onMark = onMark,
+                        marking = session.nid in markingSessionIds,
+                    )
                 }
             }
         }
         (state.scheduleSync.error ?: state.sync.error)?.let { error ->
             item { InlineError("Schedule may be stale. ${errorText(error)}") }
-        }
-        item {
-            TextButton(
-                onClick = onSignOut,
-                modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
-            ) { Text("Sign out", color = Muted) }
         }
     }
 }
@@ -2130,11 +2225,14 @@ private fun BetaProfileContent(
 private fun ProfileContent(
     state: CompanionState,
     profile: BetaProfile?,
+    accent: AccentChoice,
     autoAttendanceEnabled: Boolean,
     setupStatus: BetaSetupStatus,
     detectedSections: Set<String>,
     detectedGroups: Set<String>,
     onAutoAttendance: (Boolean) -> Unit,
+    onAccentChange: (AccentChoice) -> Unit,
+    onOpenAutomaticAttendanceSettings: () -> Unit,
     onSaveProfile: (String, String?, String?) -> Unit,
     onDeleteName: () -> Unit,
     onReopenTour: () -> Unit,
@@ -2193,6 +2291,8 @@ private fun ProfileContent(
                         enabled = setupStatus.canEnableAutomaticAttendance || autoAttendanceEnabled,
                         colors = SwitchDefaults.colors(checkedTrackColor = Teal),
                     )
+                    Spacer(Modifier.width(4.dp))
+                    AutomaticAttendanceSettingsButton(onClick = onOpenAutomaticAttendanceSettings)
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -2266,6 +2366,12 @@ private fun ProfileContent(
             }
         }
         item {
+            AccentColorPicker(
+                selected = accent,
+                onSelected = onAccentChange,
+            )
+        }
+        item {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),
@@ -2273,11 +2379,11 @@ private fun ProfileContent(
                 border = androidx.compose.foundation.BorderStroke(1.dp, Line),
             ) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                    ProfileAction("What’s new", onShowReleaseNotes)
+                    ProfileAction("What’s new", Icons.Filled.EditCalendar, onShowReleaseNotes)
                     HorizontalDivider(color = Line, modifier = Modifier.padding(horizontal = 10.dp))
-                    ProfileAction("View tour again", onReopenTour)
+                    ProfileAction("View tour again", Icons.Filled.History, onReopenTour)
                     HorizontalDivider(color = Line, modifier = Modifier.padding(horizontal = 10.dp))
-                    ProfileAction("Sign out", onSignOut, color = Muted)
+                    ProfileAction("Sign out", Icons.AutoMirrored.Filled.Logout, onSignOut, color = Muted)
                 }
             }
         }
@@ -2285,13 +2391,98 @@ private fun ProfileContent(
 }
 
 @Composable
+internal fun AccentColorPicker(
+    selected: AccentChoice,
+    onSelected: (AccentChoice) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = Color.White,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Text("Appearance", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(2.dp))
+            Text("Accent color", color = Muted, fontSize = 11.sp)
+            Spacer(Modifier.height(14.dp))
+            Row(
+                Modifier.fillMaxWidth().selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                AccentChoice.entries.forEach { choice ->
+                    Column(
+                        Modifier.weight(1f).heightIn(min = 72.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .selectable(
+                                selected = choice == selected,
+                                role = Role.RadioButton,
+                                onClick = { onSelected(choice) },
+                            )
+                            .semantics(mergeDescendants = true) {
+                                contentDescription = "${choice.label} accent color"
+                            }
+                            .padding(horizontal = 2.dp, vertical = 7.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        Box(
+                            Modifier.size(44.dp)
+                                .border(
+                                    width = if (choice == selected) 3.dp else 1.dp,
+                                    color = if (choice == selected) choice.deep else Line,
+                                    shape = CircleShape,
+                                )
+                                .padding(4.dp)
+                                .background(choice.primary, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (choice == selected) {
+                                androidx.compose.material3.Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                        Text(
+                            choice.label,
+                            color = if (choice == selected) choice.deep else Muted,
+                            fontSize = 10.sp,
+                            fontWeight = if (choice == selected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AutomaticAttendanceSettingsButton(onClick: () -> Unit) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(48.dp).clip(CircleShape).background(Soft),
+    ) {
+        androidx.compose.material3.Icon(
+            Icons.Filled.Settings,
+            contentDescription = "Automatic attendance settings",
+            tint = TealDeep,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@Composable
 private fun ProfileHeader(name: String, section: String?, group: String?) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
-            Modifier.size(64.dp).background(TealDeep, CircleShape),
+            Modifier.size(64.dp).background(Soft, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text(profileInitials(name), color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+            Text(profileInitials(name), color = TealDeep, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -2352,6 +2543,8 @@ private fun AttendanceOverviewCard(state: CompanionState, onRefresh: () -> Unit)
                     val percentage = summary.presentPercentage.stripTrailingZeros().toPlainString()
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(128.dp), contentAlignment = Alignment.Center) {
+                            val softAccent = Soft
+                            val primaryAccent = Teal
                             Canvas(
                                 Modifier.fillMaxSize().semantics {
                                     contentDescription = "$percentage percent attendance"
@@ -2360,7 +2553,7 @@ private fun AttendanceOverviewCard(state: CompanionState, onRefresh: () -> Unit)
                                 val stroke = 12.dp.toPx()
                                 val inset = stroke / 2f
                                 drawArc(
-                                    color = Soft,
+                                    color = softAccent,
                                     startAngle = -90f,
                                     sweepAngle = 360f,
                                     useCenter = false,
@@ -2369,7 +2562,7 @@ private fun AttendanceOverviewCard(state: CompanionState, onRefresh: () -> Unit)
                                     style = Stroke(stroke, cap = StrokeCap.Round),
                                 )
                                 drawArc(
-                                    color = Teal,
+                                    color = primaryAccent,
                                     startAngle = -90f,
                                     sweepAngle = 360f * summary.presentPercentage.toFloat().div(100f).coerceIn(0f, 1f),
                                     useCenter = false,
@@ -2395,12 +2588,12 @@ private fun AttendanceOverviewCard(state: CompanionState, onRefresh: () -> Unit)
                     val stats = attendanceStatValues(summary)
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AttendanceStat(stats[0].label, stats[0].value, DoneSoft, Green, Modifier.weight(1f))
-                            AttendanceStat(stats[1].label, stats[1].value, Blush.copy(alpha = 0.48f), BlushAccent, Modifier.weight(1f))
+                            AttendanceStat(stats[0].label, stats[0].value, StatMint, StatMintInk, Modifier.weight(1f))
+                            AttendanceStat(stats[1].label, stats[1].value, StatRose, Rose, Modifier.weight(1f))
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AttendanceStat(stats[2].label, stats[2].value, Butter, Ink, Modifier.weight(1f))
-                            AttendanceStat(stats[3].label, stats[3].value, Mint, TealDeep, Modifier.weight(1f))
+                            AttendanceStat(stats[2].label, stats[2].value, StatCream, Ink, Modifier.weight(1f))
+                            AttendanceStat(stats[3].label, stats[3].value, StatLav, TealDeep, Modifier.weight(1f))
                         }
                     }
                 }
@@ -2452,14 +2645,31 @@ private fun ProfileDetailRow(label: String, value: String, divider: Boolean = tr
 }
 
 @Composable
-private fun ProfileAction(label: String, onClick: () -> Unit, color: Color = Ink) {
+private fun ProfileAction(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    color: Color = Ink,
+) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = color, fontWeight = FontWeight.Bold)
-        Text("›", color = Muted, fontSize = 20.sp)
+        Box(
+            Modifier.size(38.dp).background(Soft, RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.material3.Icon(icon, contentDescription = null, tint = TealDeep, modifier = Modifier.size(19.dp))
+        }
+        Text(label, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        androidx.compose.material3.Icon(
+            Icons.Filled.ChevronRight,
+            contentDescription = null,
+            tint = Muted,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -2685,6 +2895,50 @@ private fun errorText(error: EngineError): String = when (error) {
     EngineError.SystemLimitReached -> "Android’s monitoring time limit was reached. Open the app to restart."
 }
 
+internal enum class AccentChoice(
+    val storageKey: String,
+    val label: String,
+    val primary: Color,
+    val deep: Color,
+    val soft: Color,
+    val navigation: Color,
+) {
+    LAVENDER("lavender", "Lavender", Color(0xFF7C5CBF), Color(0xFF4C3D75), Color(0xFFEDE9F8), Color(0xFFEDE9FE)),
+    OCEAN("ocean", "Ocean", Color(0xFF2E6F9E), Color(0xFF244F6B), Color(0xFFE3EFF6), Color(0xFFE1EEF7)),
+    FOREST("forest", "Forest", Color(0xFF3F7D69), Color(0xFF28594A), Color(0xFFE4F0EB), Color(0xFFE0EFE9)),
+    AMBER("amber", "Amber", Color(0xFF9B651C), Color(0xFF65410E), Color(0xFFF7ECD8), Color(0xFFF7ECD8)),
+    SLATE("slate", "Slate", Color(0xFF526778), Color(0xFF334653), Color(0xFFE7ECEF), Color(0xFFE3EAEE));
+
+    companion object {
+        fun fromStorageKey(value: String?): AccentChoice =
+            entries.firstOrNull { it.storageKey == value } ?: LAVENDER
+    }
+}
+
+internal class AccentPreferenceStore(context: Context) {
+    private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+
+    fun load(): AccentChoice = AccentChoice.fromStorageKey(preferences.getString(ACCENT, null))
+
+    fun save(accent: AccentChoice) {
+        preferences.edit().putString(ACCENT, accent.storageKey).apply()
+    }
+
+    private companion object {
+        const val PREFERENCES = "ui_preferences"
+        const val ACCENT = "accent"
+    }
+}
+
+private val LocalAccent = staticCompositionLocalOf { AccentChoice.LAVENDER }
+
+@Composable
+internal fun CompanionTheme(accent: AccentChoice, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalAccent provides accent) {
+        MaterialTheme(colorScheme = companionColors(), typography = companionTypography, content = content)
+    }
+}
+
 @Composable
 internal fun companionColors() = androidx.compose.material3.lightColorScheme(
     primary = Teal,
@@ -2697,31 +2951,51 @@ internal fun companionColors() = androidx.compose.material3.lightColorScheme(
 
 private data class CourseColors(val panel: Color, val accent: Color, val shape: Color)
 private val COURSE_COLORS = listOf(
-    CourseColors(Color(0xFFE8BFDD), Color(0xFF8F1B3A), Color(0xFFBD82AA)),
+    CourseColors(Color(0xFFEDE9F8), Color(0xFF6D5BB8), Color(0xFFD9C4EC)),
     CourseColors(Color(0xFFD8EBE3), Color(0xFF17665E), Color(0xFF8FBEB1)),
     CourseColors(Color(0xFFF4DF9F), Color(0xFF8A5B0E), Color(0xFFE0AE4D)),
     CourseColors(Color(0xFFD9E7F2), Color(0xFF315F7D), Color(0xFF8DB7D0)),
 )
 
-private val Ink = Color(0xFF15201F)
-private val Paper = Color(0xFFF4F8F7)
-private val Teal = Color(0xFF0D5F5C)
-private val TealDeep = Color(0xFF073B3A)
-private val Muted = Color(0xFF65706D)
-private val Line = Color(0xFFDCE5E2)
-private val Soft = Color(0xFFE4ECE9)
-private val Green = Color(0xFF28755A)
-private val DoneSoft = Color(0xFFDFF1E8)
-private val DonePurple = Color(0xFF7151A1)
-private val DonePurpleSoft = Color(0xFFF0EAF8)
-private val Blush = Color(0xFFE8BFDD)
-private val BlushInk = Color(0xFF2C2630)
-private val BlushAccent = Color(0xFFB45558)
-private val BlushShape = Color(0xFFBD82AA)
-private val Mint = Color(0xFFD8EBE3)
-private val Butter = Color(0xFFF4DF9F)
-private val ButterStrong = Color(0xFFE0AE4D)
-private val SkyAccent = Color(0xFF315F7D)
+private val Rose = Color(0xFFD64D7A)
+
+private val Ink = Color(0xFF2A2740)
+private val Paper = Color(0xFFF8F7FC)
+private val Muted = Color(0xFF6B6B7B)
+private val Line = Color(0xFFECEAF4)
+private val Green = Color(0xFF5B4A93)
+private val DonePurpleSoft = Color(0xFFF3EAF9)
+private val Blush = Color(0xFFF3EAF9)
+private val BlushInk = Color(0xFF2A2740)
+private val BlushAccent = Rose
+private val BlushShape = Color(0xFFD9C4EC)
+private val Butter = Color(0xFFFBEED2)
+private val ButterStrong = Color(0xFFB98A2C)
+
+private val StatMint = Color(0xFFD9EFE4)
+private val StatMintInk = Color(0xFF2E7D5B)
+private val StatRose = Color(0xFFFBE3EA)
+private val StatCream = Color(0xFFFAF0D7)
+private val Primary: Color
+    @Composable @ReadOnlyComposable get() = LocalAccent.current.primary
+private val BottomNav: Color
+    @Composable @ReadOnlyComposable get() = LocalAccent.current.navigation
+private val Teal: Color
+    @Composable @ReadOnlyComposable get() = LocalAccent.current.primary
+private val TealDeep: Color
+    @Composable @ReadOnlyComposable get() = LocalAccent.current.deep
+private val Soft: Color
+    @Composable @ReadOnlyComposable get() = LocalAccent.current.soft
+private val DoneSoft: Color
+    @Composable @ReadOnlyComposable get() = LocalAccent.current.soft
+private val DonePurple: Color
+    @Composable @ReadOnlyComposable get() = LocalAccent.current.primary
+private val Mint: Color
+    @Composable @ReadOnlyComposable get() = LocalAccent.current.soft
+private val SkyAccent: Color
+    @Composable @ReadOnlyComposable get() = LocalAccent.current.primary
+private val StatLav: Color
+    @Composable @ReadOnlyComposable get() = LocalAccent.current.soft
 private val IST = ZoneId.of("Asia/Kolkata")
 private val TIME_FORMAT = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 private val TIME_SHORT = DateTimeFormatter.ofPattern("H:mm", Locale.ENGLISH)

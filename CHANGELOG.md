@@ -1,5 +1,40 @@
 # ISDM Companion changelog
 
+## Unreleased
+
+- Saved login survives network timeouts; session recovery reuses the saved account and keeps
+  cached content available while retrying.
+- Course content loads concurrently and shares fetched pages. Reading scans no longer block
+  Done/Undo or attendance commands; the current Google theme and accent choices are preserved.
+- Schedule transitions finish sooner, and clock changes redraw only the highlighted rows.
+- Assessments include upcoming cards and dynamically loaded LMS forms, with unverified dates
+  clearly labelled and successful optional detail fields retained.
+- The owner dashboard can pause or restore one tester's Companion access with an audit reason.
+  Requires the access-control database migration and Edge Function deployment before a new
+  signed app update; this source change is not yet deployed or distributed.
+
+## 0.5.6 beta
+
+- Assessments retain their task-list title and deadline when optional LMS detail pages fail;
+  other assessments continue refreshing, and successful detail fields remain available.
+- Schedule clocks pause in the background and on empty or completed days. Upcoming countdowns
+  update near their displayed minute changes; active classes retain second-by-second progress.
+- Past dates no longer highlight a completed class as Up next.
+- Includes the 0.5.5 attendance-window and slow-location fixes. Attendance safety gates are unchanged.
+
+## 0.5.5 beta
+
+- Mark attendance no longer appears before the LMS attendance window opens.
+- Slow location acquisition now uses the time when the fix arrives, so fresh campus evidence is
+  not rejected as stale.
+
+## 0.5.4 beta
+
+- Profile now offers Lavender, Ocean, Forest, Amber, and Slate accent colors. The selected accent
+  applies across the app and stays on the phone.
+- Automatic-attendance settings now open the relevant Android app settings, and bottom navigation
+  uses clearer, larger tab targets.
+
 ## 0.5.3 beta
 
 - Restores the familiar compact Schedule, Readings, and Profile interface while retaining
