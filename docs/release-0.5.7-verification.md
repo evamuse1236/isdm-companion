@@ -1,7 +1,7 @@
 # 0.5.7 beta candidate verification
 
 Prepared locally on 11 September 2026 from code commit
-`02cf954e4c82336bb96106094c1538f11cb26616` on
+`a92fa1a3235005a3ba142dc97340367e98199e59` on
 `codex/performance-access-polish`. Permanent signing is pending. This is not an
 installable beta release and has not been distributed.
 
@@ -11,21 +11,24 @@ installable beta release and has not been distributed.
 - Minimum SDK: 26; target SDK: 36; release variant is not debuggable.
 - Local file: `.release-private/candidates/0.5.7/ISDM-Companion-Beta-0.5.7-UNSIGNED.apk`.
 - Size: 13,087,204 bytes.
-- Unsigned SHA-256: `f9f978c4a1494598ad76b4978d471eb4758f1978367239d42a8c0ba3fd960cc1`.
+- Unsigned SHA-256: `212a2878a5d93379db4c7763fd5921e3647ef0fb32f89225664a70218fab865a`.
 - Package/version/SDK and 16 KB alignment checks passed. `apksigner` confirms
   there is no valid signature. Signing will produce a different artifact hash.
 - Machine-readable evidence is beside the candidate in `candidate.json`.
 
 ## Verified behavior and builds
 
-- The Android JVM suite passed all 194 tests with no failures, errors, or skips.
-- Release build and `lintRelease` passed: no errors, 48 warnings and one hint.
-- The final package was rebuilt after shortening the release-note text to five
-  items; that final edit only changes displayed text.
-- Earlier verification of the implementation passed 13 Android 16 instrumentation
-  tests, 25 root tests, and 15 dashboard tests. Theme renders were checked at normal
-  and 130% text size. These emulator checks used the debug build before the version
-  bump, rather than this unsigned release candidate.
+- The Android JVM suite passed all 197 tests with no failures, errors, or skips.
+- Debug/release builds and lint passed: no errors, 49 warnings and one hint.
+- All 15 Android 16 instrumentation tests passed on the updated 0.5.7 debug build.
+  The permission dialog also passed a separate test at 130% Android system text
+  size. Normal and enlarged renders were inspected.
+- Real Android notification and background-location grants, denial, return without
+  granting, final enable, and stopping after notification removal were checked on
+  the emulator. See [permission setup verification](emulator-2026-09-11-permission-setup.md).
+- The release APK contains the new permission helper and setup dialog. These
+  emulator checks use the debug variant, rather than the unsigned release file.
+- Earlier deployment verification passed 25 root tests and 15 dashboard tests.
 - Detailed performance, login recovery, parser, access-control, and production
   deployment evidence is in [performance-access-review.md](performance-access-review.md).
 

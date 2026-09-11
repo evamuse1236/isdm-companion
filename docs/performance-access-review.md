@@ -130,17 +130,25 @@ an exact match enabled it. No tester's access was changed during these checks.
 
 ## Validation and rollout
 
-Validation completed successfully:
+Android validation was refreshed for the 11 September permission-flow fix.
+The root and dashboard results below refer to the earlier verified deployment pass.
 
 | Check | Result |
 | --- | --- |
-| Android JVM suite | 194 tests passed |
-| Android 16 instrumentation | 13 tests passed |
+| Android JVM suite | 197 tests passed |
+| Android 16 instrumentation | 15 tests passed; additional 130% system-font dialog test passed |
 | Root Edge Function and tooling suite | 25 tests passed |
 | Dashboard suite and production build | 15 tests passed; build passed |
 | Dashboard TypeScript / ESLint | Passed; one image-optimization warning remains |
-| Android lint / debug APK | Passed; 48 advisory warnings remain |
+| Android lint / debug and release APKs | Passed; 49 advisory warnings remain |
 | Local database transaction verification | All assertions passed |
+
+Automatic attendance now requires notifications as well as precise and background
+location and precise alarms. A guided dialog retains incomplete steps and opens
+the relevant Android permission prompt or settings screen. Notification denial
+cannot enable automatic attendance; manual features remain available. Actual
+grant, denial, settings-return, and permission-removal checks are documented in
+[emulator permission verification](emulator-2026-09-11-permission-setup.md).
 
 In the delayed-HTTP-body fixture, a heartbeat scheduled after 100 ms ran at
 119 ms while the response body was delayed for 700 ms. This verifies that waiting
