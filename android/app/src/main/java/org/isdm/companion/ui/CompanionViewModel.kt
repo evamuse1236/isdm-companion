@@ -91,6 +91,32 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     private val _reportSending = MutableStateFlow(false)
     val reportSending = _reportSending.asStateFlow()
 
+    private val _savingDebugLogs = MutableStateFlow(false)
+    val savingDebugLogs = _savingDebugLogs.asStateFlow()
+
+    fun saveDebugLogs(uri: Uri) {
+        if (_savingDebugLogs.value) return
+        _savingDebugLogs.value = true
+        viewModelScope.launch {
+            try {
+                app.localDiagnostics.log("debug_log_export_requested")
+                val snapshot = app.localDiagnostics.snapshot()
+                withContext(Dispatchers.IO) {
+                    checkNotNull(app.contentResolver.openOutputStream(uri, "wt")) { "No output stream" }
+                        .bufferedWriter(Charsets.UTF_8).use { it.write(snapshot) }
+                }
+                _message.value = "Debug logs saved. You can share the file when reporting an issue."
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                app.localDiagnostics.log("debug_log_export_failed", error = error)
+                _message.value = "Could not save debug logs. Try another location."
+            } finally {
+                _savingDebugLogs.value = false
+            }
+        }
+    }
+
     private val _signingOut = MutableStateFlow(false)
     val signingOut = _signingOut.asStateFlow()
 

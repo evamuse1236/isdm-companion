@@ -20,6 +20,7 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
         "Quicker schedule transitions preserve your layout and chosen accent color.",
         "Upcoming assessments and more LMS forms are recognised; unconfirmed dates are labelled.",
         "Automatic attendance requires notifications and all-time location; beta access pauses are enforced.",
+        "Save private debug logs from Profile when something goes wrong; logs recycle after a week.",
     ),
 )
 

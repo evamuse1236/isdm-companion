@@ -76,22 +76,39 @@ system installer, where the user still confirms the update.
 
 ## Private diagnostic log
 
-The app writes a small rotating diagnostic log to its private app storage and mirrors the same
-events to Logcat under `ISDMCompanion`. Every line includes a short process-run ID, a monotonic
-sequence number, and the emitting thread. It records the app and Android build at startup;
-permission decisions; command duration and privacy-safe attendance-state counts; sync decisions;
-alarm/service transitions; downloads; and sanitized outer/root failures. Emails, passwords,
-cookies, authorization values, OAuth secrets, signed URLs, session identifiers, and LMS payloads
-are not recorded in command summaries.
+The app keeps a rolling seven-day diagnostic history in private app storage, capped at
+4 MiB. Oldest segments are recycled sooner if the cap is reached. Routine writes use a
+bounded background queue; overload is recorded as a dropped-event count instead of
+blocking the UI or attendance. Logs are mirrored to the `ISDMCompanion` Logcat tag.
 
-With a debug build installed, retrieve both retained files with:
+The log contains UTC timestamps, process-run IDs and sequence numbers, app/Android versions,
+permission decisions, command timings and counts, safe LMS endpoint/status labels,
+attendance-gate outcomes, sync decisions, and alarm/service transitions. Failures retain
+exception types and bounded source frames, without exception messages, raw LMS responses,
+credentials, email addresses, exact coordinates, or session identifiers. Android's previous
+process-exit reason is recorded when available. The uncaught-exception handler records a
+sanitized fatal event and then delegates to Android's existing crash handler.
 
-```powershell
-adb shell run-as org.isdm.companion cat files/diagnostics/companion.log
-adb shell run-as org.isdm.companion cat files/diagnostics/companion.log.1
-```
+Choose **Save debug logs** in Profile, on the sign-in screen, or in the issue-report sheet.
+Android asks where to save a text file; this needs no storage permission and works in release
+builds. The file is only saved when a destination is chosen. It is not uploaded or attached
+to an issue automatically. Exported copies are outside the app's automatic retention and
+must be deleted by their owner.
 
-The current file rotates at 512 KiB and only one previous file is retained.
+Cleanup runs on app startup, roughly hourly while writing, before every export, and in an
+offline daily WorkManager job. Android can defer background work or prevent it after a
+force-stop; the next app start cleans up, and exports always filter to the seven-day window.
+The 4 MiB cap can shorten history under high volume. Buffered events can be lost if Android
+kills the process abruptly; an OS/native crash or ANR is represented by the process-exit
+reason when Android exposes it, not by a guaranteed captured stack trace.
+
+On upgrade, the old `companion.log` and `companion.log.1` files are discarded because their
+format has no enforced retention and may include exception messages. New files are named
+`YYYY-MM-DD-NNNNNN.log` under `files/diagnostics/`. The read-only diagnostics collector also
+captures these files as a private tar archive on debuggable builds.
+
+The local log is independent of beta telemetry. This change does not alter the server's
+existing data-collection pause or add an automatic upload route.
 
 ## Android background limit
 

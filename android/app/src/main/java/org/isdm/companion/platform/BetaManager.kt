@@ -1,6 +1,7 @@
 package org.isdm.companion.platform
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.content.Context
 import android.content.SharedPreferences
@@ -392,10 +393,26 @@ class BetaDiagnosticsLogger(
     private val local: DiagnosticsLogger,
     private val beta: BetaManager,
 ) : DiagnosticsLogger {
+    private val queue = kotlinx.coroutines.channels.Channel<QueuedDiagnostic>(capacity = 128)
+    private val dropped = java.util.concurrent.atomic.AtomicLong()
+
+    init {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO).launch {
+            for (entry in queue) {
+                val skipped = dropped.getAndSet(0)
+                if (skipped > 0) local.log("beta_diagnostic_queue_overflow", mapOf("dropped" to skipped.toString()))
+                runCatching { beta.log(entry.event, entry.attributes, entry.error) }
+            }
+        }
+    }
+
     override fun log(event: String, attributes: Map<String, String>, error: Throwable?) {
         local.log(event, attributes, error)
-        runCatching { beta.log(event, attributes, error) }
+        // Beta's persisted upload queue also performs disk I/O; keep it off callers.
+        if (!queue.trySend(QueuedDiagnostic(event, attributes.toMap(), error)).isSuccess) dropped.incrementAndGet()
     }
+
+    private data class QueuedDiagnostic(val event: String, val attributes: Map<String, String>, val error: Throwable?)
 }
 
 private class AndroidBetaPreferences(private val preferences: SharedPreferences) : BetaPreferences {

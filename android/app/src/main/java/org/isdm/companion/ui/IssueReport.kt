@@ -56,6 +56,7 @@ internal fun IssueReportSheet(
     onDismiss: () -> Unit,
     sending: Boolean,
     onSend: (String, String, List<Uri>) -> Unit,
+    debugLogs: @Composable () -> Unit = {},
 ) {
     var category by rememberSaveable { mutableStateOf("issue") }
     var description by rememberSaveable { mutableStateOf("") }
@@ -153,6 +154,8 @@ internal fun IssueReportSheet(
             ) {
                 Text(if (sending) "Sending…" else "Send", fontWeight = FontWeight.Bold)
             }
+            Spacer(Modifier.height(12.dp))
+            debugLogs()
         }
     }
 }

@@ -28,6 +28,7 @@ import org.isdm.companion.engine.CachedSchedule
 import org.isdm.companion.engine.DiagnosticsLogger
 import org.isdm.companion.platform.AndroidNotifier
 import org.isdm.companion.platform.AndroidDiagnosticsLogger
+import org.isdm.companion.platform.DiagnosticCleanupWorker
 import org.isdm.companion.platform.AndroidLocationEvidenceProvider
 import org.isdm.companion.platform.AndroidProcessExitReporter
 import org.isdm.companion.platform.AutoAttendanceScheduler
@@ -52,6 +53,9 @@ class CompanionApplication : Application() {
     lateinit var diagnostics: DiagnosticsLogger
         private set
 
+    lateinit var localDiagnostics: AndroidDiagnosticsLogger
+        private set
+
     lateinit var betaManager: BetaManager
         private set
 
@@ -69,7 +73,9 @@ class CompanionApplication : Application() {
         credentialStore = SecureCredentialStore(this)
         autoAttendanceStore = AutoAttendanceStore(this)
         betaManager = BetaManager.create(this, autoAttendanceStore::isEnabled)
-        diagnostics = BetaDiagnosticsLogger(AndroidDiagnosticsLogger(this), betaManager)
+        localDiagnostics = AndroidDiagnosticsLogger(this)
+        localDiagnostics.installCrashHandler()
+        diagnostics = BetaDiagnosticsLogger(localDiagnostics, betaManager)
         AndroidProcessExitReporter(this, diagnostics).reportPreviousExits()
         autoAttendanceScheduler = AutoAttendanceScheduler(this, autoAttendanceStore, diagnostics)
         localStore = CompanionLocalStore(this)
@@ -91,6 +97,11 @@ class CompanionApplication : Application() {
         lmsAdapter = RealLmsAdapter(
             beforeRequest = { betaManager.access.requireAccess(fresh = false, allowEnrollment = true) },
             lmsDiagnosticReporter = LmsDiagnosticReporter { endpointLabel, httpStatus, failureType ->
+                localDiagnostics.log("lms_request_failed", mapOf(
+                    "endpoint" to endpointLabel,
+                    "http_status" to (httpStatus?.toString() ?: "none"),
+                    "failure_type" to failureType,
+                ))
                 betaManager.queueLmsDiagnostic(endpointLabel, httpStatus, failureType)
             },
         )
@@ -134,6 +145,7 @@ class CompanionApplication : Application() {
         }
         AndroidNotifier.createChannels(this)
         CompanionSyncWorker.schedule(this)
+        DiagnosticCleanupWorker.schedule(this)
         diagnostics.log(
             "application_started",
             mapOf(

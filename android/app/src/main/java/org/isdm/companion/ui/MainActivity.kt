@@ -572,6 +572,10 @@ private fun CompanionScreen(
     val setupExplained by viewModel.setupExplained.collectAsStateWithLifecycle()
     val setupPermissions by viewModel.setupPermissions.collectAsStateWithLifecycle()
     val reportSending by viewModel.reportSending.collectAsStateWithLifecycle()
+    val savingDebugLogs by viewModel.savingDebugLogs.collectAsStateWithLifecycle()
+    val debugLogs: @Composable () -> Unit = {
+        DebugLogExportAction(saving = savingDebugLogs, onSave = viewModel::saveDebugLogs)
+    }
     val attendanceFeedback by viewModel.attendanceFeedback.collectAsStateWithLifecycle()
     val markingSessionIds by viewModel.markingSessionIds.collectAsStateWithLifecycle()
     val releaseNotes by viewModel.releaseNotes.collectAsStateWithLifecycle()
@@ -682,6 +686,7 @@ private fun CompanionScreen(
                 state = state,
                 onSignIn = viewModel::signIn,
                 initialEmail = savedLmsEmail.orEmpty(),
+                debugLogs = debugLogs,
                 modifier = Modifier.padding(padding),
             )
 
@@ -818,6 +823,7 @@ private fun CompanionScreen(
                             onReopenTour = viewModel::reopenTour,
                             onRefreshAttendance = viewModel::refreshAttendance,
                             onShowReleaseNotes = viewModel::showReleaseNotes,
+                            debugLogs = debugLogs,
                             onSignOut = { signOutOpen = true },
                         )
                     }
@@ -848,6 +854,7 @@ private fun CompanionScreen(
         IssueReportSheet(
             onDismiss = { issueReportOpen = false },
             sending = reportSending,
+            debugLogs = debugLogs,
             onSend = { category, description, images ->
                 viewModel.submitBetaReport(category, description, images) {
                     issueReportOpen = false
@@ -2272,7 +2279,7 @@ private fun BetaProfileContent(
     var name by rememberSaveable(initialName) { mutableStateOf(initialName) }
     var section by rememberSaveable(initialSection) { mutableStateOf(initialSection) }
     var group by rememberSaveable(initialGroup) { mutableStateOf(initialGroup) }
-    Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.Center) {
         Text("Confirm your beta profile", color = Ink, fontSize = 28.sp, lineHeight = 31.sp, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(8.dp))
         Text("The LMS detected ${detectedCohortSummary(detectedSections, detectedGroups)}.", color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
@@ -2312,6 +2319,7 @@ private fun ProfileContent(
     onReopenTour: () -> Unit,
     onRefreshAttendance: () -> Unit,
     onShowReleaseNotes: () -> Unit,
+    debugLogs: @Composable () -> Unit,
     onSignOut: () -> Unit,
 ) {
     var name by rememberSaveable(profile?.supportName) { mutableStateOf(profile?.supportName.orEmpty()) }
@@ -2455,6 +2463,8 @@ private fun ProfileContent(
                     ProfileAction("What’s new", Icons.Filled.EditCalendar, onShowReleaseNotes)
                     HorizontalDivider(color = Line, modifier = Modifier.padding(horizontal = 10.dp))
                     ProfileAction("View tour again", Icons.Filled.History, onReopenTour)
+                    HorizontalDivider(color = Line, modifier = Modifier.padding(horizontal = 10.dp))
+                    debugLogs()
                     HorizontalDivider(color = Line, modifier = Modifier.padding(horizontal = 10.dp))
                     ProfileAction("Sign out", Icons.AutoMirrored.Filled.Logout, onSignOut, color = Muted)
                 }
@@ -2880,10 +2890,10 @@ private fun BetaEnrollmentContent(
 }
 
 @Composable
-private fun LoginContent(state: CompanionState, onSignIn: (String, String) -> Unit, modifier: Modifier = Modifier, initialEmail: String = "") {
+private fun LoginContent(state: CompanionState, onSignIn: (String, String) -> Unit, modifier: Modifier = Modifier, initialEmail: String = "", debugLogs: @Composable () -> Unit = {}) {
     var email by rememberSaveable(initialEmail) { mutableStateOf(initialEmail) }
     var password by rememberSaveable { mutableStateOf("") }
-    Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.Center) {
         Box(Modifier.size(14.dp).background(ButterStrong, RoundedCornerShape(5.dp)))
         Spacer(Modifier.height(18.dp))
         Text("Your ISDM companion", fontSize = 30.sp, lineHeight = 32.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
@@ -2900,6 +2910,8 @@ private fun LoginContent(state: CompanionState, onSignIn: (String, String) -> Un
         }
         Spacer(Modifier.height(12.dp))
         Text("Your login is encrypted on this phone and sent only to the ISDM LMS.", color = Muted, fontSize = 11.sp)
+        Spacer(Modifier.height(12.dp))
+        debugLogs()
     }
 }
 

@@ -87,8 +87,12 @@ capture exit-info "${adb_cmd[@]}" shell dumpsys activity exit-info "$package_nam
 capture jobs "${adb_cmd[@]}" shell dumpsys jobscheduler "$package_name"
 capture crash-log "${adb_cmd[@]}" logcat -b crash -d -v threadtime
 capture tagged-logcat "${adb_cmd[@]}" logcat -d -v threadtime -t 2000 'ISDMCompanion:V' 'AndroidRuntime:E' '*:S'
-capture private-log "${adb_cmd[@]}" shell run-as "$package_name" cat files/diagnostics/companion.log
-capture private-log-previous "${adb_cmd[@]}" shell run-as "$package_name" cat files/diagnostics/companion.log.1
+capture private-log-index "${adb_cmd[@]}" shell run-as "$package_name" ls -l files/diagnostics
+# Preserve all retained segments. Release builds use the in-app Save debug logs action.
+if ! "${adb_cmd[@]}" exec-out run-as "$package_name" tar -cf - -C files diagnostics \
+  >"$output_dir/private-logs.tar" 2>"$output_dir/private-logs-error.txt"; then
+  printf 'Private log archive unavailable; use Save debug logs in the app.\n' >>"$output_dir/private-logs-error.txt"
+fi
 
 {
   printf 'collected_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

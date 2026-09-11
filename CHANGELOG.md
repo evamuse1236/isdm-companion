@@ -17,6 +17,9 @@ Permanent signing and the update-in-place check are pending; this candidate has 
   and Location → Allow all the time. Returning without granting permission keeps that step open;
   manual features remain available. Notification denial cannot enable automatic attendance.
 
+- Debug logs stay in private app storage for up to seven days, with a 4 MiB cap and background
+  writes. Profile, sign-in, and issue reporting can save a sanitized text copy for debugging.
+
 ## Backend and dashboard — 11 September 2026
 
 - The private owner dashboard can stop or allow automatic attendance for one tester while
