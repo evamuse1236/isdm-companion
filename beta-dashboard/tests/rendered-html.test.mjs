@@ -31,6 +31,8 @@ test("server-renders the beta command desk", async () => {
   const html = await response.text();
   assert.match(html, /<title>ISDM Companion Beta Control<\/title>/i);
   assert.match(html, /PRIVATE BETA COMMAND DESK/);
+  assert.match(html, /Data collection remains paused/);
+  assert.match(html, /Individual access controls are available/);
   assert.match(html, /Auto attendance for all testers/);
   assert.match(html, /Stop auto attendance for everyone/);
   assert.match(html, /T-01/);

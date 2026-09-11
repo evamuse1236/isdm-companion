@@ -5,6 +5,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import { runInNewContext } from 'node:vm';
 import { webcrypto } from 'node:crypto';
 import { accessConfig, installationAccessResponse } from '../supabase/functions/beta-api/access.ts';
+import { pausedCollectionReply } from '../supabase/functions/beta-api/collection-policy.mjs';
 import { updateTesterAccess } from '../supabase/functions/beta-admin/access.ts';
 
 async function handler(name, db) {
@@ -13,7 +14,7 @@ async function handler(name, db) {
     .replace(/^import\s+[\s\S]*?from\s+["'][^"']+["'];/gm, '');
   runInNewContext(stripTypeScriptTypes(code), {
     Deno: { env: { get: () => 'fixture-only' }, serve: fn => { serve = fn; } },
-    createClient: () => db, accessConfig, installationAccessResponse, updateTesterAccess,
+    createClient: () => db, accessConfig, installationAccessResponse, updateTesterAccess, pausedCollectionReply,
     Request, Response, URL, TextEncoder, crypto: webcrypto, console, Uint8Array, btoa,
   });
   return serve;
@@ -106,4 +107,23 @@ test('invite rotation compares the current suspension and previous installation 
   }));
   assert.equal(response.status, 409);
   assert.deepEqual(predicates, [['tester_code', 'T-03'], ['access_suspended', false], ['installation_id', 'old-device']]);
+});
+
+
+test('access checks preserve the live collection pause for unsuspended testers', async () => {
+  let writes = 0;
+  const serve = await handler('beta-api', { from: () => {
+    const q = query({ tester_code: 'T-03', installation_id: 'fixture-id', access_suspended: false });
+    q.update = q.insert = () => { writes++; return q; };
+    return q;
+  } });
+  for (const route of ['events', 'profile', 'schedule', 'attendance', 'lms-diagnostic', 'report']) {
+    const response = await serve(new Request(`https://example.test/beta-api/${route}`, { method: 'POST',
+      headers: { 'x-installation-id': 'fixture-id', 'x-install-token': 'valid-token' },
+    }));
+    assert.equal(response.status, route === 'report' ? 503 : 202, route);
+    assert.equal((await response.json())[route === 'report' ? 'error' : 'collection_paused'],
+      route === 'report' ? 'data_collection_paused' : true);
+  }
+  assert.equal(writes, 0);
 });

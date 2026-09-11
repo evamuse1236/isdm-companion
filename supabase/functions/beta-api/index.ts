@@ -1,3 +1,4 @@
+import { pausedCollectionReply } from "./collection-policy.mjs";
 import { accessConfig, installationAccessResponse } from "./access.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.112.3";
 import { deriveSyncUpdate } from "./telemetry.ts";
@@ -31,6 +32,8 @@ Deno.serve(async (request) => {
     if (installation instanceof Response) return installation;
     const accessDenied = installationAccessResponse(installation, route);
     if (accessDenied) return accessDenied;
+    const pausedReply = pausedCollectionReply(route, request.method);
+    if (pausedReply) return json(pausedReply.body, pausedReply.status);
 
     if (route === "config" && request.method === "GET") return await configResponse(installation);
     if (route === "auto-preflight" && request.method === "POST") return await autoPreflight(installation);
@@ -169,7 +172,6 @@ async function authenticateInstallation(request: Request): Promise<Installation 
 }
 
 async function configResponse(installation: Installation): Promise<Response> {
-  await touch(installation.tester_code);
   const config = await loadConfig();
   return json({
     ...accessConfig(installation.access_suspended),
@@ -183,7 +185,6 @@ async function configResponse(installation: Installation): Promise<Response> {
 }
 
 async function autoPreflight(installation: Installation): Promise<Response> {
-  await touch(installation.tester_code);
   const config = await loadConfig();
   const updateRequired = (installation.app_version_code ?? 0) < config.minimum_version_code;
   return json({

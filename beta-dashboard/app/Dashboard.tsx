@@ -166,7 +166,7 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
         <div className="rise">
           <p className="eyebrow">PRIVATE BETA COMMAND DESK</p>
           <h1>ISDM Companion <em>Beta Control</em></h1>
-          <p className="subtitle">{teachingDay} · Ten testers · Asia/Kolkata</p>
+          <p className="subtitle">{teachingDay} · {data.installations.length} tester slots · Asia/Kolkata</p>
         </div>
         <div className="head-side rise" style={{ animationDelay: ".06s" }}>
           <span className="clockpill mono">{TIME_IST.format(new Date(nowMs))} IST</span>
@@ -180,6 +180,11 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
           </button>
         </div>
       </header>
+
+      <div className="state-banner warn rise" role="status">
+        <strong>Data collection remains paused.</strong> Existing activity records may be out of date.
+        Individual access controls are available.
+      </div>
 
       {error && (
         <div className="state-banner warn rise" role="status">
@@ -205,14 +210,14 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
           <>
             <div className="crit-copy">
               <p className="eyebrow">ATTENDANCE SAFETY</p>
-              <h2>No suspected incorrect marks</h2>
+              <h2>No flagged marks in saved records</h2>
               <p>
                 {lastAudit
                   ? <>Last control action {lastAudit.action === "stop_auto_attendance" ? "stopped" : "allowed"} {relativeTime(lastAudit.created_at, nowMs)} · {data.control_audit.length} logged</>
                   : "No control actions logged yet."}
               </p>
             </div>
-            <span className="allclear"><i className="lamp breathe" />All clear</span>
+            <span className="allclear"><i className="lamp" />Saved records</span>
           </>
         )}
       </section>
