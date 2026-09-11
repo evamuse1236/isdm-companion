@@ -135,8 +135,8 @@ The root and dashboard results below refer to the earlier verified deployment pa
 
 | Check | Result |
 | --- | --- |
-| Android JVM suite | 197 tests passed |
-| Android 16 instrumentation | 15 tests passed; additional 130% system-font dialog test passed |
+| Android JVM suite | 204 tests passed |
+| Android 16 instrumentation | 18 tests passed; additional 130% system-font dialog test passed |
 | Root Edge Function and tooling suite | 25 tests passed |
 | Dashboard suite and production build | 15 tests passed; build passed |
 | Dashboard TypeScript / ESLint | Passed; one image-optimization warning remains |
@@ -197,3 +197,10 @@ or phone-speed improvement is claimed.
 Implementation references: [Compose performance](https://developer.android.com/develop/ui/compose/performance/phases),
 [Supabase Edge Functions](https://supabase.com/docs/guides/functions), and
 [PGlite verification runtime](https://pglite.dev/docs/).
+
+## Local debug logging follow-up — 11 September 2026
+
+The 0.5.7 candidate now includes seven-day local debug history, a 4 MiB cap,
+background logging, and a user-chosen text export. Both the local file writer and
+existing beta diagnostic queue run off the calling thread. The live server
+collection policy is unchanged. See [verification and retention limits](local-debug-logs-2026-09-11.md).

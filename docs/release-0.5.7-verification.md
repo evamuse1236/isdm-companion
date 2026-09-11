@@ -1,7 +1,7 @@
 # 0.5.7 beta candidate verification
 
 Prepared locally on 11 September 2026 from code commit
-`a92fa1a3235005a3ba142dc97340367e98199e59` on
+`b6fee4efa1196acc4a856c7f9d123aa425700f9a` on
 `codex/performance-access-polish`. Permanent signing is pending. This is not an
 installable beta release and has not been distributed.
 
@@ -10,17 +10,17 @@ installable beta release and has not been distributed.
 - Package: `org.isdm.companion`; version: `0.5.7-beta`; version code: `15`.
 - Minimum SDK: 26; target SDK: 36; release variant is not debuggable.
 - Local file: `.release-private/candidates/0.5.7/ISDM-Companion-Beta-0.5.7-UNSIGNED.apk`.
-- Size: 13,087,204 bytes.
-- Unsigned SHA-256: `212a2878a5d93379db4c7763fd5921e3647ef0fb32f89225664a70218fab865a`.
+- Size: 13,103,588 bytes.
+- Unsigned SHA-256: `664e3c431605da4b8a5158dbebe44f0e64a1454068273f3035f6fc6c185a1906`.
 - Package/version/SDK and 16 KB alignment checks passed. `apksigner` confirms
   there is no valid signature. Signing will produce a different artifact hash.
 - Machine-readable evidence is beside the candidate in `candidate.json`.
 
 ## Verified behavior and builds
 
-- The Android JVM suite passed all 197 tests with no failures, errors, or skips.
+- The Android JVM suite passed all 204 tests with no failures, errors, or skips.
 - Debug/release builds and lint passed: no errors, 49 warnings and one hint.
-- All 15 Android 16 instrumentation tests passed on the updated 0.5.7 debug build.
+- All 18 Android 16 instrumentation tests passed on the updated 0.5.7 debug build.
   The permission dialog also passed a separate test at 130% Android system text
   size. Normal and enlarged renders were inspected.
 - Real Android notification and background-location grants, denial, return without
@@ -28,6 +28,8 @@ installable beta release and has not been distributed.
   the emulator. See [permission setup verification](emulator-2026-09-11-permission-setup.md).
 - The release APK contains the new permission helper and setup dialog. These
   emulator checks use the debug variant, rather than the unsigned release file.
+- Rolling seven-day logs, redaction, background logging and a real Android file export
+  were verified. See [local logging verification](local-debug-logs-2026-09-11.md).
 - Earlier deployment verification passed 25 root tests and 15 dashboard tests.
 - Detailed performance, login recovery, parser, access-control, and production
   deployment evidence is in [performance-access-review.md](performance-access-review.md).
