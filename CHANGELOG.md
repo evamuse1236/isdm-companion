@@ -1,6 +1,8 @@
 # ISDM Companion changelog
 
-## Unreleased
+## 0.5.7 beta — release candidate
+
+Permanent signing and the update-in-place check are pending; this candidate has not been distributed.
 
 - Saved login survives network timeouts; session recovery reuses the saved account and keeps
   cached content available while retrying.
@@ -9,6 +11,8 @@
 - Schedule transitions finish sooner, and clock changes redraw only the highlighted rows.
 - Assessments include upcoming cards and dynamically loaded LMS forms, with unverified dates
   clearly labelled and successful optional detail fields retained.
+- The app enforces the owner-controlled beta access state, including before manual and automatic
+  attendance. Stopping automatic attendance alone leaves manual attendance and app access available.
 
 ## Backend and dashboard — 11 September 2026
 
