@@ -9,9 +9,15 @@
 - Schedule transitions finish sooner, and clock changes redraw only the highlighted rows.
 - Assessments include upcoming cards and dynamically loaded LMS forms, with unverified dates
   clearly labelled and successful optional detail fields retained.
-- The owner dashboard can pause or restore one tester's Companion access with an audit reason.
-  Requires the access-control database migration and Edge Function deployment before a new
-  signed app update; this source change is not yet deployed or distributed.
+
+## Backend and dashboard — 11 September 2026
+
+- The private owner dashboard can stop or allow automatic attendance for one tester while
+  preserving manual attendance and app access. The existing global control still applies.
+- Separate per-tester Companion suspension and restoration are audited with an owner reason.
+- The existing data-collection pause is preserved and historical records are labelled.
+- Owner authentication uses the verified site-scoped identity; no tester settings were
+  changed during deployment verification. Full Android enforcement requires the next APK.
 
 ## 0.5.6 beta
 

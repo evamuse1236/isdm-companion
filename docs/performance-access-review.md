@@ -4,7 +4,8 @@
 The changes include `codex/companion-release-0.5.6` (`cb7b48e`), preserving its
 Google theme, attendance safeguards, partial assessment recovery, and lifecycle clock.
 Android remains the learner product; the existing private beta dashboard is the
-owner control surface. These changes are prepared locally, not deployed or distributed.
+owner control surface. The backend and private dashboard were deployed on 11 September 2026.
+Android changes are verified locally; a new signed APK has not been distributed.
 
 ## Login and responsiveness
 
@@ -56,6 +57,24 @@ facts. This implementation adopts its verified extractor improvements.
 
 ## Owner access control
 
+The private dashboard is live at <https://isdm-beta-control.evamuse.chatgpt.site>.
+Each tester now has two independent controls:
+
+- **Stop / Allow auto attendance** affects only that tester's automatic preflight.
+  Manual attendance and other app features remain available unless app access is
+  separately suspended. This uses the preflight already present in existing beta APKs.
+  Allowing again does not override the global stop or the learner's phone preference.
+- **Pause / Restore access** controls Companion access as described below.
+
+Both require an owner reason and exact tester code. Each has its own revision,
+server-owned state, and transactional audit. Reclaiming an invite does not clear
+these owner settings. A stop takes effect at the next automatic preflight; an
+already-authorized in-flight mark cannot be recalled.
+
+The pre-existing production data-collection pause was preserved during deployment.
+The dashboard labels activity records as potentially stale. The global automatic
+attendance flag was left unchanged; no real tester was paused or stopped for testing.
+
 Open a tester in the existing dashboard, enter an audit reason and that tester's
 code, then choose **Pause access** or **Restore access**. State, reason, timestamp,
 and audit entry are committed in one database transaction. A stale dashboard
@@ -67,7 +86,9 @@ revision returns a conflict rather than overwriting a more recent decision.
 - Beta API authentication reads the tester flag for every authenticated request.
   Suspended installations may check for restoration and delete their support name;
   other beta routes, including automatic-attendance preflight, reject access.
-- The dashboard accepts only the verified Sites owner. The server retains the
+- The dashboard accepts only the verified Sites owner. Its allowlist uses the
+  site-scoped identity observed in the owner’s authenticated request, not the
+  different account ID returned by the Sites management API. The server retains the
   admin secret, requires JSON for mutations, and rejects cross-origin requests.
   Authenticated headers are trusted only behind the Sites ingress that supplies
   them; do not expose the worker directly on an untrusted origin.
@@ -115,7 +136,7 @@ Validation completed successfully:
 | --- | --- |
 | Android JVM suite | 194 tests passed |
 | Android 16 instrumentation | 13 tests passed |
-| Root Edge Function and tooling suite | 21 tests passed |
+| Root Edge Function and tooling suite | 25 tests passed |
 | Dashboard suite and production build | 15 tests passed; build passed |
 | Dashboard TypeScript / ESLint | Passed; one image-optimization warning remains |
 | Android lint / debug APK | Passed; 48 advisory warnings remain |
@@ -140,19 +161,27 @@ revision conflicts, idempotence, restoration, and rollback when the audit insert
 fails. PGlite uses a single connection; live multi-session lock contention has
 not been measured. Root tooling requires Node.js 22.13 or newer.
 
-Release order:
+Deployment verification:
 
-1. Apply `20260910192122_tester_access_control.sql` to the existing Supabase project.
-2. Deploy `beta-api` and `beta-admin` with their current custom authentication.
-3. Publish the updated private dashboard without broadening its audience.
-4. Prepare a higher-version beta with release notes, permanent signing identity,
-   signature verification and the repository's data-preserving update test.
-5. Distribute only after the exact recipient/artifact preview is approved.
+1. Applied `tester_access_control` and `tester_auto_attendance_control` migrations.
+2. Deployed `beta-api` version 7 and `beta-admin` version 4, retaining their custom
+   authentication and the production collection pause.
+3. Published owner-only dashboard version 8 from source commit
+   `c37c7afd595e3083392c2d39df7f2703d70beea2`.
+4. The real signed-in browser received HTTP 200 and all 15 roster records with
+   both control states. Authenticated requests for nonexistent `T-99` reached both
+   control RPCs and returned `tester_not_found`, without changing anyone.
+5. A production transaction created an uncommitted test row, verified independent
+   stop/restore, revision conflicts, and separation from app suspension, then rolled
+   back. No test row or access/auto-control audit remained.
+6. The live form rejected the wrong confirmation code and enabled the action for
+   the correct code. Inputs were cleared without submitting a real tester change.
 
-The new app fails closed when the backend does not provide an access lease, so
-steps 1–2 must precede installing it on a real tester's device. The debug build is
-for local verification and is not a signed beta update. No physical-device speed,
-live learner login, production suspension, or tester delivery is claimed.
+The verified debug build is not a permanently signed beta update. Shipping the
+Android performance/login changes and complete screen/manual-attendance access
+restriction still requires a higher-version APK signed with the permanent identity,
+an update-in-place check, and an explicitly approved distribution batch. No physical
+phone was modified; no live learner login or phone-speed improvement is claimed.
 
 Implementation references: [Compose performance](https://developer.android.com/develop/ui/compose/performance/phases),
 [Supabase Edge Functions](https://supabase.com/docs/guides/functions), and
