@@ -116,6 +116,7 @@ class MonitoringService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun armFromAlarm(stopAtMillis: Long, sessionIds: Set<String>) {
+        if (!checkAutomaticAttendanceAccess()) return
         val credentials = app.credentialStore.load()
         if (credentials == null) {
             app.diagnostics.log("auto_attendance_skipped", mapOf("reason" to "credentials_missing"))
@@ -172,6 +173,7 @@ class MonitoringService : Service() {
             return
         }
         for (sessionId in targetSessionIds) {
+            if (!checkAutomaticAttendanceAccess()) return
             val result = engine.dispatch(
                 Command.ArmMonitoring(
                     mode = MonitoringMode.AUTO_MARK,
@@ -216,7 +218,7 @@ class MonitoringService : Service() {
                 if (monitor.stopAt?.let { !Instant.now().isBefore(it) } == true) {
                     engine.dispatch(Command.MonitorTick)
                 } else if (monitor.mode == MonitoringMode.AUTO_MARK) {
-                    runCatching { app.betaManager.autoPreflight() }
+                    if (checkAutomaticAttendanceAccess()) runCatching { app.betaManager.autoPreflight() }
                         .onSuccess { decision ->
                             if (decision.allowed) {
                                 engine.dispatch(Command.MonitorTick)
@@ -241,6 +243,15 @@ class MonitoringService : Service() {
                 delay(POLL_MS)
             }
         }
+    }
+
+    private suspend fun checkAutomaticAttendanceAccess(): Boolean {
+        if (app.autoAttendanceStore.isEnabled() && app.autoAttendanceScheduler.hasRequiredSystemAccess()) return true
+        app.autoAttendanceStore.setEnabled(false)
+        app.autoAttendanceScheduler.cancel()
+        app.diagnostics.log("auto_attendance_skipped", mapOf("reason" to "system_access_removed_or_disabled"))
+        engine.dispatch(Command.DisarmMonitoring)
+        return false
     }
 
     private fun ensureMonitorWakeLock() {

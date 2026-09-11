@@ -13,6 +13,9 @@ Permanent signing and the update-in-place check are pending; this candidate has 
   clearly labelled and successful optional detail fields retained.
 - The app enforces the owner-controlled beta access state, including before manual and automatic
   attendance. Stopping automatic attendance alone leaves manual attendance and app access available.
+- Automatic attendance setup guides each required Android permission, including notifications
+  and Location → Allow all the time. Returning without granting permission keeps that step open;
+  manual features remain available. Notification denial cannot enable automatic attendance.
 
 ## Backend and dashboard — 11 September 2026
 

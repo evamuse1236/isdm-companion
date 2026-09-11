@@ -1,6 +1,7 @@
 package org.isdm.companion
 
 import android.Manifest
+import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.time.Instant
@@ -21,6 +22,9 @@ class AutoAttendanceStartupRestoreContractTest {
         val app = instrumentation.targetContext.applicationContext as CompanionApplication
         instrumentation.uiAutomation.grantRuntimePermission(app.packageName, Manifest.permission.ACCESS_FINE_LOCATION)
         instrumentation.uiAutomation.grantRuntimePermission(app.packageName, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            instrumentation.uiAutomation.grantRuntimePermission(app.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        }
         val originalEnabled = app.autoAttendanceStore.isEnabled()
         val account = "startup-contract@example.com"
         val now = Instant.now()

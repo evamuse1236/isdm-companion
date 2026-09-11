@@ -146,6 +146,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun onForeground() {
+        _autoAttendanceEnabled.value = app.autoAttendanceStore.isEnabled()
         refreshAccess()
         if (_initializing.value || _savedLmsEmail.value == null) return
         val latest = state.value.sync.lastSuccess
@@ -466,6 +467,11 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setAutoAttendance(enabled: Boolean) {
+        if (enabled && !app.autoAttendanceScheduler.hasRequiredSystemAccess()) {
+            setAutoAttendance(false)
+            _message.value = "Complete automatic attendance setup: precise location, notifications, location all the time, and precise alarms."
+            return
+        }
         if (enabled && app.betaManager.profile?.detectedSections.isNullOrEmpty()) {
             app.autoAttendanceStore.setEnabled(false)
             _autoAttendanceEnabled.value = false
@@ -573,6 +579,10 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             AutoAttendanceScheduleResult.ExactAlarmPermissionRequired -> {
                 app.diagnostics.log("auto_attendance_schedule_failed", mapOf("reason" to "exact_alarm_permission"))
                 _message.value = "Android has not allowed precise class alarms, so auto attendance could not be scheduled."
+            }
+            AutoAttendanceScheduleResult.NotificationPermissionRequired -> {
+                setAutoAttendance(false)
+                _message.value = "Needs attention: turn on notifications before enabling automatic attendance."
             }
             is AutoAttendanceScheduleResult.Failed -> {
                 app.diagnostics.log("auto_attendance_schedule_failed", error = result.error)

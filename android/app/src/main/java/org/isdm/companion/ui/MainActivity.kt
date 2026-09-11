@@ -31,6 +31,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -167,6 +169,7 @@ import org.isdm.companion.engine.defaultReadingCourseId
 import org.isdm.companion.engine.orderedReadingCourseIds
 import org.isdm.companion.domain.LocationGateReason
 import org.isdm.companion.platform.BetaProfile
+import org.isdm.companion.platform.hasAttendanceNotificationAccess
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -181,6 +184,9 @@ class MainActivity : ComponentActivity() {
     private var pendingMarkSessionId: String? = null
     private var pendingMarkFromIntent = false
     private var pendingAutoAttendance = false
+    private var autoAttendanceSetupVisible by mutableStateOf(false)
+    private var autoAttendanceSetupMessage by mutableStateOf<String?>(null)
+    private val permissionRequests by lazy { getSharedPreferences("permission_requests", MODE_PRIVATE) }
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -190,10 +196,9 @@ class MainActivity : ComponentActivity() {
             mapOf("granted" to granted.toString(), "permission" to "notifications"),
         )
         if (pendingAutoAttendance) {
-            pendingAutoAttendance = false
-            viewModel.setAutoAttendance(true)
-            viewModel.markSetupExplained()
-            publishSetupPermissions()
+            autoAttendanceSetupMessage = if (granted) null else
+                "Notifications are required for automatic attendance alerts. Allow them to continue, or choose Not now."
+            refreshAutomaticAttendanceSetup()
         }
     }
 
@@ -211,14 +216,14 @@ class MainActivity : ComponentActivity() {
         )
         if (preciseGranted) {
             completePendingMark()
-            if (pendingAutoAttendance) requestBackgroundLocationAccess()
+            if (pendingAutoAttendance) refreshAutomaticAttendanceSetup()
         } else {
             pendingMarkSessionId = null
             pendingMarkFromIntent = false
             if (pendingAutoAttendance) {
-                pendingAutoAttendance = false
                 viewModel.setAutoAttendance(false)
-                viewModel.markSetupExplained()
+                autoAttendanceSetupMessage = "Choose Precise location and While using the app first. Background location is a separate step."
+                refreshAutomaticAttendanceSetup()
             }
             publishSetupPermissions()
             viewModel.showMessage("Attendance is locked until Precise location is allowed.")
@@ -232,7 +237,7 @@ class MainActivity : ComponentActivity() {
             "permission_result",
             mapOf("granted" to granted.toString(), "permission" to "background_location"),
         )
-        finishAutoAttendancePermissionFlow()
+        refreshAutomaticAttendanceSetup()
     }
 
     private val appLocationSettings = registerForActivityResult(
@@ -242,7 +247,7 @@ class MainActivity : ComponentActivity() {
             "permission_settings_returned",
             mapOf("background_location_granted" to hasBackgroundLocationAccess().toString()),
         )
-        finishAutoAttendancePermissionFlow()
+        refreshAutomaticAttendanceSetup()
     }
 
     private val exactAlarmSettings = registerForActivityResult(
@@ -252,7 +257,7 @@ class MainActivity : ComponentActivity() {
             "permission_settings_returned",
             mapOf("exact_alarms_granted" to canScheduleExactAlarms().toString()),
         )
-        finishExactAlarmPermissionFlow()
+        refreshAutomaticAttendanceSetup()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -262,6 +267,7 @@ class MainActivity : ComponentActivity() {
             pendingMarkSessionId = pending.markSessionId
             pendingMarkFromIntent = pending.markFromIntent
             pendingAutoAttendance = pending.autoAttendance
+            autoAttendanceSetupVisible = pendingAutoAttendance
         }
         diagnostics.log("main_activity_created", mapOf("restored" to (savedInstanceState != null).toString()))
         val accentPreferences = AccentPreferenceStore(this)
@@ -285,6 +291,15 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                 )
+                if (autoAttendanceSetupVisible) {
+                    val permissions by viewModel.setupPermissions.collectAsStateWithLifecycle()
+                    AutomaticAttendancePermissionDialog(
+                        permissions = permissions,
+                        message = autoAttendanceSetupMessage,
+                        onContinue = ::continueAutomaticAttendanceSetup,
+                        onDismiss = ::dismissAutomaticAttendanceSetup,
+                    )
+                }
             }
         }
         handleIntent(intent)
@@ -310,8 +325,8 @@ class MainActivity : ComponentActivity() {
         publishSetupPermissions()
         viewModel.onForeground()
         val app = application as CompanionApplication
-        if (!pendingAutoAttendance && app.autoAttendanceStore.isEnabled() &&
-            (!hasBackgroundLocationAccess() || !canScheduleExactAlarms())
+        if (app.autoAttendanceStore.isEnabled() &&
+            !app.autoAttendanceScheduler.hasRequiredSystemAccess()
         ) {
             viewModel.setAutoAttendance(false)
             viewModel.showMessage("Needs attention: automatic attendance stopped because required Android access was removed.")
@@ -343,37 +358,30 @@ class MainActivity : ComponentActivity() {
     private fun requestAutoAttendance(enabled: Boolean) {
         if (!enabled) {
             pendingAutoAttendance = false
+            autoAttendanceSetupVisible = false
             viewModel.setAutoAttendance(false)
-            return
-        }
-        if (!viewModel.hasDetectedSectionForAutomaticAttendance()) {
-            viewModel.setAutoAttendance(false)
-            viewModel.markSetupExplained()
-            viewModel.showMessage("Needs attention: the LMS must detect your Section before automatic attendance can run.")
             return
         }
         pendingAutoAttendance = true
-        if (!hasPreciseLocationAccess()) {
-            diagnostics.log(
-                "permission_requested",
-                mapOf("permission" to "precise_location", "purpose" to "auto_attendance"),
-            )
-            foregroundLocationPermission.launch(
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-            )
+        autoAttendanceSetupMessage = null
+        publishSetupPermissions()
+        if (readSetupPermissions().allGranted) {
+            continueAutomaticAttendanceSetup()
         } else {
-            requestBackgroundLocationAccess()
+            viewModel.setAutoAttendance(false)
+            autoAttendanceSetupVisible = true
         }
     }
 
-    private fun openAutomaticAttendanceSettings() {
+    internal fun openAutomaticAttendanceSettings() {
         diagnostics.log(
-            "permission_settings_opened",
+            "permission_setup_opened",
             mapOf("permission" to "automatic_attendance"),
         )
-        appLocationSettings.launch(
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
-        )
+        pendingAutoAttendance = true
+        autoAttendanceSetupMessage = null
+        autoAttendanceSetupVisible = true
+        publishSetupPermissions()
     }
 
     private fun requestMark(sessionId: String, fromIntent: Boolean = false) {
@@ -400,72 +408,87 @@ class MainActivity : ComponentActivity() {
         if (fromIntent) viewModel.handleMarkIntent(sessionId) else viewModel.mark(sessionId)
     }
 
-    private fun requestBackgroundLocationAccess() {
-        if (hasBackgroundLocationAccess()) {
-            finishAutoAttendancePermissionFlow()
-            return
-        }
-        when {
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> finishAutoAttendancePermissionFlow()
-            Build.VERSION.SDK_INT == Build.VERSION_CODES.Q -> {
+    private fun continueAutomaticAttendanceSetup() {
+        if (!pendingAutoAttendance) return
+        autoAttendanceSetupMessage = null
+        val permissions = readSetupPermissions()
+        publishSetupPermissions()
+        when (nextAutoAttendancePermission(permissions)) {
+            AutoAttendancePermissionStep.PRECISE_LOCATION -> {
+                val alreadyRequested = permissionRequests.getBoolean("precise_location", false)
+                if (alreadyRequested && !shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                    openAppLocationSettings()
+                } else {
+                    permissionRequests.edit().putBoolean("precise_location", true).apply()
+                    diagnostics.log("permission_requested", mapOf("permission" to "precise_location", "purpose" to "auto_attendance"))
+                    foregroundLocationPermission.launch(
+                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                    )
+                }
+            }
+            AutoAttendancePermissionStep.NOTIFICATIONS -> {
+                val alreadyRequested = permissionRequests.getBoolean("notifications", false)
+                val runtimeGrantMissing = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                if (runtimeGrantMissing && (!alreadyRequested || shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS))) {
+                    permissionRequests.edit().putBoolean("notifications", true).apply()
+                    diagnostics.log("permission_requested", mapOf("permission" to "notifications"))
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    diagnostics.log("permission_settings_opened", mapOf("permission" to "notifications"))
+                    appLocationSettings.launch(
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+                    )
+                }
+            }
+            AutoAttendancePermissionStep.BACKGROUND_LOCATION -> if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
                 diagnostics.log("permission_requested", mapOf("permission" to "background_location"))
                 backgroundLocationPermission.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            } else {
+                openAppLocationSettings()
             }
-            else -> {
-                diagnostics.log(
-                    "permission_settings_opened",
-                    mapOf("permission" to "background_location"),
+            AutoAttendancePermissionStep.EXACT_ALARMS -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                diagnostics.log("permission_settings_opened", mapOf("permission" to "exact_alarms"))
+                exactAlarmSettings.launch(
+                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")),
                 )
-                viewModel.showMessage("In Android settings, set Location to Allow all the time, then return.")
-                appLocationSettings.launch(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
-                )
+            }
+            AutoAttendancePermissionStep.COMPLETE -> {
+                if (!viewModel.hasDetectedSectionForAutomaticAttendance()) {
+                    autoAttendanceSetupVisible = true
+                    autoAttendanceSetupMessage = "Permissions are ready. Your LMS Section must also be detected before automatic attendance can run. You can use the other app features meanwhile."
+                    viewModel.setAutoAttendance(false)
+                    return
+                }
+                pendingAutoAttendance = false
+                autoAttendanceSetupVisible = false
+                viewModel.setAutoAttendance(true)
+                viewModel.markSetupExplained()
             }
         }
     }
 
-    private fun finishAutoAttendancePermissionFlow() {
-        if (!pendingAutoAttendance) return
-        if (!hasBackgroundLocationAccess()) {
-            pendingAutoAttendance = false
-            viewModel.setAutoAttendance(false)
-            viewModel.markSetupExplained()
-            publishSetupPermissions()
-            viewModel.showMessage("Needs attention: set Location to Allow all the time before automatic attendance can run.")
-            return
-        }
-        if (!canScheduleExactAlarms()) {
-            diagnostics.log("permission_settings_opened", mapOf("permission" to "exact_alarms"))
-            viewModel.showMessage("Allow precise alarms so attendance checks can start at class time.")
-            exactAlarmSettings.launch(
-                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")),
-            )
-            return
-        }
-        finishExactAlarmPermissionFlow()
+    private fun openAppLocationSettings() {
+        diagnostics.log("permission_settings_opened", mapOf("permission" to "location"))
+        appLocationSettings.launch(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
+        )
     }
 
-    private fun finishExactAlarmPermissionFlow() {
-        if (!pendingAutoAttendance) return
-        if (!canScheduleExactAlarms()) {
-            pendingAutoAttendance = false
+    private fun refreshAutomaticAttendanceSetup() {
+        publishSetupPermissions()
+        if (pendingAutoAttendance) autoAttendanceSetupVisible = true
+    }
+
+    private fun dismissAutomaticAttendanceSetup() {
+        pendingAutoAttendance = false
+        autoAttendanceSetupVisible = false
+        autoAttendanceSetupMessage = null
+        if (!readSetupPermissions().allGranted) {
             viewModel.setAutoAttendance(false)
-            viewModel.markSetupExplained()
-            publishSetupPermissions()
-            viewModel.showMessage("Needs attention: precise alarms are required for automatic attendance.")
-            return
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            diagnostics.log("permission_requested", mapOf("permission" to "notifications"))
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            pendingAutoAttendance = false
-            viewModel.setAutoAttendance(true)
-            viewModel.markSetupExplained()
-            publishSetupPermissions()
-        }
+        viewModel.markSetupExplained()
+        publishSetupPermissions()
     }
 
     private fun hasPreciseLocationAccess(): Boolean =
@@ -481,16 +504,15 @@ class MainActivity : ComponentActivity() {
         (application as CompanionApplication).autoAttendanceScheduler.canScheduleExactAlarms()
 
     private fun publishSetupPermissions() {
-        viewModel.updateSetupPermissions(
-            BetaSetupPermissions(
-                preciseLocation = hasPreciseLocationAccess(),
-                backgroundLocation = hasBackgroundLocationAccess(),
-                exactAlarms = canScheduleExactAlarms(),
-                notifications = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
-            ),
-        )
+        viewModel.updateSetupPermissions(readSetupPermissions())
     }
+
+    private fun readSetupPermissions() = BetaSetupPermissions(
+        preciseLocation = hasPreciseLocationAccess(),
+        backgroundLocation = hasBackgroundLocationAccess(),
+        exactAlarms = canScheduleExactAlarms(),
+        notifications = hasAttendanceNotificationAccess(this),
+    )
 
     companion object {
         const val EXTRA_MARK_NID = "mark_nid"
@@ -699,6 +721,7 @@ private fun CompanionScreen(
                 onContinue = {
                     onAutoAttendance(true)
                 },
+                onSkip = viewModel::markSetupExplained,
                 modifier = Modifier.padding(padding),
             )
 
@@ -2119,7 +2142,7 @@ private fun BetaTourContent(onFinish: () -> Unit, modifier: Modifier = Modifier)
     val pages = listOf(
         "Welcome" to "Companion keeps your schedule, attendance and readings together. This short tour appears once for this app experience.",
         "Automatic attendance" to "Precise location proves you are on campus. Allow all the time lets Android check during class. Precise alarms start the check on time.",
-        "Alerts and privacy" to "Notifications tell you when a class opens and whether marking worked. They are helpful but optional. Your LMS password stays on this phone.",
+        "Alerts and privacy" to "Notifications tell you when a class opens and whether marking worked. Enable them for automatic attendance. Your LMS password stays on this phone.",
     )
     Column(modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
         Text("${page + 1} of ${pages.size}", color = Teal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -2151,7 +2174,7 @@ private fun BetaTourContent(onFinish: () -> Unit, modifier: Modifier = Modifier)
 }
 
 @Composable
-private fun AutoAttendanceEducation(onContinue: () -> Unit, modifier: Modifier = Modifier) {
+private fun AutoAttendanceEducation(onContinue: () -> Unit, onSkip: () -> Unit, modifier: Modifier = Modifier) {
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.Center) {
         item {
             Text("Enable automatic attendance", fontSize = 29.sp, lineHeight = 32.sp, color = Ink, fontWeight = FontWeight.ExtraBold)
@@ -2159,17 +2182,68 @@ private fun AutoAttendanceEducation(onContinue: () -> Unit, modifier: Modifier =
             Text("Android will ask in this order:", color = Muted, fontSize = 15.sp)
             Spacer(Modifier.height(18.dp))
             PermissionExplanation("1", "Precise location", "Needed for both manual and automatic attendance inside the campus zone.")
-            PermissionExplanation("2", "Allow all the time", "Lets the phone check automatically while the app is closed.")
-            PermissionExplanation("3", "Precise alarms", "Lets the check start at the class time.")
-            PermissionExplanation("4", "Notifications", "Optional alerts for attendance windows and results.")
+            PermissionExplanation("2", "Notifications", "Required for automatic attendance alerts and results.")
+            PermissionExplanation("3", "Allow all the time", "Lets the phone check automatically while the app is closed. On newer Android versions, choose this in app settings.")
+            PermissionExplanation("4", "Precise alarms", "Lets the check start at the class time.")
             Spacer(Modifier.height(18.dp))
             Text("If a required permission is refused or later removed, automatic attendance stops and shows Needs attention. Manual features remain available.", color = Ink, fontSize = 12.sp, lineHeight = 18.sp)
             Spacer(Modifier.height(20.dp))
             Button(onClick = onContinue, modifier = Modifier.fillMaxWidth().height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = TealDeep)) {
                 Text("Continue and enable", fontWeight = FontWeight.Bold)
             }
+            TextButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) { Text("Use manual attendance for now") }
         }
     }
+}
+
+@Composable
+internal fun AutomaticAttendancePermissionDialog(
+    permissions: BetaSetupPermissions,
+    message: String?,
+    onContinue: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val step = nextAutoAttendancePermission(permissions)
+    val checks = listOf(
+        "Precise location" to permissions.preciseLocation,
+        "Notifications" to permissions.notifications,
+        "Location all the time" to permissions.backgroundLocation,
+        "Precise alarms" to permissions.exactAlarms,
+    )
+    val explanation = when (step) {
+        AutoAttendancePermissionStep.PRECISE_LOCATION -> "Choose Precise location and While using the app. Android asks for background access separately."
+        AutoAttendancePermissionStep.NOTIFICATIONS -> "Allow attendance alerts and results. If Android no longer shows a prompt, the button opens this app’s notification settings."
+        AutoAttendancePermissionStep.BACKGROUND_LOCATION -> "In Android settings, open Permissions → Location → Allow all the time. Keep Use precise location on, then return here."
+        AutoAttendancePermissionStep.EXACT_ALARMS -> "Allow precise alarms in Android settings so the attendance check can start at class time, then return here."
+        AutoAttendancePermissionStep.COMPLETE -> "All Android permissions are ready. You can now enable automatic attendance."
+    }
+    val action = when (step) {
+        AutoAttendancePermissionStep.PRECISE_LOCATION -> "Allow precise location"
+        AutoAttendancePermissionStep.NOTIFICATIONS -> "Turn on notifications"
+        AutoAttendancePermissionStep.BACKGROUND_LOCATION -> "Open location settings"
+        AutoAttendancePermissionStep.EXACT_ALARMS -> "Allow precise alarms"
+        AutoAttendancePermissionStep.COMPLETE -> "Enable automatic attendance"
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Automatic attendance setup") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("${checks.count { it.second }} of 4 ready", color = Teal, fontWeight = FontWeight.Bold)
+                checks.forEach { (label, granted) ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(label, Modifier.weight(1f), color = Ink)
+                        Spacer(Modifier.width(12.dp))
+                        Text(if (granted) "Ready" else "Required", color = if (granted) Teal else BlushAccent, fontSize = 12.sp)
+                    }
+                }
+                Text(message ?: explanation, color = Ink, lineHeight = 20.sp, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                Text("All four permissions are required for automatic attendance. Manual attendance and other app features remain available.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+            }
+        },
+        confirmButton = { TextButton(onClick = onContinue) { Text(action) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now") } },
+    )
 }
 
 @Composable
@@ -2288,7 +2362,6 @@ private fun ProfileContent(
                     Switch(
                         checked = autoAttendanceEnabled,
                         onCheckedChange = { onAutoAttendance(it) },
-                        enabled = setupStatus.canEnableAutomaticAttendance || autoAttendanceEnabled,
                         colors = SwitchDefaults.colors(checkedTrackColor = Teal),
                     )
                     Spacer(Modifier.width(4.dp))
@@ -2299,14 +2372,14 @@ private fun ProfileContent(
                     if (setupStatus.canEnableAutomaticAttendance) {
                         "Companion can check your campus location near class time and mark attendance when the LMS allows it."
                     } else {
-                        "Precise location, Allow all the time and precise alarms are required before automatic attendance can run."
+                        "Complete setup for precise location, notifications, Allow all the time and precise alarms before automatic attendance can run."
                     },
                     color = Muted,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,
                 )
                 if (!setupStatus.notificationsAvailable) {
-                    Text("Notifications are optional and currently off.", color = Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
+                    Text("Notifications are off. Open setup to turn them on.", color = Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
                 }
                 }
             }

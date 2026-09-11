@@ -19,7 +19,7 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
         "Readings and assessments load together without holding up Done, Undo, or attendance.",
         "Quicker schedule transitions preserve your layout and chosen accent color.",
         "Upcoming assessments and more LMS forms are recognised; unconfirmed dates are labelled.",
-        "Paused beta access takes effect inside the app and stops automatic attendance.",
+        "Automatic attendance requires notifications and all-time location; beta access pauses are enforced.",
     ),
 )
 

@@ -54,6 +54,7 @@ sealed interface AutoAttendanceScheduleResult {
     data object Disabled : AutoAttendanceScheduleResult
     data object LocationPermissionRequired : AutoAttendanceScheduleResult
     data object ExactAlarmPermissionRequired : AutoAttendanceScheduleResult
+    data object NotificationPermissionRequired : AutoAttendanceScheduleResult
     data class Scheduled(val windows: List<AutoAttendanceWindow>) : AutoAttendanceScheduleResult
     data class Failed(val error: RuntimeException) : AutoAttendanceScheduleResult
 }
@@ -69,7 +70,8 @@ class AutoAttendanceScheduler(
     fun canScheduleExactAlarms(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
 
-    fun hasRequiredSystemAccess(): Boolean = hasAttendanceLocationAccess() && canScheduleExactAlarms()
+    fun hasRequiredSystemAccess(): Boolean =
+        hasAttendanceLocationAccess() && canScheduleExactAlarms() && hasAttendanceNotificationAccess(appContext)
 
     fun schedule(sessions: List<CompanionSession>, now: Instant): AutoAttendanceScheduleResult {
         val existingAlarmsCancelled = cancel()
@@ -80,6 +82,7 @@ class AutoAttendanceScheduler(
             !store.isEnabled() -> AutoAttendanceScheduleResult.Disabled
             !hasAttendanceLocationAccess() -> AutoAttendanceScheduleResult.LocationPermissionRequired
             !canScheduleExactAlarms() -> AutoAttendanceScheduleResult.ExactAlarmPermissionRequired
+            !hasAttendanceNotificationAccess(appContext) -> AutoAttendanceScheduleResult.NotificationPermissionRequired
             else -> {
                 val windows = autoAttendanceWindows(sessions, now)
                 val previouslyUncancelledIds = store.scheduledIds()
@@ -124,6 +127,7 @@ class AutoAttendanceScheduler(
                     AutoAttendanceScheduleResult.Disabled -> "disabled"
                     AutoAttendanceScheduleResult.LocationPermissionRequired -> "location_permission_required"
                     AutoAttendanceScheduleResult.ExactAlarmPermissionRequired -> "exact_alarm_permission_required"
+                    AutoAttendanceScheduleResult.NotificationPermissionRequired -> "notification_permission_required"
                     is AutoAttendanceScheduleResult.Scheduled -> "scheduled"
                     is AutoAttendanceScheduleResult.Failed -> "failed"
                 },
@@ -218,6 +222,12 @@ class AutoAttendanceAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val app = context.applicationContext as CompanionApplication
         if (!app.autoAttendanceStore.isEnabled()) return
+        if (!app.autoAttendanceScheduler.hasRequiredSystemAccess()) {
+            app.autoAttendanceStore.setEnabled(false)
+            app.autoAttendanceScheduler.cancel()
+            app.diagnostics.log("auto_attendance_skipped", mapOf("reason" to "system_access_removed"))
+            return
+        }
 
         val stopAt = intent.getLongExtra(EXTRA_STOP_AT, 0L)
         val sessionIds = intent.getStringArrayListExtra(EXTRA_SESSION_IDS).orEmpty()
