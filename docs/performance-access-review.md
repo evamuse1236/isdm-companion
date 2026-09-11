@@ -177,11 +177,14 @@ Deployment verification:
 6. The live form rejected the wrong confirmation code and enabled the action for
    the correct code. Inputs were cleared without submitting a real tester change.
 
-The verified debug build is not a permanently signed beta update. Shipping the
-Android performance/login changes and complete screen/manual-attendance access
-restriction still requires a higher-version APK signed with the permanent identity,
-an update-in-place check, and an explicitly approved distribution batch. No physical
-phone was modified; no live learner login or phone-speed improvement is claimed.
+The 0.5.7-beta candidate (version code 15) now passes release build, lint, package
+and alignment checks. It remains unsigned because the original permanent signing
+key is not available locally. See [candidate verification](release-0.5.7-verification.md)
+for its artifact hash and the remaining signing/update checks. Shipping the Android
+performance/login changes and complete screen/manual-attendance access restriction
+still requires permanent signing, an update-in-place check, and an explicitly
+approved distribution batch. No physical phone was modified; no live learner login
+or phone-speed improvement is claimed.
 
 Implementation references: [Compose performance](https://developer.android.com/develop/ui/compose/performance/phases),
 [Supabase Edge Functions](https://supabase.com/docs/guides/functions), and
