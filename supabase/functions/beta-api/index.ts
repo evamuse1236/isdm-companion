@@ -58,6 +58,7 @@ type Installation = {
   installation_id: string;
   app_version_code: number | null;
   access_suspended: boolean;
+  auto_attendance_blocked: boolean;
 };
 
 const profileStore: BetaProfileStore = {
@@ -158,7 +159,7 @@ async function authenticateInstallation(request: Request): Promise<Installation 
 
   const { data, error } = await db
     .from("beta_installations")
-    .select("tester_code, installation_id, app_version_code, access_suspended")
+    .select("tester_code, installation_id, app_version_code, access_suspended, auto_attendance_blocked")
     .eq("installation_id", installationId)
     .eq("install_token_hash", await sha256(installToken))
     .maybeSingle();
@@ -175,7 +176,7 @@ async function configResponse(installation: Installation): Promise<Response> {
   const config = await loadConfig();
   return json({
     ...accessConfig(installation.access_suspended),
-    auto_attendance_blocked: config.auto_attendance_blocked,
+    auto_attendance_blocked: Boolean(config.auto_attendance_blocked || installation.auto_attendance_blocked),
     minimum_version_code: config.minimum_version_code,
     update_required: (installation.app_version_code ?? 0) < config.minimum_version_code,
     beta_starts_at: config.beta_starts_at,
@@ -187,11 +188,12 @@ async function configResponse(installation: Installation): Promise<Response> {
 async function autoPreflight(installation: Installation): Promise<Response> {
   const config = await loadConfig();
   const updateRequired = (installation.app_version_code ?? 0) < config.minimum_version_code;
+  const blocked = Boolean(config.auto_attendance_blocked || installation.auto_attendance_blocked);
   return json({
-    allowed: !config.auto_attendance_blocked && !updateRequired,
-    reason: config.auto_attendance_blocked ? "remote_stop" : updateRequired ? "update_required" : "allowed",
+    allowed: !blocked && !updateRequired,
+    reason: config.auto_attendance_blocked ? "remote_stop" : installation.auto_attendance_blocked ? "tester_remote_stop" : updateRequired ? "update_required" : "allowed",
     checked_at: new Date().toISOString(),
-  }, config.auto_attendance_blocked || updateRequired ? 423 : 200);
+  }, blocked || updateRequired ? 423 : 200);
 }
 
 async function ingestEvents(request: Request, installation: Installation): Promise<Response> {

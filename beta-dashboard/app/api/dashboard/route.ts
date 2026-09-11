@@ -22,6 +22,14 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as { action?: string; [key: string]: unknown } | null;
   if (!body?.action) return Response.json({ error: "action_required" }, { status: 400 });
 
+  if (body.action === "auto-attendance") {
+    return proxy("auto-attendance", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tester_code: body.tester_code, blocked: body.blocked,
+        reason: body.reason, expected_changed_at: body.expected_changed_at }),
+    });
+  }
   if (body.action === "access") {
     return proxy("access", {
       method: "POST",

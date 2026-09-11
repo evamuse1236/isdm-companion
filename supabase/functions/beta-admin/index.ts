@@ -1,3 +1,4 @@
+import { updateTesterAutoAttendance, type AutoAttendanceStore } from "./auto-attendance.ts";
 import { updateTesterAccess, type AccessStore } from "./access.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.112.3";
 import { summarizeProcessExits } from "./reliability.ts";
@@ -13,6 +14,7 @@ Deno.serve(async (request) => {
     const route = new URL(request.url).pathname.split("/").filter(Boolean).at(-1);
 
     if (route === "dashboard" && request.method === "GET") return await dashboard();
+    if (route === "auto-attendance" && request.method === "POST") return await updateTesterAutoAttendance(request, autoAttendanceStore);
     if (route === "access" && request.method === "POST") return await updateTesterAccess(request, accessStore);
     if (route === "control" && request.method === "POST") return await updateControl(request);
     if (route === "report" && request.method === "PATCH") return await updateReport(request);
@@ -37,6 +39,19 @@ const accessStore: AccessStore = {
   },
 };
 
+const autoAttendanceStore: AutoAttendanceStore = {
+  async setAutoAttendance(update) {
+    const { data, error } = await db.rpc("set_beta_tester_auto_attendance", {
+      p_tester_code: update.tester_code,
+      p_blocked: update.blocked,
+      p_reason: update.reason,
+      p_expected_changed_at: update.expected_changed_at,
+    });
+    if (error) throw error;
+    return data;
+  },
+};
+
 async function isAdmin(request: Request): Promise<boolean> {
   const secret = request.headers.get("x-admin-secret");
   if (!secret) return false;
@@ -49,7 +64,7 @@ async function dashboard(): Promise<Response> {
   const todayIst = startOfTodayIst();
   const [config, installations, events, schedules, attendance, reports, attachments, audit, failures, cancellations, exits] = await Promise.all([
     db.from("beta_config").select("auto_attendance_blocked, minimum_version_code, beta_starts_at, beta_ends_at, updated_at").eq("singleton", true).single(),
-    db.from("beta_installations").select("tester_code, installation_id, access_suspended, access_changed_at, access_reason, consent_version, consented_at, support_name, profile_confirmed_at, support_name_deleted_at, self_section, self_plc, manufacturer, model, android_version, app_version, app_version_code, detected_sections, detected_groups, schedule_status, auto_attendance_enabled, last_sync_status, last_sync_at, first_seen_at, last_seen_at, claimed_at").order("tester_code"),
+    db.from("beta_installations").select("tester_code, installation_id, access_suspended, access_changed_at, access_reason, auto_attendance_blocked, auto_attendance_changed_at, auto_attendance_reason, consent_version, consented_at, support_name, profile_confirmed_at, support_name_deleted_at, self_section, self_plc, manufacturer, model, android_version, app_version, app_version_code, detected_sections, detected_groups, schedule_status, auto_attendance_enabled, last_sync_status, last_sync_at, first_seen_at, last_seen_at, claimed_at").order("tester_code"),
     db.from("beta_events").select("id, tester_code, event_type, occurred_at, payload, received_at").order("occurred_at", { ascending: false }).limit(300),
     db.from("beta_schedule_confirmations").select("id, tester_code, confirmed_at, status, selected_date, app_session_count, note, snapshot").order("confirmed_at", { ascending: false }).limit(100),
     db.from("beta_attendance_decisions").select("id, tester_code, occurred_at, method, session_label, latitude, longitude, accuracy_m, location_age_ms, distance_m, gate_allowed, gate_reason, lms_markable, outcome, suspected_incorrect, details").order("occurred_at", { ascending: false }).limit(200),

@@ -22,6 +22,9 @@ export type BetaInstallation = {
   first_seen_at: string | null;
   last_seen_at: string | null;
   claimed_at: string | null;
+  auto_attendance_blocked: boolean;
+  auto_attendance_changed_at: string | null;
+  auto_attendance_reason: string | null;
   access_suspended: boolean;
   access_changed_at: string | null;
   access_reason: string | null;
@@ -116,7 +119,7 @@ export type DashboardData = {
   attachments: ReportAttachment[];
   control_audit: Array<{
     id: number;
-    action: "stop_auto_attendance" | "allow_auto_attendance" | "suspend_access" | "restore_access";
+    action: "stop_auto_attendance" | "allow_auto_attendance" | "suspend_access" | "restore_access" | "stop_tester_auto_attendance" | "allow_tester_auto_attendance";
     tester_code: string | null;
     reason: string | null;
     actor_label: string;
@@ -149,6 +152,9 @@ export function emptyDashboard(): DashboardData {
     first_seen_at: null,
     last_seen_at: null,
     claimed_at: null,
+    auto_attendance_blocked: false,
+    auto_attendance_changed_at: null,
+    auto_attendance_reason: null,
     access_suspended: false,
     access_changed_at: null,
     access_reason: null,

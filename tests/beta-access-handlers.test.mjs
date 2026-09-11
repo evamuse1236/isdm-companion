@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm';
 import { webcrypto } from 'node:crypto';
 import { accessConfig, installationAccessResponse } from '../supabase/functions/beta-api/access.ts';
 import { pausedCollectionReply } from '../supabase/functions/beta-api/collection-policy.mjs';
+import { updateTesterAutoAttendance } from '../supabase/functions/beta-admin/auto-attendance.ts';
 import { updateTesterAccess } from '../supabase/functions/beta-admin/access.ts';
 
 async function handler(name, db) {
@@ -14,7 +15,7 @@ async function handler(name, db) {
     .replace(/^import\s+[\s\S]*?from\s+["'][^"']+["'];/gm, '');
   runInNewContext(stripTypeScriptTypes(code), {
     Deno: { env: { get: () => 'fixture-only' }, serve: fn => { serve = fn; } },
-    createClient: () => db, accessConfig, installationAccessResponse, updateTesterAccess, pausedCollectionReply,
+    createClient: () => db, accessConfig, installationAccessResponse, updateTesterAccess, updateTesterAutoAttendance, pausedCollectionReply,
     Request, Response, URL, TextEncoder, crypto: webcrypto, console, Uint8Array, btoa,
   });
   return serve;
@@ -126,4 +127,59 @@ test('access checks preserve the live collection pause for unsuspended testers',
       route === 'report' ? 'data_collection_paused' : true);
   }
   assert.equal(writes, 0);
+});
+
+
+test('individual auto stop blocks automatic checks but preserves Companion access and other testers', async () => {
+  for (const blocked of [true, false]) {
+    const serve = await handler('beta-api', { from: table => query(table === 'beta_installations'
+      ? { tester_code: blocked ? 'T-03' : 'T-04', installation_id: 'fixture-id', access_suspended: false, auto_attendance_blocked: blocked, app_version_code: 14 }
+      : { auto_attendance_blocked: false, minimum_version_code: 1 }) });
+    const headers = { 'x-installation-id': 'fixture-id', 'x-install-token': 'valid-token' };
+    const preflight = await serve(new Request('https://example.test/beta-api/auto-preflight', { method: 'POST', headers }));
+    assert.equal(preflight.status, blocked ? 423 : 200);
+    assert.deepEqual(await preflight.json().then(({allowed,reason}) => ({allowed,reason})), {
+      allowed: !blocked, reason: blocked ? 'tester_remote_stop' : 'allowed',
+    });
+    const config = await serve(new Request('https://example.test/beta-api/config', { headers }));
+    const data = await config.json();
+    assert.equal(config.status, 200);
+    assert.equal(data.access_suspended, false);
+    assert.equal(data.auto_attendance_blocked, blocked);
+    assert.ok(data.access_valid_until);
+  }
+});
+
+test('global stop still applies after an individual is allowed', async () => {
+  const serve = await handler('beta-api', { from: table => query(table === 'beta_installations'
+    ? { tester_code: 'T-03', access_suspended: false, auto_attendance_blocked: false, app_version_code: 14 }
+    : { auto_attendance_blocked: true, minimum_version_code: 1 }) });
+  const response = await serve(new Request('https://example.test/beta-api/auto-preflight', { method: 'POST',
+    headers: { 'x-installation-id': 'fixture-id', 'x-install-token': 'valid-token' },
+  }));
+  assert.equal(response.status, 423);
+  assert.equal((await response.json()).reason, 'remote_stop');
+});
+
+test('individual auto control verifies the owner secret and uses a separate atomic RPC', async () => {
+  let writes = 0;
+  const hash = Buffer.from(await webcrypto.subtle.digest('SHA-256', new TextEncoder().encode('fixture-secret'))).toString('hex');
+  const serve = await handler('beta-admin', {
+    from: () => query({ admin_secret_hash: hash }),
+    rpc: async (name, args) => {
+      writes++;
+      assert.equal(name, 'set_beta_tester_auto_attendance');
+      assert.equal(args.p_tester_code, 'T-03');
+      assert.equal(args.p_blocked, true);
+      return { data: { auto_attendance_blocked: true }, error: null };
+    },
+  });
+  const request = secret => new Request('https://example.test/beta-admin/auto-attendance', { method: 'POST',
+    headers: { 'content-type': 'application/json', ...(secret ? { 'x-admin-secret': secret } : {}) },
+    body: JSON.stringify({ tester_code: 'T-03', blocked: true, reason: 'Owner review', expected_changed_at: null }),
+  });
+  assert.equal((await serve(request('wrong'))).status, 401);
+  assert.equal(writes, 0);
+  assert.equal((await serve(request('fixture-secret'))).status, 200);
+  assert.equal(writes, 1);
 });

@@ -280,7 +280,7 @@ export default function Dashboard({ initialData, ownerLabel }: Props) {
       <section className="panel roster-panel rise" style={{ animationDelay: ".3s" }}>
         <div className="section-heading">
           <div>
-            <p className="eyebrow">TEN TESTERS</p>
+            <p className="eyebrow">{data.installations.length} TESTER SLOTS</p>
             <h2>Device and cohort roster</h2>
           </div>
           <div className="filters" aria-label="Roster filters">
@@ -529,7 +529,7 @@ function TesterRow({ item, attendance, remoteBlocked, nowMs, onAttendance, onTes
       <td>{item.last_sync_status ?? "—"}</td>
       <td><span className={`status-chip ${item.schedule_status === "confirmed" ? "teal" : item.schedule_status === "mismatch" ? "amber" : "neutral"}`}>{item.schedule_status.replace("_", " ")}</span></td>
       <td>{attendance.length ? <button className="cell-button" onClick={() => worst && onAttendance(worst.id)}>{present}/{attendance.length} present{worst?.suspected_incorrect ? " · suspected" : ""}</button> : "—"}</td>
-      <td>{remoteBlocked ? <span className="status-chip rust">BLOCKED</span> : item.auto_attendance_enabled == null ? "—" : item.auto_attendance_enabled ? <span className="status-chip teal">ON</span> : <span className="status-chip neutral">OFF</span>}</td>
+      <td>{remoteBlocked || item.auto_attendance_blocked || item.access_suspended ? <span className="status-chip rust">BLOCKED</span> : item.auto_attendance_enabled == null ? "—" : item.auto_attendance_enabled ? <span className="status-chip teal">ON</span> : <span className="status-chip neutral">OFF</span>}</td>
     </tr>
   );
 }
@@ -570,7 +570,8 @@ function TesterModal({ code, data, nowMs, onClose, onReviewAttendance, onSaved }
           <Row term="Last seen" value={`${formatIst(tester.last_seen_at)} · ${relativeTime(tester.last_seen_at, nowMs)}`} />
           <Row term="Last sync" value={`${tester.last_sync_status ?? "—"} · ${relativeTime(tester.last_sync_at, nowMs)}`} />
         </dl>
-        <TesterAccessControl key={tester.access_changed_at ?? "initial"} tester={tester} onSaved={onSaved} />
+        <TesterAccessControl key={`auto-${tester.auto_attendance_changed_at ?? "initial"}`} mode="auto" tester={tester} onSaved={onSaved} />
+        <TesterAccessControl key={`access-${tester.access_changed_at ?? "initial"}`} mode="access" tester={tester} onSaved={onSaved} />
         {decisions.length > 0 && (
           <>
             <p className="eyebrow spaced">RECENT ATTENDANCE DECISIONS</p>
@@ -623,12 +624,16 @@ function TesterModal({ code, data, nowMs, onClose, onReviewAttendance, onSaved }
   );
 }
 
-function TesterAccessControl({ tester, onSaved }: { tester: BetaInstallation; onSaved: () => void }) {
+function TesterAccessControl({ tester, onSaved, mode }: { tester: BetaInstallation; onSaved: () => void; mode: "access" | "auto" }) {
   const [reason, setReason] = useState("");
   const [confirmedCode, setConfirmedCode] = useState("");
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const suspended = tester.access_suspended === true;
+  const autoOnly = mode === "auto";
+  const suspended = autoOnly ? tester.auto_attendance_blocked === true : tester.access_suspended === true;
+  const changedAt = autoOnly ? tester.auto_attendance_changed_at : tester.access_changed_at;
+  const auditReason = autoOnly ? tester.auto_attendance_reason : tester.access_reason;
+  const title = autoOnly ? "Automatic attendance" : "Companion access";
   async function save(event: FormEvent) {
     event.preventDefault();
     if (pending || confirmedCode !== tester.tester_code || reason.trim().length < 3) return;
@@ -637,18 +642,21 @@ function TesterAccessControl({ tester, onSaved }: { tester: BetaInstallation; on
     try {
       const response = await fetch("/api/dashboard", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "access", tester_code: tester.tester_code,
-          suspended: !suspended, reason: reason.trim(), expected_changed_at: tester.access_changed_at ?? null }),
+        body: JSON.stringify({ action: autoOnly ? "auto-attendance" : "access", tester_code: tester.tester_code,
+          ...(autoOnly ? { blocked: !suspended } : { suspended: !suspended }),
+          reason: reason.trim(), expected_changed_at: changedAt ?? null }),
       });
       if (response.status === 409) {
         setConfirmedCode("");
         onSaved();
-        throw new Error("Access changed in another session. Review the current state before trying again.");
+        throw new Error(`${title} changed in another session. Review the current state before trying again.`);
       }
-      if (!response.ok) throw new Error(`Could not change access (${response.status}).`);
+      if (!response.ok) throw new Error(`Could not change ${title.toLowerCase()} (${response.status}).`);
       setConfirmedCode("");
       setReason("");
-      setNotice(suspended ? "Access restored. The learner can check access again." : "Access paused. New attendance checks are blocked.");
+      setNotice(autoOnly
+        ? suspended ? "Automatic attendance allowed. The learner’s phone setting still applies." : "Automatic attendance stopped for this person. Manual attendance remains available."
+        : suspended ? "Access restored. The learner can check access again." : "Access paused. New attendance checks are blocked.");
       onSaved();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not reach the server. Try again.");
@@ -656,15 +664,17 @@ function TesterAccessControl({ tester, onSaved }: { tester: BetaInstallation; on
       setPending(false);
     }
   }
-  return <form onSubmit={save} className="access-control">
-    <p className="eyebrow spaced">COMPANION ACCESS</p>
+  return <form onSubmit={save} className="access-control" aria-label={`${title} for ${tester.tester_code}`}>
+    <p className="eyebrow spaced">{title.toUpperCase()}</p>
     <p><span className={`status-chip ${suspended ? "rust" : "teal"}`}>{suspended ? "PAUSED" : "ALLOWED"}</span></p>
-    <p>Pausing blocks this tester’s beta requests and automatic attendance. Updated apps also block manual attendance and app use. Connected apps check within one minute; cached viewing can last up to six hours offline.</p>
-    {tester.access_changed_at && <p>Changed {formatIst(tester.access_changed_at)} · {tester.access_reason}</p>}
+    <p>{autoOnly
+      ? "Stop automatic marks for this person while keeping manual attendance and the rest of their app available. Their next automatic attendance check will be blocked. Allowing again keeps their phone preference and the global control in force."
+      : "Pausing blocks this tester’s beta requests and automatic attendance. Updated apps also block manual attendance and app use. Connected apps check within one minute; cached viewing can last up to six hours offline."}</p>
+    {changedAt && <p>Changed {formatIst(changedAt)} · {auditReason}</p>}
     <label>Reason (recorded for the owner)<textarea value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} maxLength={1000} required disabled={pending} /></label>
     <label>Type {tester.tester_code} to confirm<input value={confirmedCode} onChange={(event) => setConfirmedCode(event.target.value.toUpperCase())} required autoComplete="off" disabled={pending} /></label>
     {notice && <p role="status">{notice}</p>}
-    <div className="modal-actions"><button className={suspended ? "primary-button" : "danger-button"} disabled={pending || confirmedCode !== tester.tester_code || reason.trim().length < 3}>{pending ? "Saving…" : suspended ? "Restore access" : "Pause access"}</button></div>
+    <div className="modal-actions"><button className={suspended ? "primary-button" : "danger-button"} disabled={pending || confirmedCode !== tester.tester_code || reason.trim().length < 3}>{pending ? "Saving…" : autoOnly ? suspended ? "Allow auto attendance" : "Stop auto attendance" : suspended ? "Restore access" : "Pause access"}</button></div>
   </form>;
 }
 

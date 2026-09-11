@@ -58,7 +58,7 @@ test("keeps the dashboard dynamic and owner-aware", async () => {
 
 
 test("production API rejects other users, text forms and cross-origin mutations", async () => {
-  const owner = { "oai-authenticated-user-email": "vishwajit1236@gmail.com" };
+  const owner = { "oai-authenticated-user-email": "vishwajit1236@gmail.com", "oai-authenticated-user-id": "GQlioQa1hMoSqM4X3RRC5AzgE5zMYIhRctKHkXjW0EtWmzBKuOszif" };
   const other = { "oai-authenticated-user-email": "someone@example.test" };
   assert.equal((await render("/api/dashboard")).status, 401);
   assert.equal((await render("/api/dashboard", { headers: other })).status, 401);

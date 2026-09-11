@@ -28,8 +28,9 @@ test("dashboard accepts only the verified owner and denies other signed in users
     "oai-authenticated-user-email": email, ...(id ? { "oai-authenticated-user-id": id } : {}),
   }));
   assert.equal(isDashboardOwner(null), false);
+  assert.equal(isDashboardOwner(user("vishwajit1236@gmail.com", "GQlioQa1hMoSqM4X3RRC5AzgE5zMYIhRctKHkXjW0EtWmzBKuOszif")), true);
   assert.equal(isDashboardOwner(user("outsider@example.test")), false);
   assert.equal(isDashboardOwner(user("vishwajit1236@gmail.com")), true);
   assert.equal(isDashboardOwner(user("vishwajit1236@gmail.com", "not-the-owner")), false);
-  assert.equal(isDashboardOwner(user("vishwajit1236@gmail.com", "7bc1ddcb-d58a-4eda-8c01-7f57215fb01f")), true);
+  assert.equal(isDashboardOwner(user("vishwajit1236@gmail.com", "7bc1ddcb-d58a-4eda-8c01-7f57215fb01f")), false);
 });
