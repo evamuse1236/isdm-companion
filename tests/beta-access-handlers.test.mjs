@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm';
 import { webcrypto } from 'node:crypto';
 import { accessConfig, installationAccessResponse } from '../supabase/functions/beta-api/access.ts';
 import { pausedCollectionReply } from '../supabase/functions/beta-api/collection-policy.mjs';
+import { updateBetaProfile } from '../supabase/functions/beta-api/profile.ts';
 import { updateTesterAutoAttendance } from '../supabase/functions/beta-admin/auto-attendance.ts';
 import { updateTesterAccess } from '../supabase/functions/beta-admin/access.ts';
 
@@ -15,7 +16,7 @@ async function handler(name, db) {
     .replace(/^import\s+[\s\S]*?from\s+["'][^"']+["'];/gm, '');
   runInNewContext(stripTypeScriptTypes(code), {
     Deno: { env: { get: () => 'fixture-only' }, serve: fn => { serve = fn; } },
-    createClient: () => db, accessConfig, installationAccessResponse, updateTesterAccess, updateTesterAutoAttendance, pausedCollectionReply,
+    createClient: () => db, accessConfig, installationAccessResponse, updateTesterAccess, updateTesterAutoAttendance, pausedCollectionReply, updateBetaProfile,
     Request, Response, URL, TextEncoder, crypto: webcrypto, console, Uint8Array, btoa,
   });
   return serve;
@@ -118,7 +119,7 @@ test('access checks preserve the live collection pause for unsuspended testers',
     q.update = q.insert = () => { writes++; return q; };
     return q;
   } });
-  for (const route of ['events', 'profile', 'schedule', 'attendance', 'lms-diagnostic', 'report']) {
+  for (const route of ['events', 'schedule', 'attendance', 'lms-diagnostic', 'report']) {
     const response = await serve(new Request(`https://example.test/beta-api/${route}`, { method: 'POST',
       headers: { 'x-installation-id': 'fixture-id', 'x-install-token': 'valid-token' },
     }));
@@ -126,6 +127,50 @@ test('access checks preserve the live collection pause for unsuspended testers',
     assert.equal((await response.json())[route === 'report' ? 'error' : 'collection_paused'],
       route === 'report' ? 'data_collection_paused' : true);
   }
+  assert.equal(writes, 0);
+});
+
+test('paused profile confirmation returns the validated profile for existing Android clients without storing it', async () => {
+  let writes = 0;
+  const serve = await handler('beta-api', { from: () => {
+    const q = query({ tester_code: 'T-03', installation_id: 'fixture-id', access_suspended: false });
+    q.update = q.insert = () => { writes++; return q; };
+    return q;
+  } });
+  const response = await serve(new Request('https://example.test/beta-api/profile', { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-installation-id': 'fixture-id', 'x-install-token': 'valid-token' },
+    body: JSON.stringify({
+      support_name: ' Asha Rao ', self_section: ' Section B ', self_plc: ' PLC 4 ',
+      detected_sections: ['B'], detected_groups: ['4'],
+      consent_version: 'beta-2026-08-16-profile', confirmed_at: '2026-09-11T03:30:00Z',
+    }),
+  }));
+  // Released Android clients accept 200/201 and persist these fields on the phone.
+  assert.equal(response.status, 200);
+  const profile = await response.json();
+  assert.equal(profile.support_name, 'Asha Rao');
+  assert.equal(profile.self_section, 'Section B');
+  assert.equal(profile.self_plc, 'PLC 4');
+  assert.deepEqual(profile.detected_sections, ['B']);
+  assert.deepEqual(profile.detected_groups, ['4']);
+  assert.equal(profile.collection_paused, true);
+  assert.equal(profile.saved, false);
+  assert.equal(writes, 0);
+});
+
+test('paused profile confirmation still rejects malformed input without storing it', async () => {
+  let writes = 0;
+  const serve = await handler('beta-api', { from: () => {
+    const q = query({ tester_code: 'T-03', installation_id: 'fixture-id', access_suspended: false });
+    q.update = q.insert = () => { writes++; return q; };
+    return q;
+  } });
+  const response = await serve(new Request('https://example.test/beta-api/profile', { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-installation-id': 'fixture-id', 'x-install-token': 'valid-token' },
+    body: JSON.stringify({ confirmed_at: 'invalid-date' }),
+  }));
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, 'invalid_date');
   assert.equal(writes, 0);
 });
 

@@ -33,7 +33,18 @@ Deno.serve(async (request) => {
     const accessDenied = installationAccessResponse(installation, route);
     if (accessDenied) return accessDenied;
     const pausedReply = pausedCollectionReply(route, request.method);
-    if (pausedReply) return json(pausedReply.body, pausedReply.status);
+    if (pausedReply) {
+      if (route === "profile") {
+        // Released Android clients persist the returned profile on the phone and
+        // accept 200/201. Validate and echo it without resuming server collection.
+        return await updateBetaProfile(request, installation, {
+          async saveProfile(_testerCode, profile) {
+            return { ...profile, saved: false, collection_paused: true };
+          },
+        });
+      }
+      return json(pausedReply.body, pausedReply.status);
+    }
 
     if (route === "config" && request.method === "GET") return await configResponse(installation);
     if (route === "auto-preflight" && request.method === "POST") return await autoPreflight(installation);
