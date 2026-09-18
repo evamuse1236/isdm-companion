@@ -60,3 +60,38 @@ old signing lineage. The expected rejection and clean-install transition were
 verified on a disposable emulator. Future releases must preserve and verify the
 replacement certificate. No physical phone was modified. Tester distribution still
 requires an explicitly approved recipient batch.
+
+## Authorized reinstall preparation, 18 September 2026
+
+The owner explicitly accepted loss of phone-local data and confirmed retention
+of the existing Supabase backend and tester records. T-12 remains unnamed and
+held from distribution. This changes the release path to a one-time reinstall;
+it does not make the APK compatible with the original signing certificate.
+
+- Reverified the exact replacement artifact above: package, version code 15,
+  SDK range, 16 KB alignment, certificate, v2/v3 signatures and SHA-256 passed.
+- Repeated 0.5.5 install followed by 0.5.7 `adb install -r` on a read-only Android
+  16 emulator session: Android rejected the signer mismatch. Uninstall followed
+  by installation of the replacement APK succeeded. Cold launch returned Status
+  ok, the process remained running, and UI hierarchy showed the Welcome tour.
+  No physical phone changed.
+- Inspected deployed `beta-api` version 8: original invite-code re-enrollment
+  updates the existing tester row, rotates device credentials, and keeps the
+  tester code. It does not delete historical rows. Previous device credentials
+  cease to authenticate after reclaim. Section/PLC, device metadata and enrollment
+  timestamps are refreshed; this is not a byte-for-byte restoration of the row.
+- Queried live foreign keys: event, schedule, attendance, issue, diagnostic and
+  audit records link to the stable tester code. No production record, invite,
+  access flag, collection policy, migration or backend deployment was changed.
+- Added an enrollment-handler regression test for successful same-tester reclaim,
+  and release-preparation coverage for reinstall captions, held/suspended testers
+  and live current-plugin checks. All 29 root tests passed.
+- Prepared 13 recipient captions privately, with live WhatsApp resolution and
+  partial-cache duplicate checks. Exclusions: owner T-01, held unnamed T-12,
+  and T-16 already reporting 0.5.7. Version telemetry does not prove signer identity.
+- Captions require the original invite code before uninstall, warn about local
+  data loss, and explain LMS sign-in/profile/permission setup. A missing original
+  invite must be recovered before a tester uninstalls. No invite was rotated.
+- No real tester was re-enrolled during this check. End-to-end recovery on a
+  tester's phone remains to be observed after distribution and their reinstall.
+- No APK or message was sent. Exact private preview approval remains required.

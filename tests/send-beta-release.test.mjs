@@ -196,3 +196,41 @@ test("send delivers the approved batch sequentially and records each success", a
     await rm(fixtureDir, { recursive: true, force: true });
   }
 });
+
+test("reinstall preparation uses live current-plugin checks and holds unresolved testers", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "isdm-reinstall-"));
+  try {
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(dir, 'scripts'));
+    await writeFile(join(dir, 'scripts', 'fast.mjs'), `
+      const op = process.argv[2];
+      let input = ''; for await (const c of process.stdin) input += c;
+      const responses = {status:{state:'connected'},resolve:{matches:[{id:'111@lid'}]},messages:[]};
+      if (!(op in responses)) process.exit(2);
+      console.log(JSON.stringify(responses[op]));
+    `);
+    await writeFile(join(dir, 'app.apk'), 'fixture');
+    await writeFile(join(dir, 'changes.txt'), 'Permission setup improved.');
+    await writeFile(join(dir, 'instructions.txt'), 'Uninstall once. Reuse your original invite code. Local data will be lost.');
+    await privateJson(join(dir, 'roster.json'), {installations:[
+      {tester_code:'T-03',installation_id:'existing'},
+      {tester_code:'T-12',installation_id:'unnamed'},
+      {tester_code:'T-16',installation_id:'suspended',access_suspended:true}
+    ]});
+    await privateJson(join(dir, 'recipients.json'), {'T-03':{recipient_name:'Tester',chat_jid:'111@lid'}});
+    const result = spawnSync(process.execPath, [command, 'prepare',
+      '--apk',join(dir,'app.apk'),'--version','0.5.7-beta',
+      '--changes',join(dir,'changes.txt'),'--recipients',join(dir,'recipients.json'),
+      '--roster-json',join(dir,'roster.json'),'--output',join(dir,'batch'),
+      '--installation-instructions',join(dir,'instructions.txt'),'--hold-testers','T-12',
+      '--whatsapp-plugin',dir], {encoding:'utf8'});
+    assert.equal(result.status,0,result.stderr);
+    const batch=JSON.parse(await readFile(join(dir,'batch','batch.json'),'utf8'));
+    assert.match(batch.recipients[0].caption,/Uninstall once/);
+    assert.doesNotMatch(batch.recipients[0].caption,/tap Update|don.t uninstall/);
+    assert.equal(batch.whatsapp_transport,'current_plugin');
+    assert.equal(batch.whatsapp_history_complete,false);
+    assert.ok(batch.whatsapp_checked_at);
+    assert.deepEqual(batch.excluded.map(x=>x.reason),['held_by_operator','access_suspended']);
+  } finally { await rm(dir,{recursive:true,force:true}); }
+});

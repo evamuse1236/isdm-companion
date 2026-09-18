@@ -22,7 +22,10 @@ function usage() {
 
 prepare is read-only. It creates an exact restricted preview and approval digest.
 send requires that digest, rechecks the APK and recipients, then sends sequentially.
-Use --whatsmeow-plugin PATH only to override plugin auto-discovery.`);
+Use --whatsmeow-plugin PATH only to override legacy plugin auto-discovery.
+prepare: --whatsapp-plugin PATH uses the current plugin for live read-only checks.
+--installation-instructions PATH overrides update instructions (for signing resets).
+--hold-testers T-12,T-16 explicitly excludes unresolved recipients from the preview.`);
 }
 
 function parseArgs(values) {
@@ -62,7 +65,8 @@ function isIncompatible(installation) {
   return /\b(apple|iphone|ipad|ios)\b/.test(device);
 }
 
-function captionFor(name, version, changes) {
+function captionFor(name, version, changes, instructions) {
+  if (instructions) return `Hey ${name}! Here’s ISDM Companion ${version}.\n\n${instructions.trim()}\n\nWhat’s changed:\n${changes.trim()}`;
   return `Hey ${name}! Here’s ISDM Companion ${version}.\n\n` +
     "Please install it over your current app—don’t uninstall the old version—so your login and beta profile stay saved.\n\n" +
     `What’s fixed:\n${changes.trim()}\n\nWhen Android asks, tap Update.`;
@@ -169,6 +173,41 @@ async function validateWhatsApp(client, recipients, apkFilename, { blockDuplicat
   return status;
 }
 
+async function currentWhatsApp(plugin, operation, args) {
+  return await new Promise((resolveCall, reject) => {
+    const child = spawn(process.execPath, [join(plugin, "scripts", "fast.mjs"), operation], { stdio: ["pipe", "pipe", "pipe"] });
+    let output = "", errors = "";
+    const timer = setTimeout(() => { child.kill(); reject(new Error("WhatsApp check timed out")); }, 30000);
+    child.stdout.on("data", chunk => output += chunk);
+    child.stderr.on("data", chunk => errors += chunk);
+    child.on("error", error => { clearTimeout(timer); reject(error); });
+    child.on("close", code => {
+      clearTimeout(timer);
+      if (code !== 0) return reject(new Error(errors || "WhatsApp check failed"));
+      try { resolveCall(JSON.parse(output)); } catch (error) { reject(error); }
+    });
+    child.stdin.end(JSON.stringify(args));
+  });
+}
+
+async function validateCurrentWhatsApp(plugin, recipients, filename) {
+  const status = await currentWhatsApp(plugin, "status", {});
+  if (status.state !== "connected") fail("WhatsApp is not connected");
+  console.warn("WhatsApp history is partial; empty duplicate searches are inconclusive.");
+  for (const recipient of recipients) {
+    const resolved = await currentWhatsApp(plugin, "resolve", { query: recipient.recipient_name });
+    const matches = resolved.matches ?? [];
+    if (!matches.some(match => match.id === recipient.chat_jid || match.aliases?.includes(recipient.chat_jid))) {
+      fail(`direct recipient no longer resolves for ${recipient.recipient_name}`);
+    }
+    const messages = await currentWhatsApp(plugin, "messages", { chat: recipient.chat_jid, limit: 2000 });
+    if (!Array.isArray(messages)) fail("Unexpected WhatsApp history response");
+    if (messages.some(message => message.fromMe !== false && JSON.stringify(message).includes(filename))) {
+      fail(`possible prior ${filename} send found for ${recipient.recipient_name}; inspect before retrying`);
+    }
+  }
+}
+
 async function loadRoster(options) {
   if (options["roster-json"]) {
     const rosterPath = resolve(options["roster-json"]);
@@ -201,6 +240,9 @@ async function prepare(options) {
   if (!Array.isArray(installations)) fail("roster JSON requires an installations array");
   const recipientMap = JSON.parse(await readFile(recipientsPath, "utf8"));
   const changes = await readFile(changesPath, "utf8");
+  const instructions = options["installation-instructions"] ? await readFile(resolve(options["installation-instructions"]), "utf8") : null;
+  if (instructions !== null && !instructions.trim()) fail("installation instructions are empty");
+  const held = new Set((options["hold-testers"] ?? "").split(",").filter(Boolean));
   if (!changes.trim()) fail("changes file is empty");
 
   const recipients = [];
@@ -209,7 +251,9 @@ async function prepare(options) {
   for (const installation of installations) {
     const testerCode = String(installation.tester_code ?? "").trim();
     let reason = null;
-    if (!installation.installation_id) reason = "unclaimed";
+    if (held.has(testerCode)) reason = "held_by_operator";
+    else if (installation.access_suspended) reason = "access_suspended";
+    else if (!installation.installation_id) reason = "unclaimed";
     else if (testerCode === "T-01") reason = "owner";
     else if (isIncompatible(installation)) reason = "incompatible_device";
     else if (installation.app_version === options.version) reason = "already_updated";
@@ -230,7 +274,7 @@ async function prepare(options) {
       tester_code: testerCode,
       recipient_name: name,
       chat_jid: chatJid,
-      caption: captionFor(name, options.version, changes),
+      caption: captionFor(name, options.version, changes, instructions),
       status: "prepared"
     });
   }
@@ -249,7 +293,12 @@ async function prepare(options) {
   };
   batch.approval_digest = sha256Text(approvalPayload(batch));
 
-  if (!options.offline) {
+  if (options["whatsapp-plugin"] && !options.offline) {
+    await validateCurrentWhatsApp(resolve(options["whatsapp-plugin"]), recipients, batch.apk_filename);
+    batch.whatsapp_checked_at = new Date().toISOString();
+    batch.whatsapp_history_complete = false;
+    batch.whatsapp_transport = "current_plugin";
+  } else if (!options.offline) {
     const client = new WhatsmeowClient(await findWhatsmeowServer(options["whatsmeow-plugin"]));
     try {
       await client.connect();
@@ -319,6 +368,9 @@ async function send(options) {
   const uncertain = batch.recipients.find((recipient) => recipient.status === "uncertain");
   if (uncertain) fail(`delivery for ${uncertain.recipient_name} is uncertain; inspect WhatsApp and prepare a fresh batch before retrying`);
 
+  if (batch.whatsapp_transport === "current_plugin") {
+    fail("This batch uses the current WhatsApp plugin. Send with its persistent request-ID workflow after exact batch approval; the legacy sender cannot send it.");
+  }
   const client = new WhatsmeowClient(await findWhatsmeowServer(options["whatsmeow-plugin"]));
   try {
     await client.connect();

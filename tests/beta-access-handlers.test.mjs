@@ -228,3 +228,32 @@ test('individual auto control verifies the owner secret and uses a separate atom
   assert.equal((await serve(request('fixture-secret'))).status, 200);
   assert.equal(writes, 1);
 });
+
+test('reinstall reclaims the same tester without deleting history or replacing profile fields', async () => {
+  const touched = [];
+  let update;
+  let lookup = 0;
+  const serve = await handler('beta-api', { from: table => {
+    touched.push(table);
+    const q = query(++lookup === 1
+      ? { tester_code: 'T-03', installation_id: 'old-device', access_suspended: false }
+      : { tester_code: 'T-03' });
+    q.update = values => { update = values; return q; };
+    return q;
+  } });
+  const response = await serve(new Request('https://example.test/beta-api/enroll', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ invite_code: 'EXISTING-INVITE', consent_version: 'test', self_section: 'A' }),
+  }));
+  assert.equal(response.status, 201);
+  const body = await response.json();
+  assert.equal(body.tester_code, 'T-03');
+  assert.equal(body.reclaimed, true);
+  assert.notEqual(body.installation_id, 'old-device');
+  assert.ok(body.install_token);
+  assert.deepEqual(touched, ['beta_installations', 'beta_installations']);
+  assert.equal(update.installation_id, body.installation_id);
+  assert.equal('tester_code' in update, false);
+  assert.equal('support_name' in update, false);
+  assert.equal('invite_code_hash' in update, false);
+});
