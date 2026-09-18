@@ -2,7 +2,10 @@
 
 ## 0.5.7 beta — release candidate
 
-Permanent signing and the update-in-place check are pending; this candidate has not been distributed.
+This release starts a new permanent signing identity after the previous private key was lost during
+an operating-system reinstall. Existing testers must uninstall the older app once before installing
+0.5.7; that reset clears the saved login and local cache. Later releases signed with the new identity
+can update 0.5.7 normally.
 
 - Saved login survives network timeouts; session recovery reuses the saved account and keeps
   cached content available while retrying.

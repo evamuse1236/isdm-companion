@@ -68,6 +68,11 @@ Every beta release must have a higher `versionCode`, updated release notes, a ch
 and a Git release commit. Preserve the existing signing identity so Android can update the app in
 place without deleting its data.
 
+Release signing is loaded locally from
+`.release-private/signing/signing.properties`. The keystore and credentials stay outside Git.
+Back up that directory outside this computer before distributing a release; losing it requires every
+tester to uninstall the app and lose local app data before the next signing identity can be installed.
+
 For tester delivery, prefer Google Play Internal testing (or Closed testing when the group grows).
 Each tester joins once through the Play opt-in link; later signed App Bundles are delivered through
 Google Play, and devices with Play auto-update enabled update without another APK message. Android

@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val privateSigningPropertiesFile = rootProject.file("../.release-private/signing/signing.properties")
+val privateSigningProperties = Properties().apply {
+    if (privateSigningPropertiesFile.isFile) {
+        privateSigningPropertiesFile.inputStream().use(::load)
+    }
 }
 
 android {
@@ -24,8 +33,24 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (privateSigningPropertiesFile.isFile) {
+            create("privateRelease") {
+                storeFile = privateSigningPropertiesFile.parentFile.resolve(
+                    privateSigningProperties.getProperty("storeFile"),
+                )
+                storePassword = privateSigningProperties.getProperty("storePassword")
+                keyAlias = privateSigningProperties.getProperty("keyAlias")
+                keyPassword = privateSigningProperties.getProperty("keyPassword")
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfigs.findByName("privateRelease")?.let { signingConfig = it }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

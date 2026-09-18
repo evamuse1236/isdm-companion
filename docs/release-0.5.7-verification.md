@@ -1,20 +1,29 @@
-# 0.5.7 beta candidate verification
+# 0.5.7 beta replacement-signing verification
 
-Prepared locally on 11 September 2026 from code commit
+Originally prepared locally on 11 September 2026 from code commit
 `b6fee4efa1196acc4a856c7f9d123aa425700f9a` on
-`codex/performance-access-polish`. Permanent signing is pending. This is not an
-installable beta release and has not been distributed.
+`codex/performance-access-polish`. The original signing identity was lost during
+an operating-system reinstall. The replacement release starts a new permanent
+signing identity and therefore requires a one-time uninstall of earlier builds.
 
-## Candidate
+The installable replacement was packaged on 18 September 2026 from current main
+commit `37509ba` plus the release-signing configuration recorded with this release.
+
+## Replacement release
 
 - Package: `org.isdm.companion`; version: `0.5.7-beta`; version code: `15`.
 - Minimum SDK: 26; target SDK: 36; release variant is not debuggable.
-- Local file: `.release-private/candidates/0.5.7/ISDM-Companion-Beta-0.5.7-UNSIGNED.apk`.
-- Size: 13,103,588 bytes.
-- Unsigned SHA-256: `664e3c431605da4b8a5158dbebe44f0e64a1454068273f3035f6fc6c185a1906`.
-- Package/version/SDK and 16 KB alignment checks passed. `apksigner` confirms
-  there is no valid signature. Signing will produce a different artifact hash.
-- Machine-readable evidence is beside the candidate in `candidate.json`.
+- Local file: `.release-private/releases/ISDM-Companion-Beta-0.5.7-new-signing.apk`.
+- Size: 13,115,876 bytes.
+- SHA-256: `8fb6f4f91ec452e11996564902187c05580a3fa9bf9ef14f5e53a3f65d4c14b9`.
+- Replacement certificate SHA-256:
+  `a35f1ba9a17fccd5a03b58c1a69ad339273e730eb5d73cd9bbb2f5ff8cfcf0b3`.
+- Package/version/SDK, 16 KB alignment, RSA-4096 certificate identity, and v2/v3
+  signature verification passed with the bundled release verifier.
+- On a disposable Android 16 emulator, installing this APK over signed 0.5.5 was
+  rejected with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, as expected. Uninstalling
+  0.5.5 and clean-installing 0.5.7 succeeded; version code 15 launched and remained
+  running.
 
 ## Verified behavior and builds
 
@@ -34,7 +43,7 @@ installable beta release and has not been distributed.
 - Detailed performance, login recovery, parser, access-control, and production
   deployment evidence is in [performance-access-review.md](performance-access-review.md).
 
-## Permanent signing and update gate
+## Signing reset and installation gate
 
 The previous distributed 0.5.5 APK was reverified locally:
 
@@ -45,17 +54,9 @@ The previous distributed 0.5.5 APK was reverified locally:
 - Package/version/SDK, alignment, and v2/v3 signature checks passed.
 - Baseline file: `/home/darax/Downloads/ISDM-Companion-Beta-0.5.5.apk`.
 
-The corresponding permanent private key was not found in the local project,
-signing configuration, or available home/mount filename inventory. The debug key
-cannot produce a compatible update. The user has been asked for the original
-keystore or its backup location; no signing passwords were requested in chat.
-
-Once the original key is available, sign the candidate with that identity, run
-`.agents/skills/isdm-beta-release/scripts/verify-beta-apk.sh` for version 0.5.7-beta,
-code 15 and the certificate above, then run `test-beta-update.sh` from the verified
-previous APK on a disposable emulator. Require `adb install -r` to retain the
-existing `ceDataInode`. Verify release launch and the release-notes dialog.
-
-Until those checks pass, do not offer this candidate as an installer. No physical
-phone was modified. Tester distribution requires an explicitly approved recipient
-batch; none has been prepared or sent for this candidate.
+The corresponding permanent private key was not found because this Linux filesystem
+was created after the last signed release. The replacement key cannot update the
+old signing lineage. The expected rejection and clean-install transition were
+verified on a disposable emulator. Future releases must preserve and verify the
+replacement certificate. No physical phone was modified. Tester distribution still
+requires an explicitly approved recipient batch.
