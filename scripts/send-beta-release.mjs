@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { releaseCaption as captionFor, requireInstallMode, assertSafeToResume,
+  dispatchReleaseRecipient, writePrivateJsonAtomically } from "./lib/release-policy.mjs";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { chmod, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
@@ -16,15 +18,16 @@ function usage() {
   console.log(`Usage:
   node scripts/send-beta-release.mjs prepare --apk PATH --version VERSION \\
     --recipients PATH --changes PATH --output DIR \\
-    [--roster-json PATH | BETA_ADMIN_SECRET=...] [--offline]
+    --install-mode MODE [--roster-json PATH | BETA_ADMIN_SECRET=...] [--offline]
 
   node scripts/send-beta-release.mjs send --batch DIR --approve DIGEST
 
-prepare is read-only. It creates an exact restricted preview and approval digest.
+MODE (--install-mode) must be update or signing-reset, after verifying the recipients’ signing cohort.
+prepare does not send messages. It creates an exact restricted preview and approval digest.
 send requires that digest, rechecks the APK and recipients, then sends sequentially.
 Use --whatsmeow-plugin PATH only to override legacy plugin auto-discovery.
 prepare: --whatsapp-plugin PATH uses the current plugin for live read-only checks.
---installation-instructions PATH overrides update instructions (for signing resets).
+--installation-instructions PATH adds recovery instructions after the mandatory signing-reset warning.
 --hold-testers T-12,T-16 explicitly excludes unresolved recipients from the preview.`);
 }
 
@@ -65,19 +68,13 @@ function isIncompatible(installation) {
   return /\b(apple|iphone|ipad|ios)\b/.test(device);
 }
 
-function captionFor(name, version, changes, instructions) {
-  if (instructions) return `Hey ${name}! Here’s ISDM Companion ${version}.\n\n${instructions.trim()}\n\nWhat’s changed:\n${changes.trim()}`;
-  return `Hey ${name}! Here’s ISDM Companion ${version}.\n\n` +
-    "Please install it over your current app—don’t uninstall the old version—so your login and beta profile stay saved.\n\n" +
-    `What’s fixed:\n${changes.trim()}\n\nWhen Android asks, tap Update.`;
-}
-
 function approvalPayload(batch) {
   return JSON.stringify({
     schema_version: batch.schema_version,
     apk_path: batch.apk_path,
     apk_sha256: batch.apk_sha256,
     version: batch.version,
+    install_mode: batch.install_mode,
     recipients: batch.recipients.map(({ tester_code, recipient_name, chat_jid, caption }) => ({
       tester_code, recipient_name, chat_jid, caption
     }))
@@ -225,9 +222,10 @@ async function loadRoster(options) {
 }
 
 async function prepare(options) {
-  for (const required of ["apk", "version", "recipients", "changes", "output"]) {
+  for (const required of ["apk", "version", "install-mode", "recipients", "changes", "output"]) {
     if (!options[required]) fail(`prepare requires --${required}`);
   }
+  const installMode = requireInstallMode(options["install-mode"]);
   const apkPath = resolve(options.apk);
   const recipientsPath = resolve(options.recipients);
   const changesPath = resolve(options.changes);
@@ -242,6 +240,9 @@ async function prepare(options) {
   const changes = await readFile(changesPath, "utf8");
   const instructions = options["installation-instructions"] ? await readFile(resolve(options["installation-instructions"]), "utf8") : null;
   if (instructions !== null && !instructions.trim()) fail("installation instructions are empty");
+  if (instructions !== null && installMode !== "signing-reset") {
+    fail("--installation-instructions is only accepted with --install-mode signing-reset");
+  }
   const held = new Set((options["hold-testers"] ?? "").split(",").filter(Boolean));
   if (!changes.trim()) fail("changes file is empty");
 
@@ -274,14 +275,15 @@ async function prepare(options) {
       tester_code: testerCode,
       recipient_name: name,
       chat_jid: chatJid,
-      caption: captionFor(name, options.version, changes, instructions),
+      caption: captionFor(name, options.version, changes, installMode, instructions),
       status: "prepared"
     });
   }
   if (recipients.length === 0) fail("no eligible recipients remain");
 
   const batch = {
-    schema_version: 1,
+    schema_version: 2,
+    install_mode: installMode,
     created_at: new Date().toISOString(),
     apk_path: apkPath,
     apk_filename: basename(apkPath),
@@ -322,6 +324,7 @@ async function prepare(options) {
     `# ISDM Companion ${batch.version} release preview`, "",
     `APK: ${batch.apk_path}`,
     `SHA-256: ${batch.apk_sha256}`,
+    `Installation mode: ${batch.install_mode}`,
     `Approval digest: ${batch.approval_digest}`, "",
     ...recipients.flatMap((recipient, index) => [
       `## ${index + 1}. ${recipient.recipient_name} (${recipient.tester_code}, ${recipient.chat_jid})`, "",
@@ -344,8 +347,7 @@ async function prepare(options) {
 }
 
 async function saveBatch(batchPath, batch) {
-  await writeFile(batchPath, `${JSON.stringify(batch, null, 2)}\n`, { mode: 0o600 });
-  await chmod(batchPath, 0o600);
+  await writePrivateJsonAtomically(batchPath, batch);
 }
 
 async function send(options) {
@@ -358,15 +360,16 @@ async function send(options) {
   await requirePrivateFile(batchPath, "Release batch");
   const batch = JSON.parse(await readFile(batchPath, "utf8"));
   if (options.approve !== batch.approval_digest) fail("approval digest does not match the exact previewed batch");
+  if (batch.schema_version !== 2) fail("Legacy release batch: prepare and approve a fresh batch with an explicit install mode.");
+  requireInstallMode(batch.install_mode);
   if (sha256Text(approvalPayload(batch)) !== batch.approval_digest) fail("batch integrity check failed after approval");
   const batchAgeMs = Date.now() - Date.parse(batch.created_at);
   if (!Number.isFinite(batchAgeMs) || batchAgeMs < 0 || batchAgeMs > 30 * 60 * 1000) {
     fail("release preview is older than 30 minutes; prepare and approve a fresh live batch");
   }
   if (await sha256File(batch.apk_path) !== batch.apk_sha256) fail("APK changed after the release preview");
-  if (!Array.isArray(batch.recipients) || !batch.recipients.length) fail("release batch has no recipients");
-  const uncertain = batch.recipients.find((recipient) => recipient.status === "uncertain");
-  if (uncertain) fail(`delivery for ${uncertain.recipient_name} is uncertain; inspect WhatsApp and prepare a fresh batch before retrying`);
+  try { assertSafeToResume(batch.recipients); }
+  catch (error) { fail(error.message); }
 
   if (batch.whatsapp_transport === "current_plugin") {
     fail("This batch uses the current WhatsApp plugin. Send with its persistent request-ID workflow after exact batch approval; the legacy sender cannot send it.");
@@ -381,16 +384,17 @@ async function send(options) {
         continue;
       }
       console.log(`Sending to ${recipient.recipient_name} (${recipient.tester_code})...`);
-      const queued = await client.call("send_media", {
-        chat_jid: recipient.chat_jid,
-        file_path: batch.apk_path,
-        caption: recipient.caption,
-        media_type: "document",
-        confirm: true
-      });
-      recipient.action_id = queued.action_id;
-      recipient.status = "pending";
-      await saveBatch(batchPath, batch);
+      const queued = await dispatchReleaseRecipient(
+        recipient,
+        () => saveBatch(batchPath, batch),
+        () => client.call("send_media", {
+          chat_jid: recipient.chat_jid,
+          file_path: batch.apk_path,
+          caption: recipient.caption,
+          media_type: "document",
+          confirm: true
+        }),
+      );
 
       const deadline = Date.now() + 30_000;
       let result = null;

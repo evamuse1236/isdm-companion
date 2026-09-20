@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm';
 import { webcrypto } from 'node:crypto';
 import { accessConfig, installationAccessResponse } from '../supabase/functions/beta-api/access.ts';
 import { pausedCollectionReply } from '../supabase/functions/beta-api/collection-policy.mjs';
+import { JsonInputError, readJsonObject, betaBodyLimit } from '../supabase/functions/_shared/http-input.mjs';
 import { updateBetaProfile } from '../supabase/functions/beta-api/profile.ts';
 import { updateTesterAutoAttendance } from '../supabase/functions/beta-admin/auto-attendance.ts';
 import { updateTesterAccess } from '../supabase/functions/beta-admin/access.ts';
@@ -16,7 +17,8 @@ async function handler(name, db) {
     .replace(/^import\s+[\s\S]*?from\s+["'][^"']+["'];/gm, '');
   runInNewContext(stripTypeScriptTypes(code), {
     Deno: { env: { get: () => 'fixture-only' }, serve: fn => { serve = fn; } },
-    createClient: () => db, accessConfig, installationAccessResponse, updateTesterAccess, updateTesterAutoAttendance, pausedCollectionReply, updateBetaProfile,
+    createClient: () => db, accessConfig, installationAccessResponse, updateTesterAccess, updateTesterAutoAttendance,
+    pausedCollectionReply, JsonInputError, readJsonObject, betaBodyLimit, updateBetaProfile,
     Request, Response, URL, TextEncoder, crypto: webcrypto, console, Uint8Array, btoa,
   });
   return serve;

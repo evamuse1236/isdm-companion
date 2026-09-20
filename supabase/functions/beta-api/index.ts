@@ -1,3 +1,4 @@
+import { JsonInputError, readJsonObject, betaBodyLimit } from "../_shared/http-input.mjs";
 import { pausedCollectionReply } from "./collection-policy.mjs";
 import { accessConfig, installationAccessResponse } from "./access.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.112.3";
@@ -16,7 +17,7 @@ const db = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
+const jsonHeaders = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const MAX_EVENTS = 100;
 const MAX_ATTACHMENTS = 4;
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
@@ -58,7 +59,7 @@ Deno.serve(async (request) => {
 
     return json({ error: "not_found" }, 404);
   } catch (error) {
-    if (error instanceof InputError) return json({ error: error.message }, 400);
+    if (error instanceof JsonInputError) return json({ error: error.message }, error.status);
     console.error("beta_api_unhandled", safeError(error));
     return json({ error: "internal_error" }, 500);
   }
@@ -389,17 +390,10 @@ function redactSecrets(value: unknown, key = ""): unknown {
   return value;
 }
 
-class InputError extends Error {}
+class InputError extends JsonInputError {}
 
 async function readJson(request: Request): Promise<Record<string, any>> {
-  try {
-    const body = await request.json();
-    if (!isObject(body)) throw new InputError("json_object_required");
-    return body;
-  } catch (error) {
-    if (error instanceof InputError) throw error;
-    throw new InputError("invalid_json");
-  }
+  return await readJsonObject(request, { maxBytes: betaBodyLimit(request) });
 }
 
 function requiredString(value: unknown, max: number): string {

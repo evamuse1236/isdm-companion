@@ -1,3 +1,5 @@
+import { JsonInputError, readJsonObject } from "../_shared/http-input.mjs";
+
 export type BetaInstallationIdentity = {
   tester_code: string;
   installation_id: string;
@@ -29,7 +31,7 @@ export async function updateBetaProfile(
 ): Promise<Response> {
   let profile: BetaProfileRecord;
   try {
-    const body = await request.json() as Record<string, unknown>;
+    const body = await readJsonObject(request);
     const confirmedAt = requiredIsoDate(body.confirmed_at);
     profile = {
       support_name: optionalString(body.support_name, 160),
@@ -42,6 +44,7 @@ export async function updateBetaProfile(
       profile_confirmed_at: confirmedAt,
     };
   } catch (error) {
+    if (error instanceof JsonInputError) return json({ error: error.message }, error.status);
     return json({ error: error instanceof Error ? error.message : "invalid_profile" }, 400);
   }
   return json(await store.saveProfile(installation.tester_code, profile));
@@ -83,6 +86,6 @@ function requiredIsoDate(value: unknown): string {
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   });
 }

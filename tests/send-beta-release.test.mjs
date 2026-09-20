@@ -37,6 +37,7 @@ test("prepare creates an approval-bound batch for claimed external Android teste
     });
 
     const result = spawnSync(process.execPath, [command, "prepare",
+      "--install-mode", "update",
       "--apk", apk,
       "--version", "0.5.0-beta",
       "--roster-json", roster,
@@ -50,6 +51,8 @@ test("prepare creates an approval-bound batch for claimed external Android teste
     assert.match(result.stdout, /Prepared 1 recipient/);
     assert.match(result.stdout, /Approval digest: [a-f0-9]{64}/);
     const batch = JSON.parse(await readFile(join(output, "batch.json"), "utf8"));
+    assert.equal(batch.schema_version, 2);
+    assert.equal(batch.install_mode, "update");
     assert.equal(batch.recipients.length, 1);
     assert.equal(batch.recipients[0].tester_code, "T-03");
     assert.equal(batch.recipients[0].chat_jid, "139307448799247@lid");
@@ -115,6 +118,7 @@ test("send stops the batch when one WhatsApp delivery is uncertain", async () =>
       "T-04": { recipient_name: "Varsha", chat_jid: "222@lid" }
     });
     const prepared = spawnSync(process.execPath, [command, "prepare",
+      "--install-mode", "update",
       "--apk", apk, "--version", "0.5.0-beta", "--roster-json", roster,
       "--recipients", recipients, "--changes", changes, "--output", output, "--offline"
     ], { encoding: "utf8" });
@@ -166,6 +170,7 @@ test("send delivers the approved batch sequentially and records each success", a
       "T-04": { recipient_name: "Varsha", chat_jid: "222@lid" }
     });
     const prepared = spawnSync(process.execPath, [command, "prepare",
+      "--install-mode", "update",
       "--apk", apk, "--version", "0.5.0-beta", "--roster-json", roster,
       "--recipients", recipients, "--changes", changes, "--output", output, "--offline"
     ], { encoding: "utf8" });
@@ -219,6 +224,7 @@ test("reinstall preparation uses live current-plugin checks and holds unresolved
     ]});
     await privateJson(join(dir, 'recipients.json'), {'T-03':{recipient_name:'Tester',chat_jid:'111@lid'}});
     const result = spawnSync(process.execPath, [command, 'prepare',
+      '--install-mode','signing-reset',
       '--apk',join(dir,'app.apk'),'--version','0.5.7-beta',
       '--changes',join(dir,'changes.txt'),'--recipients',join(dir,'recipients.json'),
       '--roster-json',join(dir,'roster.json'),'--output',join(dir,'batch'),
@@ -226,7 +232,10 @@ test("reinstall preparation uses live current-plugin checks and holds unresolved
       '--whatsapp-plugin',dir], {encoding:'utf8'});
     assert.equal(result.status,0,result.stderr);
     const batch=JSON.parse(await readFile(join(dir,'batch','batch.json'),'utf8'));
+    assert.equal(batch.install_mode,'signing-reset');
     assert.match(batch.recipients[0].caption,/Uninstall once/);
+    assert.match(batch.recipients[0].caption,/WARNING/);
+    assert.match(batch.recipients[0].caption,/deletes your saved login/);
     assert.doesNotMatch(batch.recipients[0].caption,/tap Update|don.t uninstall/);
     assert.equal(batch.whatsapp_transport,'current_plugin');
     assert.equal(batch.whatsapp_history_complete,false);

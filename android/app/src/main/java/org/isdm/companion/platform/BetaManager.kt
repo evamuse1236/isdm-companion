@@ -297,7 +297,8 @@ class BetaManager(
             api.postQueued(current, request)
             if (!requestStore.acknowledge(request.id)) return false
         }
-        return true
+        // Completing one batch is not the same as draining the persisted queue.
+        return eventStore.peek(1).isEmpty() && requestStore.peek(1).isEmpty()
     }
 
     private fun queue(route: String, body: Map<String, Any?>) {
@@ -379,13 +380,15 @@ private fun SharedPreferences.Editor.putNullable(key: String, value: String?): S
     if (value == null) remove(key) else putString(key, value)
 
 class BetaUploadWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val manager = (applicationContext as CompanionApplication).betaManager
-        return runCatching { manager.flush() }
-            .fold(
-                onSuccess = { flushed -> if (flushed) Result.success() else Result.retry() },
-                onFailure = { Result.retry() },
-            )
+        try {
+            if (manager.flush()) Result.success() else Result.retry()
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            Result.retry()
+        }
     }
 }
 

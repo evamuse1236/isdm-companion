@@ -124,16 +124,12 @@ class ReadingActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_SOURCE_URL = "reading_source_url"
-        private const val LMS_HOST = "lms.isdm.org.in"
-
-        private fun isTrustedLmsUrl(value: String?): Boolean {
-            val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return false
-            return uri.scheme == "https" && uri.host.equals(LMS_HOST, ignoreCase = true)
-        }
+        private fun isTrustedLmsUrl(value: String?): Boolean = ReadingUrlPolicy.isTrustedLmsUrl(value)
     }
 }
 
-internal fun openExternalUrlSafely(context: Context, value: String): Boolean = try {
+internal fun openExternalUrlSafely(context: Context, value: String): Boolean =
+    if (!ReadingUrlPolicy.isExternalWebUrl(value)) false else try {
     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(value)))
     true
 } catch (_: ActivityNotFoundException) {
@@ -183,14 +179,20 @@ private class ReadingWebViewClient(
     private val resourceId = readingResourceId(sourceUrl)
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-        val uri = request.url
-        if (uri.scheme == "https" && uri.host.equals("lms.isdm.org.in", ignoreCase = true)) return false
-        onExternalUrl(uri.toString())
-        return true
+        val url = request.url.toString()
+        return when (ReadingUrlPolicy.destination(url, request.isForMainFrame)) {
+            ReadingUrlPolicy.Destination.WEBVIEW -> false
+            ReadingUrlPolicy.Destination.EXTERNAL_BROWSER -> {
+                onExternalUrl(url)
+                true
+            }
+            ReadingUrlPolicy.Destination.BLOCK -> true
+        }
     }
 
     override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
+        if (!ReadingUrlPolicy.isTrustedLmsUrl(url)) return
         val id = resourceId ?: return
         val resourceSelector = JSONObject.quote("resource_$id")
         view.evaluateJavascript(
@@ -240,7 +242,7 @@ private class ReadingWebViewClient(
 
 internal fun readingResourceId(sourceUrl: String): String? = sourceUrl
     .toHttpUrlOrNull()
-    ?.takeIf { it.host.equals("lms.isdm.org.in", ignoreCase = true) }
+    ?.takeIf { ReadingUrlPolicy.isTrustedLmsUrl(it.toString()) }
     ?.takeIf { it.queryParameter("destination") != "my-activities" }
     ?.queryParameter("vid")
     ?.takeIf { it.matches(Regex("\\d+")) }
