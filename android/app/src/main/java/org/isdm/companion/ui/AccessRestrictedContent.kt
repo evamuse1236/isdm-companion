@@ -26,14 +26,14 @@ internal fun AccessRestrictedContent(
 ) {
     val title = when (status) {
         BetaAccessStatus.SUSPENDED -> "Companion access paused"
-        BetaAccessStatus.INVALID_INSTALLATION -> "Beta enrollment changed"
+        BetaAccessStatus.INVALID_INSTALLATION -> "Installation enrollment changed"
         BetaAccessStatus.UPDATE_REQUIRED -> "An app update is needed"
         else -> "Connect to verify access"
     }
     val body = when (status) {
         BetaAccessStatus.SUSPENDED -> "The app owner has paused your access. Contact the owner, then check again after access is restored."
         BetaAccessStatus.INVALID_INSTALLATION -> "This installation is no longer enrolled. Contact the app owner to restore this device."
-        BetaAccessStatus.UPDATE_REQUIRED -> "Install the latest beta from the app owner, then check again."
+        BetaAccessStatus.UPDATE_REQUIRED -> "Install the latest nightly from the app owner, then check again."
         else -> "Your saved LMS login is still here. Connect to the internet and check again to continue."
     }
     Column(

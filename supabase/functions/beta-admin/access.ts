@@ -20,7 +20,7 @@ export interface AccessStore {
 export async function updateTesterAccess(request: Request, store: AccessStore): Promise<Response> {
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object" ||
-      typeof body.tester_code !== "string" || !/^T-\d{2}$/.test(body.tester_code) ||
+      typeof body.tester_code !== "string" || !/^(T-\d{2}|N-\d{6,})$/.test(body.tester_code) ||
       typeof body.suspended !== "boolean" || typeof body.reason !== "string" ||
       body.reason.trim().length < 3 || body.reason.trim().length > 1000 ||
       !(body.expected_changed_at === null ||

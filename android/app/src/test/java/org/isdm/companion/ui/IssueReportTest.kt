@@ -6,6 +6,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IssueReportTest {
+    @Test fun nightlyNeedsNameSectionAndConsentButNoInvite() {
+        assertTrue(isNightlyEnrollmentValid("Learner", "Section A", true))
+        assertFalse(isNightlyEnrollmentValid(" ", "Section A", true))
+        assertFalse(isNightlyEnrollmentValid("Learner", " ", true))
+        assertFalse(isNightlyEnrollmentValid("Learner", "Section A", false))
+        assertFalse(isNightlyEnrollmentValid("a".repeat(161), "Section A", true))
+    }
+
     @Test
     fun `issue report sheet opts into short-screen keyboard-safe layout`() {
         val policy = issueReportSheetLayoutPolicy()

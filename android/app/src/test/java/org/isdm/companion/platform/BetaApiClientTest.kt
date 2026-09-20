@@ -29,6 +29,23 @@ class BetaApiClientTest {
     }
 
     @Test
+    fun `nightly registration uses stable local credentials without an invite`() {
+        val pending = BetaInstallation("", "ba9f5ff7-b439-4efc-b9ba-24df4df6e65f", "a".repeat(64))
+        server.enqueue(MockResponse().setResponseCode(201).setBody(
+            """{"tester_code":"N-000001","installation_id":"${pending.installationId}"}"""))
+        val result = api.enrollNightly(pending, "Learner", "Section A", null,
+            BetaDeviceInfo("Fixture", "Phone", "16", "0.5.8-nightly", 16))
+        assertEquals(pending.installToken, result.installToken)
+        assertEquals("N-000001", result.testerCode)
+        val request = server.takeRequest()
+        assertEquals("/nightly-enroll", request.path)
+        val body = JSONObject(request.body.readUtf8())
+        assertFalse(body.has("invite_code"))
+        assertEquals("Learner", body.getString("support_name"))
+        assertEquals("nightly-2026-09-20", body.getString("consent_version"))
+    }
+
+    @Test
     fun `tester enrolls with profile and receives installation credentials`() {
         server.enqueue(
             MockResponse().setResponseCode(201).setBody(

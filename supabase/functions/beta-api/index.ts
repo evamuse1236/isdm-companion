@@ -1,3 +1,4 @@
+import { registerNightly } from "./nightly.ts";
 import { JsonInputError, readJsonObject, betaBodyLimit } from "../_shared/http-input.mjs";
 import { pausedCollectionReply } from "./collection-policy.mjs";
 import { accessConfig, installationAccessResponse } from "./access.ts";
@@ -27,12 +28,22 @@ Deno.serve(async (request) => {
     if (request.method === "OPTIONS") return new Response(null, { status: 204 });
     const route = new URL(request.url).pathname.split("/").filter(Boolean).at(-1);
 
+    if (route === "nightly-enroll" && request.method === "POST") {
+      return await registerNightly(request, async (input) => {
+        const { data, error } = await db.rpc("register_nightly_installation", input);
+        if (error) throw error;
+        return data;
+      });
+    }
     if (route === "enroll" && request.method === "POST") return await enroll(request);
 
     const installation = await authenticateInstallation(request);
     if (installation instanceof Response) return installation;
     const accessDenied = installationAccessResponse(installation, route);
     if (accessDenied) return accessDenied;
+    if (route === "profile" && request.method === "POST" && installation.enrollment_channel === "nightly") {
+      return await updateBetaProfile(request, installation, nightlyProfileStore);
+    }
     const pausedReply = pausedCollectionReply(route, request.method);
     if (pausedReply) {
       if (route === "profile") {
@@ -66,6 +77,7 @@ Deno.serve(async (request) => {
 });
 
 type Installation = {
+  enrollment_channel?: string;
   tester_code: string;
   installation_id: string;
   app_version_code: number | null;
@@ -91,6 +103,19 @@ const profileStore: BetaProfileStore = {
       .single();
     if (error) throw error;
     return data as BetaProfileRecord;
+  },
+};
+
+const nightlyProfileStore: BetaProfileStore = {
+  async saveProfile(testerCode, profile) {
+    // Only the named roster is enabled; activity/location telemetry stays paused.
+    const { error } = await db.from("beta_installations").update({
+      support_name: profile.support_name, self_section: profile.self_section, self_plc: profile.self_plc,
+      profile_confirmed_at: new Date().toISOString(), support_name_deleted_at: null,
+      updated_at: new Date().toISOString(),
+    }).eq("tester_code", testerCode).eq("enrollment_channel", "nightly");
+    if (error) throw error;
+    return profile;
   },
 };
 
@@ -171,7 +196,7 @@ async function authenticateInstallation(request: Request): Promise<Installation 
 
   const { data, error } = await db
     .from("beta_installations")
-    .select("tester_code, installation_id, app_version_code, access_suspended, auto_attendance_blocked")
+    .select("tester_code, installation_id, app_version_code, access_suspended, auto_attendance_blocked, enrollment_channel")
     .eq("installation_id", installationId)
     .eq("install_token_hash", await sha256(installToken))
     .maybeSingle();
@@ -186,6 +211,12 @@ async function authenticateInstallation(request: Request): Promise<Installation 
 
 async function configResponse(installation: Installation): Promise<Response> {
   const config = await loadConfig();
+  if (installation.enrollment_channel === "nightly") {
+    const { error } = await db.from("beta_installations").update({
+      last_seen_at: new Date().toISOString(), app_version_code: installation.app_version_code,
+    }).eq("installation_id", installation.installation_id);
+    if (error) throw error;
+  }
   return json({
     ...accessConfig(installation.access_suspended),
     auto_attendance_blocked: Boolean(config.auto_attendance_blocked || installation.auto_attendance_blocked),

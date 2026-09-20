@@ -1,5 +1,16 @@
 # ISDM Companion changelog
 
+## 0.5.8 nightly — prepared, not published
+
+- Code-free enrollment with a consented support roster and per-installation owner controls.
+- Stable registration credentials make retry safe; suspensions survive retry but not a reinstall with a new identity.
+- Names expire after 180 days without access or can be removed in Profile; other telemetry stays paused.
+- Monday–Sunday schedule view, SMS/course shortcuts, and display-only batch/term-prefix cleanup.
+- Removes the daily schedule-confirmation prompt; improves large-text layout and startup work.
+- Includes previously requested safe-reading URL, bounded backend-input, and upload retry fixes.
+- Requires the bundled nightly database migration and beta-api/beta-admin deployment before new enrollment works.
+- Signed with the permanent replacement identity; preserves updates from replacement-signed 0.5.7.
+
 ## 0.5.7 beta — release candidate
 
 This release starts a new permanent signing identity after the previous private key was lost during

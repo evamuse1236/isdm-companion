@@ -699,8 +699,8 @@ private fun CompanionScreen(
                 detectedName = state.identity?.displayName.orEmpty(),
                 detectedSections = detectedProfileCohorts(state).first,
                 detectedGroups = detectedProfileCohorts(state).second,
-                onEnroll = { inviteCode, name, section, plc, detectedSections, detectedGroups, consented ->
-                    viewModel.enrollBeta(inviteCode, name, section, plc, detectedSections, detectedGroups, consented) {
+                onEnroll = { name, section, plc, detectedSections, detectedGroups, consented ->
+                    viewModel.enrollNightly(name, section, plc, detectedSections, detectedGroups, consented) {
                         Unit
                     }
                 },
@@ -2269,17 +2269,17 @@ private fun BetaProfileContent(
     var section by rememberSaveable(initialSection) { mutableStateOf(initialSection) }
     var group by rememberSaveable(initialGroup) { mutableStateOf(initialGroup) }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.Center) {
-        Text("Confirm your beta profile", color = Ink, fontSize = 28.sp, lineHeight = 31.sp, fontWeight = FontWeight.ExtraBold)
+        Text("Confirm your profile", color = Ink, fontSize = 28.sp, lineHeight = 31.sp, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(8.dp))
         Text("The LMS detected ${detectedCohortSummary(detectedSections, detectedGroups)}.", color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
         Spacer(Modifier.height(18.dp))
-        OutlinedTextField(name, { name = it }, label = { Text("Name for beta support") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(name, { name = it }, label = { Text("Name for support") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(10.dp))
         OutlinedTextField(section, { section = it }, label = { Text("Section") }, placeholder = { Text("Section A") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(10.dp))
         OutlinedTextField(group, { group = it }, label = { Text("PLC or Group") }, placeholder = { Text("Group 4") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(10.dp))
-        Text("Corrections help the beta owner support you. They never override the LMS schedule or decide attendance.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+        Text("Corrections help the app owner support you. They never override the LMS schedule or decide attendance.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
         Spacer(Modifier.height(18.dp))
         Button(
             onClick = { onSave(name.trim(), section.trim().takeIf(String::isNotEmpty), group.trim().takeIf(String::isNotEmpty)) },
@@ -2766,21 +2766,20 @@ private fun profileDetectionChanged(
 }
 
 @Composable
-private fun BetaEnrollmentContent(
+internal fun BetaEnrollmentContent(
     enrolling: Boolean,
     detectedName: String,
     detectedSections: Set<String>,
     detectedGroups: Set<String>,
-    onEnroll: (String, String, String, String?, Set<String>, Set<String>, Boolean) -> Unit,
+    onEnroll: (String, String, String?, Set<String>, Set<String>, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var inviteCode by rememberSaveable { mutableStateOf("") }
     var supportName by rememberSaveable(detectedName) { mutableStateOf(detectedName) }
     var section by rememberSaveable(detectedSections) { mutableStateOf(detectedSections.firstOrNull()?.let { "Section $it" }.orEmpty()) }
     var plc by rememberSaveable(detectedGroups) { mutableStateOf(detectedGroups.firstOrNull()?.let { "Group $it" }.orEmpty()) }
     var consented by rememberSaveable { mutableStateOf(false) }
     var attempted by rememberSaveable { mutableStateOf(false) }
-    val valid = isBetaEnrollmentValid(inviteCode, section, consented) && supportName.isNotBlank()
+    val valid = isNightlyEnrollmentValid(supportName, section, consented)
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -2790,25 +2789,14 @@ private fun BetaEnrollmentContent(
         item {
             Box(Modifier.size(14.dp).background(ButterStrong, RoundedCornerShape(5.dp)))
             Spacer(Modifier.height(18.dp))
-            Text("Join the one-week beta", fontSize = 30.sp, lineHeight = 32.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
+            Text("Join the night owls", fontSize = 30.sp, lineHeight = 32.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
             Spacer(Modifier.height(8.dp))
-            Text("Your LMS sign-in is ready. Confirm the detected details below.", color = Muted, lineHeight = 21.sp)
+            Text("Companion Nightly · no invite code needed. Confirm your details to join.", color = Muted, lineHeight = 21.sp)
             Spacer(Modifier.height(24.dp))
-            OutlinedTextField(
-                value = inviteCode,
-                onValueChange = { inviteCode = it.uppercase(Locale.ROOT) },
-                label = { Text("Invite code") },
-                singleLine = true,
-                enabled = !enrolling,
-                isError = attempted && inviteCode.isBlank(),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-            )
-            Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = supportName,
                 onValueChange = { supportName = it },
-                label = { Text("Name for beta support") },
+                label = { Text("Name for support") },
                 singleLine = true,
                 enabled = !enrolling,
                 modifier = Modifier.fillMaxWidth(),
@@ -2842,12 +2830,12 @@ private fun BetaEnrollmentContent(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White)
                     .border(1.dp, Line, RoundedCornerShape(16.dp)).padding(16.dp),
             ) {
-                Text("What this beta sends", color = Ink, fontWeight = FontWeight.ExtraBold)
+                Text("A small roster, just for support", color = Ink, fontWeight = FontWeight.ExtraBold)
                 Spacer(Modifier.height(8.dp))
-                Text("• App events, device model, section/PLC, schedule feedback and attendance outcomes.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
-                Text("• Your support name, visible only to the beta owner and deleted 30 days after the beta ends.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
-                Text("• Exact location only when an attendance decision is made.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
-                Text("• Screenshots only when you select and send them.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("• Your name, section/PLC, device model, app version and last access time are visible to the app owner.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("• You can remove your name in Profile. Names are also removed after 180 days without using the app.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("• The owner can pause this installation if it is misused.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("• Other telemetry collection remains paused. Location checks stay on your phone.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
                 Text("• Your LMS password and reusable cookies stay on this phone.", color = Ink, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold)
             }
             Row(
@@ -2855,16 +2843,16 @@ private fun BetaEnrollmentContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Checkbox(checked = consented, onCheckedChange = { consented = it }, enabled = !enrolling)
-                Text("I understand and agree to this one-week beta data collection.", color = Ink, fontSize = 12.sp, lineHeight = 17.sp)
+                Text("I agree to this support roster and installation access control.", color = Ink, fontSize = 12.sp, lineHeight = 17.sp)
             }
             if (attempted && !valid) {
-                Text("Invite code, name, Section, and consent are required.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                Text("Name, Section, and consent are required.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                 Spacer(Modifier.height(8.dp))
             }
             Button(
                 onClick = {
                     attempted = true
-                    if (valid) onEnroll(inviteCode.trim(), supportName.trim(), section.trim(), plc.trim().takeIf(String::isNotEmpty), detectedSections, detectedGroups, consented)
+                    if (valid) onEnroll(supportName.trim(), section.trim(), plc.trim().takeIf(String::isNotEmpty), detectedSections, detectedGroups, consented)
                 },
                 enabled = !enrolling,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -2872,7 +2860,7 @@ private fun BetaEnrollmentContent(
                 colors = ButtonDefaults.buttonColors(containerColor = TealDeep),
             ) {
                 if (enrolling) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                else Text("Join beta", fontWeight = FontWeight.Bold)
+                else Text("Join nightly", fontWeight = FontWeight.Bold)
             }
         }
     }

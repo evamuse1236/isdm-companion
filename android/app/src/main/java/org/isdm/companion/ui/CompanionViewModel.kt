@@ -179,8 +179,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         if (latest == null || state.value.sync.error != null || Instant.now().isAfter(latest.plusSeconds(120))) refresh()
     }
 
-    fun enrollBeta(
-        inviteCode: String,
+    fun enrollNightly(
         supportName: String,
         section: String,
         plc: String?,
@@ -189,12 +188,12 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         consented: Boolean,
         onSuccess: () -> Unit,
     ) {
-        if (!isBetaEnrollmentValid(inviteCode, section, consented) || _betaEnrolling.value) return
+        if (!isNightlyEnrollmentValid(supportName, section, consented) || _betaEnrolling.value) return
         _betaEnrolling.value = true
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val installation = app.betaManager.enroll(inviteCode, section, plc)
+                    val installation = app.betaManager.enrollNightly(supportName, section, plc)
                     val profile = app.betaManager.updateProfile(
                         BetaProfileUpdate(
                             supportName = supportName,
@@ -212,18 +211,18 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 _betaEnrolled.value = true
                 refreshAccess()
                 _betaProfile.value = profile
-                _message.value = "${installation.testerCode} joined the beta."
+                _message.value = "Welcome aboard, ${profile.supportName ?: installation.testerCode}. Nightly is ready."
                 onSuccess()
             }.onFailure { error ->
                 if (app.betaManager.isEnrolled) _betaEnrolled.value = true
                 app.diagnostics.log("beta_enrollment_failed", error = error)
                 _message.value = when ((error as? BetaApiException)?.code) {
-                    "invalid_invite" -> "That invite code is not valid."
-                    "invite_already_claimed" -> "That invite code has already been used."
+                    "enrollment_limit" -> "Nightly registration is busy today. Please try again tomorrow."
+                    "access_suspended" -> "This installation is paused. Contact the app owner."
                     else -> if (app.betaManager.isEnrolled) {
-                        "The beta was joined, but the profile could not be saved. Confirm it again."
+                        "Nightly was joined, but the profile could not be saved. Confirm it again."
                     } else {
-                        "Could not join the beta. Check the internet connection and try again."
+                        "Could not join nightly. Check the internet connection and try again."
                     }
                 }
             }
@@ -271,7 +270,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }.onSuccess {
                 _betaProfile.value = it
-                _message.value = "Beta profile updated. Your schedule still follows the LMS."
+                _message.value = "Profile updated. Your schedule still follows the LMS."
                 onSuccess()
             }.onFailure {
                 _message.value = "Could not update the beta profile. Try again."

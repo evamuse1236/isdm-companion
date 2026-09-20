@@ -15,12 +15,11 @@ val CURRENT_RELEASE_NOTES = ReleaseNotes(
     versionCode = BuildConfig.VERSION_CODE,
     versionName = BuildConfig.VERSION_NAME,
     items = listOf(
-        "Saved LMS login survives timeouts, with cached content available during recovery.",
-        "Readings and assessments load together without holding up Done, Undo, or attendance.",
-        "Quicker schedule transitions preserve your layout and chosen accent color.",
-        "Upcoming assessments and more LMS forms are recognised; unconfirmed dates are labelled.",
-        "Automatic attendance requires notifications and all-time location; beta access pauses are enforced.",
-        "Save private debug logs from Profile when something goes wrong; logs recycle after a week.",
+        "Join Companion Nightly without an invite code; a small named roster supports installation access control.",
+        "Switch between Day and Week to see your available schedule.",
+        "Course labels use shortcuts such as SMS, and hide batch/term prefixes.",
+        "The daily Looks right prompt is gone.",
+        "Less work blocks startup, with improved large-text layout and safer reading links.",
     ),
 )
 

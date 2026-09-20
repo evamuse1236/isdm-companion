@@ -35,6 +35,19 @@ class BetaInstallationStore(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
 
+    @Synchronized
+    fun pendingNightlyRegistration(): BetaInstallation {
+        val id = preferences.getString("nightly_pending_id", null)
+        val token = preferences.getString("nightly_pending_token", null)
+        if (id != null && token != null) return BetaInstallation("", id, token)
+        val created = BetaInstallation("", UUID.randomUUID().toString(),
+            ByteArray(32).also(java.security.SecureRandom()::nextBytes)
+                .joinToString("") { (it.toInt() and 255).toString(16).padStart(2, '0') })
+        check(preferences.edit().putString("nightly_pending_id", created.installationId)
+            .putString("nightly_pending_token", created.installToken).commit()) { "Could not save registration" }
+        return created
+    }
+
     fun load(): BetaInstallation? {
         val testerCode = preferences.getString(KEY_TESTER_CODE, null) ?: return null
         val installationId = preferences.getString(KEY_INSTALLATION_ID, null) ?: return null
@@ -46,6 +59,7 @@ class BetaInstallationStore(context: Context) {
         .putString(KEY_TESTER_CODE, installation.testerCode)
         .putString(KEY_INSTALLATION_ID, installation.installationId)
         .putString(KEY_INSTALL_TOKEN, installation.installToken)
+        .remove("nightly_pending_id").remove("nightly_pending_token")
         .commit()
 
     private companion object {
@@ -127,6 +141,14 @@ class BetaManager(
         uiPreferences.edit().putBoolean(KEY_SETUP_EXPLAINED, true).apply()
     }
 
+    fun enrollNightly(supportName: String, section: String, plc: String?): BetaInstallation {
+        installation?.let { return it }
+        val registration = installationStore.pendingNightlyRegistration()
+        val enrolled = api.enrollNightly(registration, supportName, section, plc, deviceInfo())
+        check(installationStore.save(enrolled)) { "Could not securely save enrollment" }
+        return enrolled
+    }
+
     fun enroll(inviteCode: String, section: String, plc: String?): BetaInstallation {
         val installation = api.enroll(
             BetaEnrollment(
@@ -164,6 +186,7 @@ class BetaManager(
     }
 
     fun log(event: String, attributes: Map<String, String> = emptyMap(), error: Throwable? = null) {
+        if (installation?.testerCode?.startsWith("N-") == true) return
         val payload = buildMap {
             attributes.forEach { (key, value) -> put(key.take(80), sanitizeDiagnosticValue(value)) }
             error?.let {
@@ -287,6 +310,7 @@ class BetaManager(
     }
 
     fun flush(): Boolean {
+        if (installation?.testerCode?.startsWith("N-") == true) return true
         val current = installation ?: return true
         val events = eventStore.peek(100)
         if (events.isNotEmpty()) {
@@ -302,6 +326,7 @@ class BetaManager(
     }
 
     private fun queue(route: String, body: Map<String, Any?>) {
+        if (installation?.testerCode?.startsWith("N-") == true) return
         requestStore.enqueue(BetaQueuedRequest(UUID.randomUUID().toString(), route, body))
         if (isEnrolled) scheduleUpload(context)
     }
@@ -340,7 +365,7 @@ class BetaManager(
     )
 
     companion object {
-        const val CONSENT_VERSION = "beta-2026-08-16-profile"
+        const val CONSENT_VERSION = "nightly-2026-09-20"
         const val TOUR_VERSION = 1
         const val MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
         private const val UPLOAD_WORK = "beta-telemetry-upload"

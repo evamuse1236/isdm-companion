@@ -203,3 +203,6 @@ internal fun createIssueReportShareIntent(description: String, images: List<Uri>
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 }
+
+internal fun isNightlyEnrollmentValid(name: String, section: String, consented: Boolean): Boolean =
+    name.trim().length in 1..160 && section.trim().length in 1..40 && consented

@@ -89,6 +89,25 @@ class BetaApiClient(
         )
     }
 
+    fun enrollNightly(
+        registration: BetaInstallation,
+        supportName: String,
+        section: String,
+        plc: String?,
+        device: BetaDeviceInfo,
+    ): BetaInstallation {
+        val response = post("nightly-enroll", JSONObject()
+            .put("installation_id", registration.installationId)
+            .put("install_token", registration.installToken)
+            .put("support_name", supportName.trim())
+            .put("self_section", section.trim())
+            .putOptional("self_plc", plc?.trim()?.takeIf(String::isNotEmpty))
+            .put("consent_version", "nightly-2026-09-20")
+            .putDevice(device))
+        check(response.getString("installation_id") == registration.installationId) { "Registration mismatch" }
+        return registration.copy(testerCode = response.getString("tester_code"))
+    }
+
     fun accessConfig(installation: BetaInstallation): BetaAccessSnapshot {
         val response = request("config", null, installation)
         if (!response.has("access_suspended") || response.opt("access_suspended") !is Boolean) {

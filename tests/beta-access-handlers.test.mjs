@@ -3,6 +3,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
 import { runInNewContext } from 'node:vm';
+import { registerNightly } from '../supabase/functions/beta-api/nightly.ts';
 import { webcrypto } from 'node:crypto';
 import { accessConfig, installationAccessResponse } from '../supabase/functions/beta-api/access.ts';
 import { pausedCollectionReply } from '../supabase/functions/beta-api/collection-policy.mjs';
@@ -18,7 +19,7 @@ async function handler(name, db) {
   runInNewContext(stripTypeScriptTypes(code), {
     Deno: { env: { get: () => 'fixture-only' }, serve: fn => { serve = fn; } },
     createClient: () => db, accessConfig, installationAccessResponse, updateTesterAccess, updateTesterAutoAttendance,
-    pausedCollectionReply, JsonInputError, readJsonObject, betaBodyLimit, updateBetaProfile,
+    pausedCollectionReply, registerNightly, JsonInputError, readJsonObject, betaBodyLimit, updateBetaProfile,
     Request, Response, URL, TextEncoder, crypto: webcrypto, console, Uint8Array, btoa,
   });
   return serve;
@@ -258,4 +259,26 @@ test('reinstall reclaims the same tester without deleting history or replacing p
   assert.equal('tester_code' in update, false);
   assert.equal('support_name' in update, false);
   assert.equal('invite_code_hash' in update, false);
+});
+
+test('nightly profile stores only roster fields while telemetry routes remain paused', async () => {
+  const writes = [];
+  const installation = { tester_code:'N-000001', installation_id:'fixture-id', enrollment_channel:'nightly', access_suspended:false, app_version_code:16 };
+  const serve = await handler('beta-api', { from: () => {
+    const q = query(installation);
+    q.update = values => { writes.push(values); return q; };
+    return q;
+  }});
+  const headers = {'x-installation-id':'fixture-id','x-install-token':'fixture-token','content-type':'application/json'};
+  const response = await serve(new Request('https://example.test/beta-api/profile', {method:'POST',headers,body:JSON.stringify({
+    support_name:'Fixture learner',self_section:'A',self_plc:null,detected_sections:['A'],detected_groups:[],consent_version:'nightly-2026-09-20',confirmed_at:'2026-09-20T00:00:00Z',
+  })}));
+  assert.equal(response.status,200);
+  assert.equal(writes.length,1);
+  assert.equal(writes[0].support_name,'Fixture learner');
+  assert.equal('detected_sections' in writes[0],false);
+  for(const route of ['events','attendance','schedule','lms-diagnostic']) {
+    assert.equal((await serve(new Request(`https://example.test/beta-api/${route}`,{method:'POST',headers,body:'{}'}))).status,202);
+  }
+  assert.equal(writes.length,1);
 });
