@@ -7,17 +7,14 @@ import androidx.security.crypto.MasterKey
 data class StoredCredentials(val email: String, val password: String)
 
 class SecureCredentialStore(context: Context) {
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
-
-    private val preferences = EncryptedSharedPreferences.create(
-        context,
+    private val appContext = context.applicationContext
+    private val preferences by lazy { EncryptedSharedPreferences.create(
+        appContext,
         FILE_NAME,
-        masterKey,
+        MasterKey.Builder(appContext).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    ) }
 
     fun load(): StoredCredentials? {
         val email = preferences.getString(KEY_EMAIL, null) ?: return null

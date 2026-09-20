@@ -328,21 +328,6 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun hasScheduleFeedback(date: java.time.LocalDate, sessionCount: Int): Boolean =
-        app.betaManager.hasScheduleFeedback(date.toString(), sessionCount)
-
-    fun confirmSchedule(date: java.time.LocalDate, correct: Boolean, note: String?) {
-        val sessions = state.value.scheduleSessions.filter { it.start.atZone(org.isdm.companion.engine.LMS_ZONE).toLocalDate() == date }
-        app.betaManager.queueScheduleFeedback(
-            status = if (correct) "confirmed" else "mismatch",
-            selectedDate = date.toString(),
-            sessionCount = sessions.size,
-            note = note?.trim()?.takeIf(String::isNotEmpty),
-            detectedCohorts = sessions.mapNotNullTo(mutableSetOf()) { it.cohort },
-        )
-        _message.value = "Thanks — schedule feedback queued."
-    }
-
     fun refresh() {
         if (refreshJob?.isActive == true || _signingOut.value) return
         refreshJob = viewModelScope.launch {

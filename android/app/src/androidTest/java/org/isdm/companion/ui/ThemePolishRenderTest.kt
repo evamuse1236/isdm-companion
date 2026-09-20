@@ -18,6 +18,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Density
 import java.io.File
 import java.time.Instant
@@ -38,7 +39,7 @@ class ThemePolishRenderTest {
         val today = now.atZone(LMS_ZONE).toLocalDate()
         val sessions = (0..2).map { index -> CompanionSession(
             nid = "test-$index", eventNid = "test-$index",
-            name = listOf("Understanding Social Change", "Research Methods", "Leadership and Learning")[index],
+            name = listOf("B10 - T1 - State, Market and Society", "Research Methods", "Leadership and Learning")[index],
             cohort = "Section A", sessionNumber = index + 1,
             start = now.plusSeconds(1200 + index * 5400L), end = now.plusSeconds(4800 + index * 5400L),
             room = "Classroom 201", trainer = "Course faculty",
@@ -54,7 +55,7 @@ class ThemePolishRenderTest {
                     Column(Modifier.fillMaxSize().background(Color(0xFFF8F7FC))) {
                         CompanionHeader(state, false, {}, {}, {})
                         Box(Modifier.weight(1f)) {
-                            ScheduleContent(state, today, {}, {}, {}, true, { _, _ -> },
+                            ScheduleContent(state, today, {}, {}, {},
                                 BetaSetupStatus(true, true), false, {}, {}, emptySet())
                         }
                         CompanionNavBar(Destination.SCHEDULE, {}, {})
@@ -63,8 +64,13 @@ class ThemePolishRenderTest {
             }
         }
         compose.onNodeWithText("Schedule").assertIsDisplayed()
+        compose.onNodeWithText("Looks right").assertDoesNotExist()
         capture("schedule-normal")
-        compose.runOnIdle { fontScale.value = 1.3f }
+        compose.onNodeWithText("Week").performClick()
+        compose.onNodeWithText("Monday–Sunday · available schedule").assertIsDisplayed()
+        capture("schedule-week")
+        compose.onNodeWithText("Day").performClick()
+        compose.runOnIdle { fontScale.value = 2f }
         compose.onNodeWithText("Schedule").assertIsDisplayed()
         capture("schedule-large-text")
     }

@@ -76,10 +76,9 @@ class CompanionApplication : Application() {
         localDiagnostics = AndroidDiagnosticsLogger(this)
         localDiagnostics.installCrashHandler()
         diagnostics = BetaDiagnosticsLogger(localDiagnostics, betaManager)
-        AndroidProcessExitReporter(this, diagnostics).reportPreviousExits()
         autoAttendanceScheduler = AutoAttendanceScheduler(this, autoAttendanceStore, diagnostics)
         localStore = CompanionLocalStore(this)
-        val savedCredentials = credentialStore.load()
+        val savedCredentials = if (autoAttendanceStore.isEnabled()) credentialStore.load() else null
         val setupReady = betaManager.automaticAttendanceSetupReady &&
             autoAttendanceScheduler.hasRequiredSystemAccess()
         if (autoAttendanceStore.isEnabled() && !setupReady) {
@@ -134,6 +133,9 @@ class CompanionApplication : Application() {
             accessGate = betaManager.access,
         )
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            AndroidProcessExitReporter(this@CompanionApplication, diagnostics).reportPreviousExits()
+        }
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             betaManager.access.state.collectLatest { access ->
                 if (access.status in setOf(BetaAccessStatus.SUSPENDED, BetaAccessStatus.INVALID_INSTALLATION, BetaAccessStatus.UPDATE_REQUIRED)) {
                     autoAttendanceStore.setEnabled(false)
@@ -153,7 +155,6 @@ class CompanionApplication : Application() {
                 "auto_attendance_enabled" to autoAttendanceStore.isEnabled().toString(),
                 "build_type" to BuildConfig.BUILD_TYPE,
                 "device_model" to Build.MODEL,
-                "saved_login" to (savedCredentials != null).toString(),
                 "version_code" to BuildConfig.VERSION_CODE.toString(),
                 "version_name" to BuildConfig.VERSION_NAME,
             ),

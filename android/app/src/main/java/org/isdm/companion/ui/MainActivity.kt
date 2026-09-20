@@ -40,6 +40,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -81,6 +84,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -759,13 +763,6 @@ private fun CompanionScreen(
                             },
                             onSession = { selectedSession = it },
                             onMark = onMarkAttendance,
-                            scheduleFeedbackRecorded = viewModel.hasScheduleFeedback(
-                                selectedDate,
-                                state.scheduleSessions.count { it.start.atZone(IST).toLocalDate() == selectedDate },
-                            ),
-                            onScheduleFeedback = { correct, note ->
-                                viewModel.confirmSchedule(selectedDate, correct, note)
-                            },
                             setupStatus = setupStatus,
                             autoAttendanceEnabled = autoAttendanceEnabled,
                             onOpenProfile = { destination = Destination.PROFILE },
@@ -896,6 +893,7 @@ private fun CompanionScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun CompanionHeader(
     state: CompanionState,
@@ -904,9 +902,9 @@ internal fun CompanionHeader(
     onAutoAttendance: (Boolean) -> Unit,
     onShowReleaseNotes: () -> Unit,
 ) {
-    Row(
+    FlowRow(
         Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 17.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1052,7 +1050,7 @@ private fun NavTab(
             color = if (active) Color.White else TealDeep,
             fontSize = 12.sp,
             fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
-            maxLines = 1,
+            maxLines = 2,
         )
     }
 }
@@ -1064,8 +1062,6 @@ internal fun ScheduleContent(
     onStepDate: (Int) -> Unit,
     onSession: (Session) -> Unit,
     onMark: (String) -> Unit,
-    scheduleFeedbackRecorded: Boolean,
-    onScheduleFeedback: (Boolean, String?) -> Unit,
     setupStatus: BetaSetupStatus,
     autoAttendanceEnabled: Boolean,
     onOpenProfile: () -> Unit,
@@ -1073,7 +1069,14 @@ internal fun ScheduleContent(
     markingSessionIds: Set<String>,
 ) {
     val source = state.scheduleSessions.ifEmpty { state.sessions }
-    val sessions = remember(source, selectedDate) { source.filter { it.start.atZone(IST).toLocalDate() == selectedDate } }
+    var weekly by rememberSaveable { mutableStateOf(false) }
+    val visibleDates = remember(selectedDate, weekly, state.scheduleStart, state.scheduleEndExclusive) {
+        if (weekly) scheduleWeekDates(selectedDate, state.scheduleStart, state.scheduleEndExclusive)
+        else listOf(selectedDate)
+    }
+    val sessions = remember(source, visibleDates) {
+        source.filter { it.start.atZone(IST).toLocalDate() in visibleDates }.sortedBy { it.start }
+    }
     val clockNow = remember(sessions) {
         flow {
             while (true) {
@@ -1090,8 +1093,6 @@ internal fun ScheduleContent(
                 .associate { it.session to it.kind }
         }
     }
-    var mismatchOpen by rememberSaveable(selectedDate) { mutableStateOf(false) }
-    var mismatchNote by rememberSaveable(selectedDate) { mutableStateOf("") }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 28.dp),
@@ -1100,10 +1101,24 @@ internal fun ScheduleContent(
         item {
             DateHeader(
                 date = selectedDate,
-                canPrevious = selectedDate > state.scheduleStart,
-                canNext = selectedDate.plusDays(1) < state.scheduleEndExclusive,
-                onStep = onStepDate,
+                weekly = weekly,
+                canPrevious = (if (weekly) visibleDates.firstOrNull() ?: selectedDate else selectedDate) > state.scheduleStart,
+                canNext = (if (weekly) visibleDates.lastOrNull() ?: selectedDate else selectedDate).plusDays(1) < state.scheduleEndExclusive,
+                onStep = { step ->
+                    if (weekly) {
+                        val target = selectedDate.plusDays(step * 7L)
+                            .coerceIn(state.scheduleStart, state.scheduleEndExclusive.minusDays(1))
+                        onStepDate((target.toEpochDay() - selectedDate.toEpochDay()).toInt())
+                    } else onStepDate(step)
+                },
             )
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !weekly, onClick = { weekly = false }, label = { Text("Day") })
+                FilterChip(selected = weekly, onClick = { weekly = true }, label = { Text("Week") })
+            }
+            if (weekly) Text("Monday–Sunday · available schedule", color = Muted, fontSize = 12.sp)
         }
         nextScheduleAssessment(state.assessments)?.let { assessment ->
             item { AssessmentDueBanner(assessment, onOpen = { onOpenAssessment(assessment.id) }) }
@@ -1127,63 +1142,36 @@ internal fun ScheduleContent(
                 )
             }
         }
-        if (sessions.isNotEmpty() && !scheduleFeedbackRecorded) {
-            item {
-                Column(
-                    Modifier.fillMaxWidth().padding(bottom = 12.dp)
-                        .clip(RoundedCornerShape(16.dp)).border(1.dp, Line, RoundedCornerShape(16.dp))
-                        .background(Color.White).padding(16.dp),
-                ) {
-                    Text("Is this your section and PLC day?", color = Ink, fontWeight = FontWeight.ExtraBold)
-                    Spacer(Modifier.height(5.dp))
-                    Text("Check the sessions below against your LMS schedule.", color = Muted, fontSize = 12.sp)
-                    if (mismatchOpen) {
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedTextField(
-                            value = mismatchNote,
-                            onValueChange = { mismatchNote = it },
-                            label = { Text("What's missing or incorrect?") },
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 2,
-                        )
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { mismatchOpen = false }) { Text("Cancel") }
-                            Button(
-                                onClick = { onScheduleFeedback(false, mismatchNote) },
-                                enabled = mismatchNote.isNotBlank(),
-                            ) { Text("Send") }
-                        }
-                    } else {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            TextButton(onClick = { mismatchOpen = true }) { Text("Wrong section or PLC") }
-                            Button(onClick = { onScheduleFeedback(true, null) }) { Text("Looks right") }
-                        }
-                    }
-                }
-            }
-        }
         if (state.scheduleSync.inProgress && source.isEmpty()) {
             item { Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Teal) } }
         } else if (sessions.isEmpty()) {
-            item { EmptyState("Nothing scheduled", "This day is clear. Your readings remain available offline.") }
+            item { EmptyState("Nothing scheduled", if (weekly) "No sessions in this week’s available schedule." else "This day is clear. Your readings remain available offline.") }
         } else {
-            items(sessions) { session ->
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.White,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Line),
-                ) {
-                    SessionRow(
-                        session = session,
-                        highlight = highlights[session],
-                        nowProvider = { clockNow.value },
-                        onOpen = { onSession(session) },
-                        onMark = onMark,
-                        marking = session.nid in markingSessionIds,
-                    )
+            visibleDates.forEach { date ->
+                val daySessions = sessions.filter { it.start.atZone(IST).toLocalDate() == date }
+                if (weekly) item {
+                    Text(date.format(DateTimeFormatter.ofPattern("EEE, d MMM", Locale.ENGLISH)),
+                        color = Ink, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                    if (daySessions.isEmpty()) Text("Nothing scheduled", color = Muted, fontSize = 12.sp)
+                }
+                items(daySessions) { session ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)),
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.White,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+                    ) {
+                        SessionRow(
+                            session = session,
+                            highlight = highlights[session],
+                            nowProvider = { clockNow.value },
+                            onOpen = { onSession(session) },
+                            onMark = onMark,
+                            marking = session.nid in markingSessionIds,
+                        )
+                    }
                 }
             }
         }
@@ -1211,7 +1199,7 @@ private fun AssessmentDueBanner(assessment: AssessmentItem, onOpen: () -> Unit) 
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                assessment.title,
+                displayLmsLabel(assessment.title),
                 color = Ink,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
@@ -1238,31 +1226,32 @@ private fun AssessmentDueBanner(assessment: AssessmentItem, onOpen: () -> Unit) 
 internal fun shouldShowScheduleSetupBanner(setupReady: Boolean, autoAttendanceEnabled: Boolean): Boolean =
     !setupReady || !autoAttendanceEnabled
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun DateHeader(date: LocalDate, canPrevious: Boolean, canNext: Boolean, onStep: (Int) -> Unit) {
-    Row(
+private fun DateHeader(date: LocalDate, weekly: Boolean, canPrevious: Boolean, canNext: Boolean, onStep: (Int) -> Unit) {
+    FlowRow(
         Modifier.fillMaxWidth().padding(horizontal = 3.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(DATE_FORMAT.format(date), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Ink)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            DateArrow(false, canPrevious) { onStep(-1) }
-            DateArrow(true, canNext) { onStep(1) }
+            DateArrow(false, canPrevious, weekly) { onStep(-1) }
+            DateArrow(true, canNext, weekly) { onStep(1) }
         }
     }
 }
 
 @Composable
-private fun DateArrow(forward: Boolean, enabled: Boolean, onClick: () -> Unit) {
+private fun DateArrow(forward: Boolean, enabled: Boolean, weekly: Boolean, onClick: () -> Unit) {
     Box(
-        Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Color.White).alpha(if (enabled) 1f else .38f)
+        Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)).background(Color.White).alpha(if (enabled) 1f else .38f)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         androidx.compose.material3.Icon(
             if (forward) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-            contentDescription = if (forward) "Next day" else "Previous day",
+            contentDescription = "${if (forward) "Next" else "Previous"} ${if (weekly) "week" else "day"}",
             tint = Ink,
         )
     }
@@ -1290,7 +1279,7 @@ private fun SessionRow(
         ) {
             Text(
                 TIME_SHORT.format(session.start.atZone(IST)),
-                modifier = Modifier.width(76.dp).padding(start = 16.dp, top = if (focus) 18.dp else 16.dp, bottom = 16.dp),
+                modifier = Modifier.width((60 * LocalDensity.current.fontScale + 16).dp).padding(start = 16.dp, top = if (focus) 18.dp else 16.dp, bottom = 16.dp),
                 color = if (focus) BlushAccent else Teal,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.ExtraBold,
@@ -1304,7 +1293,7 @@ private fun SessionRow(
                                 withStyle(SpanStyle(color = BlushAccent, fontWeight = FontWeight.ExtraBold)) {
                                     append(if (highlight == ScheduleHighlightKind.HAPPENING_NOW) "Happening now · " else "Up next · ")
                                 }
-                                withStyle(SpanStyle(fontWeight = FontWeight.ExtraBold)) { append(session.name) }
+                                withStyle(SpanStyle(fontWeight = FontWeight.ExtraBold)) { append(displayLmsLabel(session.name)) }
                                 if (highlight == ScheduleHighlightKind.UP_NEXT) {
                                     append(" starts in ")
                                     withStyle(SpanStyle(color = BlushAccent, fontWeight = FontWeight.ExtraBold)) {
@@ -1357,7 +1346,7 @@ private fun SessionRow(
                 }
             } else {
                 Column(Modifier.weight(1f).padding(top = 15.dp, end = 14.dp, bottom = 15.dp)) {
-                    Text(session.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    Text(displayLmsLabel(session.name), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
                     Spacer(Modifier.height(4.dp))
                     Text(session.metaLine(), fontSize = 11.sp, color = Muted, maxLines = 1)
                 }
@@ -1564,7 +1553,7 @@ private fun AssessmentsCard(
                     )
                     nextScheduleAssessment(assessments)?.let { next ->
                         Spacer(Modifier.height(5.dp))
-                        Text("Next: ${next.title}", color = Ink.copy(alpha = .62f), fontSize = 10.sp, maxLines = 1)
+                        Text("Next: ${displayLmsLabel(next.title)}", color = Ink.copy(alpha = .62f), fontSize = 10.sp, maxLines = 1)
                     }
                     Spacer(Modifier.height(10.dp))
                     Text(
@@ -1646,7 +1635,7 @@ private fun AssessmentRow(
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Text(
-                assessment.title,
+                displayLmsLabel(assessment.title),
                 modifier = Modifier.weight(1f),
                 color = if (complete) Muted else Ink,
                 fontSize = 14.sp,
@@ -1783,7 +1772,7 @@ private fun CourseReadingCard(
                 Column(Modifier.fillMaxWidth(.82f)) {
                     Text("COURSE", color = colors.accent, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = .6.sp)
                     Spacer(Modifier.height(6.dp))
-                    Text(courseName, color = Ink, fontSize = 19.sp, lineHeight = 21.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(displayLmsLabel(courseName), color = Ink, fontSize = 19.sp, lineHeight = 21.sp, fontWeight = FontWeight.ExtraBold)
                     Spacer(Modifier.height(9.dp))
                     Text(
                         buildAnnotatedString {
@@ -1800,7 +1789,7 @@ private fun CourseReadingCard(
                     )
                     readings.firstOrNull { !it.done }?.let { preview ->
                         Spacer(Modifier.height(5.dp))
-                        Text("Next: ${preview.title}", color = Ink.copy(alpha = .62f), fontSize = 10.sp, maxLines = 1)
+                        Text("Next: ${displayLmsLabel(preview.title)}", color = Ink.copy(alpha = .62f), fontSize = 10.sp, maxLines = 1)
                     }
                     Spacer(Modifier.height(10.dp))
                     Text(
@@ -1824,7 +1813,7 @@ private fun CourseReadingCard(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    outline.courseOutlineTitle ?: "Course Outline",
+                                    displayLmsLabel(outline.courseOutlineTitle ?: "Course Outline"),
                                     color = Ink,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
@@ -1961,7 +1950,7 @@ private fun ReadingRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(reading.title, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
+            Text(displayLmsLabel(reading.title), fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (reading.mandatory) {
@@ -1986,9 +1975,9 @@ private fun ReadingRow(
                 }
                 .semantics {
                 contentDescription = if (reading.done) {
-                    "Mark ${reading.title} not done"
+                    "Mark ${displayLmsLabel(reading.title)} not done"
                 } else {
-                    "Mark ${reading.title} done"
+                    "Mark ${displayLmsLabel(reading.title)} done"
                 }
             },
             contentAlignment = Alignment.Center,
@@ -2033,7 +2022,7 @@ private fun LectureSheet(
                 Column(Modifier.fillMaxWidth(.82f)) {
                     Text("TERM 1 · ${session.state.label}", color = BlushAccent, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                     Spacer(Modifier.height(8.dp))
-                    Text(session.name, fontSize = 27.sp, lineHeight = 29.sp, fontWeight = FontWeight.ExtraBold, color = BlushInk)
+                    Text(displayLmsLabel(session.name), fontSize = 27.sp, lineHeight = 29.sp, fontWeight = FontWeight.ExtraBold, color = BlushInk)
                     Spacer(Modifier.height(16.dp))
                     Text("${TIME_FORMAT.format(session.start.atZone(IST))}–${TIME_FORMAT.format(session.end.atZone(IST))}", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = BlushInk)
                     Spacer(Modifier.height(6.dp))
@@ -2080,9 +2069,9 @@ private fun ReadingSheet(
                 Column(Modifier.fillMaxWidth(.88f)) {
                     Text(if (reading.mandatory) "MANDATORY READING" else reading.sectionName.uppercase(), color = colors.accent, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                     Spacer(Modifier.height(8.dp))
-                    Text(reading.title, color = Ink, fontSize = 25.sp, lineHeight = 27.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(displayLmsLabel(reading.title), color = Ink, fontSize = 25.sp, lineHeight = 27.sp, fontWeight = FontWeight.ExtraBold)
                     Spacer(Modifier.height(8.dp))
-                    Text(reading.courseName, color = Ink.copy(alpha = .68f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(displayLmsLabel(reading.courseName), color = Ink.copy(alpha = .68f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
                 CourseArtwork(design, colors.shape, Modifier.align(Alignment.BottomEnd).size(105.dp, 82.dp))
             }

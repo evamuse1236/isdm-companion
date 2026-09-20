@@ -24,3 +24,9 @@ internal fun dateTransitionDirection(from: LocalDate, to: LocalDate): Int = when
     to < from -> -1
     else -> 0
 }
+
+/** Monday-based week, clipped to the range actually fetched from the LMS. */
+internal fun scheduleWeekDates(selected: LocalDate, start: LocalDate, endExclusive: LocalDate): List<LocalDate> {
+    val monday = selected.minusDays((selected.dayOfWeek.value - 1).toLong())
+    return (0L..6L).map(monday::plusDays).filter { it >= start && it < endExclusive }
+}
