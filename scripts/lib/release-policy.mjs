@@ -12,11 +12,14 @@ export function requireInstallMode(value) {
 
 export function releaseCaption(name, version, changes, mode, supplementalInstructions = null) {
   requireInstallMode(mode);
+  const enrollmentReminder = version.includes("-nightly")
+    ? "Keep your LMS login available before proceeding. No beta code is required. "
+    : "Keep your LMS login and beta invite available before proceeding. ";
   const instructions = mode === "update"
     ? "Please install it over your current app—don’t uninstall the old version—so your login and beta profile stay saved."
     : "This release uses a different signing identity. It cannot update an app signed with the older key. " +
       "A one-time uninstall is required for those older installs. WARNING: uninstalling deletes your saved login, " +
-      "local reading progress, profile, and cache. Keep your LMS login and beta invite available before proceeding. " +
+      "local reading progress, profile, and cache. " + enrollmentReminder +
       "If you are unsure which version you have, ask the owner before uninstalling.";
   const additionalInstructions = supplementalInstructions?.trim()
     ? `\n\nAdditional installation instructions:\n${supplementalInstructions.trim()}`

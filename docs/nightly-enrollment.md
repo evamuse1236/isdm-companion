@@ -1,6 +1,6 @@
 # Companion Nightly enrollment
 
-Prepared as `0.5.8-nightly` (version code 16). Publication and live backend deployment are intentionally held at the owner's request. This APK needs the migration and both Edge Function updates below before code-free registration can succeed.
+Released backend for `0.5.8-nightly` (version code 16) on 26 September 2026 at the owner's request. Code-free registration is live: the nightly migration and both Edge Functions were deployed and verified with a disposable registration. See [final release checks](release-0.5.8-final-checks.md).
 
 ## Behavior
 
@@ -12,7 +12,7 @@ Suspension identifies an installation, not a verified person. Reinstalling and c
 
 The owner dashboard's existing roster and audited access/automatic-attendance controls support nightly IDs. Enrollment keeps name, section/PLC, device model, version, and registration/access times. The config check refreshes last access and version code. Names can be deleted in Profile and expire after 180 days without access. The original beta-name retention policy continues to apply only to beta rows. Other backend telemetry remains paused; nightly clients do not enqueue or upload diagnostic/attendance telemetry. Phone-local diagnostics and location gates continue to work.
 
-## Deployment order (not performed)
+## Deployment order (completed 26 September 2026)
 
 1. Apply `supabase/migrations/20260920093643_nightly_enrollment.sql`.
 2. Deploy `beta-admin` and `beta-api`, including their local shared imports. Preserve current `verify_jwt=false`: these endpoints use their existing owner-secret / installation-token authentication. Only `nightly-enroll` is public.

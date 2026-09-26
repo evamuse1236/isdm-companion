@@ -21,6 +21,12 @@ test("signing reset caption warns of data loss and never promises an in-place up
   assert.match(text, /cannot update/); assert.match(text, /WARNING/); assert.match(text, /deletes/);
   assert.doesNotMatch(text, /don.t uninstall|tap Update/);
 });
+test("nightly reinstall instructions require no beta invite", () => {
+  const text = releaseCaption("Tester", "0.5.8-nightly", "One fix.", "signing-reset");
+  assert.match(text, /No beta code is required/);
+  assert.doesNotMatch(text, /beta invite/);
+  assert.match(text, /WARNING/);
+});
 test("only prepared and completed recipients can resume", () => {
   assert.doesNotThrow(() => assertSafeToResume([{ status: "prepared" }, { status: "succeeded" }]));
   for (const status of ["pending", "dispatching", "uncertain", "failed", undefined]) {
