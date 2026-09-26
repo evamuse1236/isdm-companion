@@ -18,7 +18,7 @@ The owner authorized nightly activation and distribution to all identified beta 
 
 Applied `nightly_enrollment`; deployed `beta-admin` v5 and `beta-api` v9 with their shared imports and existing custom authentication. Prior deployed sources were saved privately before deployment.
 
-A disposable nightly registration, created without an invite code, returned 201. An identical retry reused its identity; a different credential returned 409. Individual automatic-attendance stop returned 423 / `tester_remote_stop`, while configuration still permitted Companion access. Restoration returned 200 / allowed. Full suspension denied automatic attendance and re-enrollment; restoration allowed the same registration again. Profile-name deletion succeeded. The test registration and its test audit entries were then removed.
+A disposable nightly registration, created without an invite code, returned 201. An identical retry reused its identity; a different credential returned 409. Individual automatic-attendance stop returned 423 / `tester_remote_stop`, while configuration still permitted Companion access. Restoration returned 200 / allowed. Full suspension denied automatic attendance and re-enrollment; restoration allowed the same registration again. Profile-name deletion succeeded. The test registration and its test audit entries were then removed. An unauthenticated request to the live owner control returned 401.
 
 No real tester's access or automatic-attendance state was changed. Security advisors reported only the expected informational notices for service-only tables with RLS and no client policies.
 
@@ -34,5 +34,7 @@ No real tester's access or automatic-attendance state was changed. Security advi
 ## Distribution
 
 The reconciled roster has 14 identified external recipients, owner T-01, and held T-12. Private previews contain exact recipients, captions, signing-cohort instructions and APK digest. WhatsApp contact resolution was checked live; cached history is partial, so duplicate searches are not exhaustive. Delivery and installation outcomes are recorded separately in the private release batches.
+
+All 14 APK sends were accepted by WhatsApp, each with one saved request ID and a distinct message ID. The first receipt reconciliation confirmed device delivery for 12 recipients (including one read receipt); two remained awaiting device acknowledgement. No failed or uncertain submission remained. The refreshed Supabase roster contained the same 16 beta records and did not yet confirm a recipient reporting version code 16 or a new nightly registration. Delivery does not establish installation; legacy beta metadata can remain stale while telemetry collection is paused.
 
 Evidence directory: `.release-private/verification/nightly-final-20260926/`.
