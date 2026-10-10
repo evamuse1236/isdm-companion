@@ -22,6 +22,7 @@ const androidSource = (path) => readFile(new URL(`../android/app/src/main/java/o
 // Successes the phone does not accept today. Each entry must still happen (the test
 // fails if it disappears) so this list cannot go stale. Fix the server or the client,
 // then delete the entry; never add one to make a new mismatch pass.
+// Recorded 2026-10-10 (agent-friendly pass); owner to decide whether paused telemetry should stay queued.
 const KNOWN_UNACCEPTED_SUCCESSES = new Map([
   ['events', 'Collection pause answers 202; BetaManager.flush throws and keeps the events queued. Owner decision pending.'],
   ['schedule', 'Collection pause answers 202; the queued request stays queued. Owner decision pending.'],
