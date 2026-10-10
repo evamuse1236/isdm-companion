@@ -112,3 +112,16 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
+// Known failure on Windows hosts only (see AGENTS.md, Known failures): java.io.File.renameTo
+// cannot replace an existing file on Windows, so RollingDiagnosticStore.prune fails its check
+// there. Android (Linux) replaces atomically, so the test runs everywhere else.
+val windowsHostKnownFailures = listOf(
+    "org.isdm.companion.platform.RollingDiagnosticStoreTest.keeps exact seven day boundary and recycles earlier lines within same day",
+)
+tasks.withType<Test>().configureEach {
+    if (System.getProperty("os.name").startsWith("Windows")) {
+        windowsHostKnownFailures.forEach { filter.excludeTestsMatching(it) }
+        doFirst { windowsHostKnownFailures.forEach { logger.warn("KNOWN FAILURE SKIPPED on Windows: $it") } }
+    }
+}

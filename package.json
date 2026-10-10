@@ -8,7 +8,12 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "beta:release": "node scripts/send-beta-release.mjs",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs"
+    "setup": "node scripts/task.mjs setup",
+    "dev": "node scripts/task.mjs dev",
+    "dev:dashboard": "npm --prefix beta-dashboard run dev",
+    "test": "node scripts/task.mjs test",
+    "test:node": "node --experimental-strip-types --test tests/*.test.mjs",
+    "verify": "node scripts/task.mjs verify",
+    "beta:release": "node scripts/send-beta-release.mjs"
   }
 }
