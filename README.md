@@ -61,7 +61,7 @@ recipient/artifact preview and explicit approval; see
 Root Node tooling requires Node.js 22.13 or newer and exists only for beta API and release checks:
 
 ```bash
-npm test
+npm run test:node
 ```
 
 ## Safety boundaries
