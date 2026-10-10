@@ -38,9 +38,10 @@ const WINDOWS_KNOWN_FAILURES = [
 ];
 // The Android one (RollingDiagnosticStoreTest) is excluded in android/app/build.gradle.kts.
 
-function run(cmd, args, { cwd = ROOT, env } = {}) {
+function run(cmd, args, { cwd = ROOT, env, quiet = false } = {}) {
   console.log(`\n$ ${[cmd, ...args].join(" ")}${cwd === ROOT ? "" : `   (in ${cwd})`}`);
-  const options = { cwd, stdio: "inherit", windowsHide: true, env: env ?? process.env };
+  // quiet drops stdout only; errors still reach the terminal.
+  const options = { cwd, stdio: quiet ? ["inherit", "ignore", "inherit"] : "inherit", windowsHide: true, env: env ?? process.env };
   // Node refuses to spawn .cmd/.bat without a shell; the arguments here are fixed strings.
   const result = /\.(cmd|bat)$/i.test(cmd)
     ? spawnSync(`"${cmd}" ${args.join(" ")}`, { ...options, shell: true })
@@ -56,9 +57,13 @@ function npm(args, cwd) {
 }
 
 function gradle(...tasks) {
+  return gradleWith({}, ...tasks);
+}
+
+function gradleWith(runOptions, ...tasks) {
   const wrapper = WIN ? join(ANDROID, "gradlew.bat") : join(ANDROID, "gradlew");
   // --no-daemon: no Gradle process outlives the command (and none can open a window later).
-  return run(WIN ? wrapper : "sh", [...(WIN ? [] : [wrapper]), "--no-daemon", "--console=plain", ...tasks], { cwd: ANDROID });
+  return run(WIN ? wrapper : "sh", [...(WIN ? [] : [wrapper]), "--no-daemon", "--console=plain", ...tasks], { cwd: ANDROID, ...runOptions });
 }
 
 function javaMajor() {
@@ -102,7 +107,7 @@ function setup() {
     || npm(["ci"], DASHBOARD)
     || run(process.execPath, [join(DASHBOARD, "node_modules", "playwright-core", "cli.js"), "install", "chromium"])
     || checkAndroidToolchain()
-    || gradle(":app:dependencies", "--configuration", "debugUnitTestRuntimeClasspath", "-q");
+    || gradleWith({ quiet: true }, ":app:dependencies", "--configuration", "debugUnitTestRuntimeClasspath", "-q");
 }
 
 function nodeTests() {

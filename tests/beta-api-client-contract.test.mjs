@@ -24,10 +24,10 @@ const androidSource = (path) => readFile(new URL(`../android/app/src/main/java/o
 // then delete the entry; never add one to make a new mismatch pass.
 // Recorded 2026-10-10 (agent-friendly pass); owner to decide whether paused telemetry should stay queued.
 const KNOWN_UNACCEPTED_SUCCESSES = new Map([
-  ['events', 'Collection pause answers 202; BetaManager.flush throws and keeps the events queued. Owner decision pending.'],
-  ['schedule', 'Collection pause answers 202; the queued request stays queued. Owner decision pending.'],
-  ['attendance', 'Collection pause answers 202; the queued request stays queued. Owner decision pending.'],
-  ['lms-diagnostic', 'Collection pause answers 202; the queued request stays queued. Owner decision pending.'],
+  ['events', { status: 202, why: 'Collection pause answers 202; BetaManager.flush throws and keeps the events queued. Owner decision pending.' }],
+  ['schedule', { status: 202, why: 'Collection pause answers 202; the queued request stays queued. Owner decision pending.' }],
+  ['attendance', { status: 202, why: 'Collection pause answers 202; the queued request stays queued. Owner decision pending.' }],
+  ['lms-diagnostic', { status: 202, why: 'Collection pause answers 202; the queued request stays queued. Owner decision pending.' }],
 ]);
 
 function closingParen(text, open) {
@@ -116,7 +116,7 @@ test('every success the beta API returns to an enrolled phone is a status the An
     }));
     const success = response.status >= 200 && response.status < 300;
     if (!success || accepted.has(response.status)) continue;
-    if (KNOWN_UNACCEPTED_SUCCESSES.has(route)) { seenKnown.add(route); continue; }
+    if (KNOWN_UNACCEPTED_SUCCESSES.get(route)?.status === response.status) { seenKnown.add(route); continue; }
     mismatches.push(`${route}: server answered ${response.status}, Android accepts ${[...accepted].join('/')}`);
   }
   assert.deepEqual(mismatches, [], 'The phone treats these server successes as failures (see docs/incident-2026-09-11-beta-profile.md)');

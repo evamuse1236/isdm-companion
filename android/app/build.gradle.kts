@@ -125,3 +125,19 @@ tasks.withType<Test>().configureEach {
         doFirst { windowsHostKnownFailures.forEach { logger.warn("KNOWN FAILURE SKIPPED on Windows: $it") } }
     }
 }
+
+// Phone guard: any task that deploys to a device fails unless ANDROID_SERIAL names an emulator.
+// Gradle otherwise deploys to every attached device, including the owner's phone.
+tasks.configureEach {
+    if (name.startsWith("install") || name.startsWith("uninstall") || name.startsWith("connected")) {
+        doFirst {
+            val serial = System.getenv("ANDROID_SERIAL").orEmpty()
+            if (!Regex("""^emulator-\d+$""").matches(serial)) {
+                throw GradleException(
+                    "Refusing $path: ANDROID_SERIAL is '${serial.ifEmpty { "(unset)" }}', not an emulator. " +
+                        "Fix: set ANDROID_SERIAL=emulator-5554 (open Galaxy_S24_FE_API_36 in T3's Device panel); never the owner's phone.",
+                )
+            }
+        }
+    }
+}

@@ -23,7 +23,7 @@ Use this brief to orient at the start of an ISDM task. It is a map, not runtime 
 
 ## Verification recipes
 
-- Root beta-platform and release-tooling checks: `npm test`.
+- Root beta-platform and release-tooling checks: `npm run test:node`.
 - Android JVM/build checks from `android/`: use Java 17 and `bash gradlew testDebugUnitTest lintDebug assembleDebug`. Source and fixture tests do not prove live LMS or device behavior.
 - Connected Android checks: first verify `adb devices`; use `bash gradlew connectedDebugAndroidTest` only with an authorized device. Preserve installed app data and signing identity for update tests.
 - Dashboard checks from `beta-dashboard/`: `npm test`; inspect its `package.json` for current build/lint commands.
