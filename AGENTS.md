@@ -19,7 +19,7 @@ Run from the repo root in PowerShell, cmd or Git Bash. Needs Node 22.13+, JDK 17
 
 Measured warm on this machine: `npm test` 28 s, `npm run verify` 2 minutes. A cold Gradle build takes about 5 minutes.
 
-Android emulator: open `Galaxy_S24_FE_API_36` in T3's Device panel (`device_list`, then `device_open`); it appears as `emulator-5554`. Never start an emulator from a shell.
+Android emulator: open it in T3's Device panel with `device_open` and `deviceId: "Galaxy_S24_FE_API_36"`; it appears as `emulator-5554`. Always pass the deviceId: a bare `device_open` picks the owner's attached phone. Never start an emulator from a shell.
 
 The runner is `scripts/task.mjs` (Node, no dependencies). Gradle directly: `android\gradlew.bat --no-daemon testDebugUnitTest` (PowerShell) or `./gradlew` from `android/` (Git Bash).
 

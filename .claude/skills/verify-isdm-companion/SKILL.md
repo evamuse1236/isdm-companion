@@ -20,7 +20,7 @@ Beta dashboard: `drive-dashboard.mjs` launches its own `vinext dev` on port 4417
 
 Android:
 
-1. Open `Galaxy_S24_FE_API_36` in T3's Device panel (`device_list`, then `device_open`). Never start an emulator from a shell. A sub-agent cannot open the panel; ask the thread that owns it.
+1. Open the emulator in T3's Device panel: `device_open` with `deviceId: "Galaxy_S24_FE_API_36"`. Always pass the deviceId; a bare `device_open` picks the owner's attached phone. Never start an emulator from a shell. A sub-agent cannot open the panel; ask the thread that owns it.
 2. `npm run dev` from the repo root: builds the debug APK, installs it on the emulator, launches it, and checks it is still running 6 s later with no new crash-log entry.
 
 ## Doctor
@@ -42,7 +42,7 @@ Each prints one `PASS`/`FAIL` line per width with its checks, and exits non-zero
 ## Evidence
 
 - Dashboard: `dashboard-phone.png`, `dashboard-desktop.png`, `drilldown-phone.png`, `drilldown-desktop.png`, `drive.json` (checks, console errors, blocked outside requests), `dev-server.log`.
-- Android: `signed-out-phone.png`, `signed-out-wide-1440x900.png`, the matching uiautomator `.xml`, `drive.json` (screen size before and after reset).
+- Android: `tour-phone.png` (first run after a fresh install: the driver captures the 3-page welcome tour and taps through it; finishing it is a local preference), `signed-out-phone.png`, `signed-out-wide-1440x900.png` plus `-scrolled.png` (at 1440x900 the password field and Sign in sit below the fold, so the driver scrolls once), the matching uiautomator `.xml`, `drive.json` (screen size before and after reset).
 - Open at least one screenshot per width and confirm it shows the feature, not a blank or error screen.
 - Proof standard: drive the real UI path (clicks, launcher intent), capture the state after the action, not only the first screen. Local dashboard data is empty by design (`GET /api/dashboard` answers 401 without the owner's Sites identity; the console error for it is expected), and every non-localhost request is aborted and listed in `drive.json`.
 
