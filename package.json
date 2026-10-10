@@ -10,7 +10,7 @@
   "scripts": {
     "setup": "node scripts/task.mjs setup",
     "dev": "node scripts/task.mjs dev",
-    "dev:dashboard": "npm --prefix beta-dashboard run dev",
+    "dev:dashboard": "npm --prefix beta-dashboard run dev --",
     "test": "node scripts/task.mjs test",
     "test:node": "node --experimental-strip-types --test tests/*.test.mjs",
     "verify": "node scripts/task.mjs verify",

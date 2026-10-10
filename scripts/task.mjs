@@ -10,7 +10,7 @@
 //                     Android lintDebug + assembleDebug, the dashboard drive at phone and
 //                     desktop widths, then an emulator launch smoke (SKIPPED when no emulator)
 //   npm run dev       build the debug APK, install it on the emulator, launch, check it runs
-//   npm run dev:dashboard   the beta dashboard dev server (http://localhost:3000)
+//   npm run dev:dashboard -- -p 4418   the beta dashboard dev server on a free port
 //
 // Never releases, signs, deploys or messages anyone. Device steps use an emulator only.
 import { spawnSync } from "node:child_process";

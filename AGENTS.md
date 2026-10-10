@@ -14,10 +14,10 @@ Run from the repo root in PowerShell, cmd or Git Bash. Needs Node 22.13+, JDK 17
 | test | `npm test` | Root Node tests (beta API, release tooling, contracts), dashboard build + tests, Android JVM unit tests. One part: `npm test -- node`, `-- dashboard` or `-- android`. |
 | verify | `npm run verify` | The gate before saying done: root tests, dashboard lint + typecheck + tests, Android `testDebugUnitTest lintDebug assembleDebug`, the dashboard drive at 390x844 and 1440x900, then an emulator launch smoke (prints `SKIPPED` when no emulator is open). |
 | dev | `npm run dev` | Builds the debug APK, installs it on the emulator, launches it, checks it stays up. Needs the emulator open (below). |
-| dashboard | `npm run dev:dashboard` | Beta dashboard dev server on http://localhost:3000. Locally the roster is empty: the API answers 401 without the owner's Sites identity. |
+| dashboard | `npm run dev:dashboard -- -p 4418` | Beta dashboard dev server (default port 3000, often taken on this machine by another app; pick a free one). Locally the roster is empty: the API answers 401 without the owner's Sites identity. |
 | drive | `verify-isdm-companion` skill (`.claude/skills/verify-isdm-companion/`) | Drives the dashboard and the Android signed-out screen and saves screenshots. |
 
-Measured warm on this machine: `npm test` 28 s, `npm run verify` about 4 minutes (the dashboard dev server's first compile is most of the drive). A cold Gradle build takes about 5 minutes.
+Measured warm on this machine: `npm test` 28 s, `npm run verify` 2 minutes. A cold Gradle build takes about 5 minutes.
 
 Android emulator: open `Galaxy_S24_FE_API_36` in T3's Device panel (`device_list`, then `device_open`); it appears as `emulator-5554`. Never start an emulator from a shell.
 

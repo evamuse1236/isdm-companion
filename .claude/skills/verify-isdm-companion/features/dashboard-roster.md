@@ -10,7 +10,7 @@ The dashboard's main page: the paused-collection banner, attendance safety, the 
 
 ## How to get to it (user POV)
 
-Open the dashboard URL. Locally: `npm run dev:dashboard`, then http://localhost:3000 (the driver uses its own server on 4417).
+Open the dashboard URL. Locally: `npm run dev:dashboard -- -p 4418`, then http://localhost:4418 (the driver starts its own server on 4417).
 
 ## Driving it with drive-dashboard.mjs
 
