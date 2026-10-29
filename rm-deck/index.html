@@ -1,0 +1,845 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Line at 65</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap">
+<style>body{margin:0}
+/* A white 16:9 stage. One recurring device: the dashed cutoff line at 65.
+   Blue filled = has a centre; amber hollow = no centre; grey = left out. Shape always backs colour. */
+:root{
+  --bg:#ffffff; --ink:#14213d; --muted:#5b6577; --rule:#e3e7ee; --wash:#f5f7fa;
+  --blue:#1f5fd6; --blue-soft:#eaf1fd; --amber:#c27400; --amber-soft:#fcf1de; --grey:#b9c0cb;
+  --display:"Schibsted Grotesk","Segoe UI",system-ui,sans-serif;
+  --body:"Public Sans","Segoe UI",system-ui,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--body);overflow:hidden}
+body{padding-left:max(0px, env(safe-area-inset-left, 0px));padding-right:max(0px, env(safe-area-inset-right, 0px))}
+#stage{position:absolute;left:0;top:0;width:1600px;height:900px;transform-origin:0 0;background:var(--bg);cursor:pointer;user-select:none}
+.slide{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity .45s ease,visibility 0s linear .45s}
+.slide.cur{opacity:1;visibility:visible;transition:opacity .45s ease}
+.abs{position:absolute}
+svg{overflow:visible}
+svg text{font-family:var(--body);fill:var(--ink)}
+
+/* beat engine */
+[data-in],[data-out]{opacity:0;transform:var(--from,translateY(18px));transition:opacity .5s ease,transform .75s cubic-bezier(.2,.8,.2,1)}
+[data-in].on,[data-out].on{opacity:1;transform:none}
+[data-in].gone,[data-out].gone{opacity:0;transform:var(--to,translateY(-12px));pointer-events:none}
+svg [data-in],svg [data-out]{transform-box:fill-box;transform-origin:var(--o,center)}
+.draw{stroke-dasharray:1 1;stroke-dashoffset:1;transition:stroke-dashoffset 1s ease,opacity .3s!important}
+.draw.on{stroke-dashoffset:0}
+.snap,.snap *{transition:none!important;animation-duration:0s!important}
+
+/* chrome */
+.plabel{position:absolute;left:80px;top:34px;font:600 22px/1 var(--display);color:var(--muted);display:flex;align-items:center;gap:12px}
+.plabel b{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;font-size:17px}
+#bar{position:absolute;left:0;bottom:0;height:4px;background:var(--blue);transition:width .4s ease}
+#count{position:absolute;right:28px;bottom:18px;font:600 15px/1 var(--display);color:var(--muted);letter-spacing:.02em}
+#hint{position:absolute;left:0;right:0;bottom:40px;text-align:center;font:400 18px/1 var(--body);color:var(--muted);transition:opacity .6s}
+#notes{position:absolute;left:80px;right:80px;bottom:30px;background:var(--ink);color:#fff;border-radius:14px;padding:18px 24px;font:400 22px/1.45 var(--body);display:none}
+#notes.show{display:block}
+#notes small{display:block;font:600 14px/1 var(--display);color:#aab6c8;margin-bottom:8px}
+
+/* title cards */
+.card .cq{position:absolute;left:120px;top:0;bottom:0;width:1120px;display:flex;flex-direction:column;justify-content:center;gap:28px}
+.card h1{margin:0;font:800 118px/1.02 var(--display);letter-spacing:-.025em;text-wrap:balance}
+.card .ctag{font:500 30px/1.3 var(--body);color:var(--muted)}
+.card .ctag b{color:var(--blue);font-weight:700}
+.card .kicker{font:600 24px/1 var(--display);color:var(--muted)}
+
+/* shared text */
+.h2{font:700 34px/1.15 var(--display)}
+.t26{font:400 26px/1.4 var(--body)}
+.t22{font:400 22px/1.4 var(--body)}
+.t20{font:400 20px/1.4 var(--body)}
+.muted{color:var(--muted)}
+.blue{color:var(--blue)}
+.boxed{background:#fff;border:2px solid var(--rule);border-radius:20px}
+.chip{display:inline-flex;align-items:center;gap:10px;border:2px solid var(--rule);border-radius:999px;padding:8px 18px;font:600 21px/1 var(--display);background:#fff}
+
+/* slide 1 */
+#q1{font:700 46px/1.22 var(--display);letter-spacing:-.01em}
+#q1 .w{opacity:0;transition:opacity .25s}
+#q1 .w.v{opacity:1}
+.hl{background-repeat:no-repeat;background-position:0 96%;background-size:0% 6px;transition:background-size .7s ease,color .5s}
+.hl.b{background-image:linear-gradient(var(--blue),var(--blue))}
+.hl.g{background-image:linear-gradient(var(--grey),var(--grey))}
+.hl.lit{background-size:100% 6px}
+.hl.b.lit{color:var(--blue)}
+#scene1{position:absolute;left:0;top:220px;width:1600px;height:560px;transform-origin:0 0;transition:transform .9s cubic-bezier(.2,.8,.2,1)}
+#scene1.small{transform:translate(37px,119px) scale(.54)}
+.fig{transition:fill .6s}
+.fig path,.fig circle{fill:var(--ink);transition:fill .6s}
+.fig.grey path,.fig.grey circle{fill:var(--grey)}
+.fig.got{animation:got .45s ease}
+@keyframes got{50%{transform:translateY(-6px)}}
+.fig{transform-box:fill-box;transform-origin:center}
+#mid{transition:transform .9s cubic-bezier(.5,0,.8,.6),opacity .9s;transform-box:fill-box;transform-origin:center}
+#mid.fell{transform:translateY(190px) rotate(16deg);opacity:0}
+.conds{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:20px;counter-reset:c}
+.conds li{display:grid;grid-template-columns:44px 1fr;gap:16px;align-items:start;font:400 25px/1.35 var(--body)}
+.conds li::before{counter-increment:c;content:counter(c);width:40px;height:40px;border-radius:50%;border:2px solid var(--ink);display:grid;place-items:center;font:700 19px/1 var(--display);margin-top:-2px}
+.conds .em{font-weight:700}
+.qmark{display:inline-block;margin-left:10px;padding:0 10px;border:2px dashed var(--ink);border-radius:8px;font-weight:700}
+
+/* slide 2 */
+.cardx{position:absolute;padding:22px 26px;border:2px solid var(--rule);border-radius:22px;background:#fff}
+.cardx.ghost{border:2.5px dashed var(--muted);background:var(--wash)}
+.stamp{position:absolute;border:4px solid var(--amber);color:var(--amber);border-radius:12px;padding:8px 16px;font:800 26px/1.1 var(--display);transform:rotate(-7deg);background:#fff}
+.xmark{position:absolute;width:62px;height:62px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font:800 34px/1 var(--display)}
+.coin{width:120px;height:120px;border-radius:50%;border:4px solid var(--ink);display:grid;place-items:center;font:800 40px/1 var(--display);background:var(--blue-soft)}
+.on .coin,.coin.on{animation:flip 1.2s ease}
+@keyframes flip{0%{transform:rotateY(0)}100%{transform:rotateY(1080deg)}}
+.tier{position:absolute;left:50%;height:104px;border-radius:16px;border:2px solid var(--rule);background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+.tier small{font:600 17px/1 var(--display);color:var(--muted)}
+.tier span{font:700 34px/1 var(--display)}
+.tier.hot{border-color:var(--blue);background:var(--blue-soft)}
+.tier.hot span{color:var(--blue)}
+
+/* slide 3 */
+.jar{position:absolute;top:120px;width:440px;height:370px;border:2.5px solid var(--ink);border-radius:10px 10px 44px 44px;padding:26px 28px;background:#fff;display:flex;flex-direction:column;gap:12px}
+.jar::before{content:"";position:absolute;top:-16px;left:22%;right:22%;height:16px;border:2.5px solid var(--ink);border-bottom:none;border-radius:8px 8px 0 0;background:#fff}
+.jar .wt{font:800 52px/1 var(--display);color:var(--blue)}
+.jar h3{margin:0;font:700 30px/1 var(--display)}
+.jar ul{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+.jar li{font:400 22px/1.3 var(--body);padding-left:22px;position:relative}
+.jar li::before{content:"";position:absolute;left:0;top:11px;width:9px;height:9px;border-radius:50%;background:var(--blue)}
+.jar li i{font-style:normal;font:600 15px/1 var(--display);color:var(--muted);border:1.5px solid var(--rule);border-radius:6px;padding:2px 6px;margin-left:6px;vertical-align:2px}
+.gp{position:absolute;top:585px;width:540px;padding:22px 28px;border:2px solid var(--rule);border-radius:22px;display:grid;grid-template-columns:1fr auto;align-items:center;background:#fff}
+.gp h4{margin:0;font:700 30px/1 var(--display)}
+.gp p{margin:10px 0 0;font:400 20px/1.4 var(--body);color:var(--muted)}
+.gp .sc{font:800 84px/1 var(--display);font-variant-numeric:tabular-nums}
+.gp.r{border-color:var(--blue)} .gp.r .sc{color:var(--blue)}
+.gp.s .sc{color:var(--amber)}
+.dot{fill:#fff;stroke:var(--amber);stroke-width:1.6;transition:transform 1s cubic-bezier(.3,.7,.2,1),fill .25s,stroke .25s}
+.dot.t{fill:var(--blue);stroke:var(--blue)}
+#th{opacity:0;transition:opacity .5s}
+#th.show{opacity:1}
+#thline{transition:transform .7s cubic-bezier(.2,.8,.2,1);transform-box:fill-box;transform-origin:top;transform:scaleY(0)}
+#th.show #thline{transform:scaleY(1)}
+.badge{position:absolute;top:110px;width:345px;height:140px;border:2px solid var(--rule);border-radius:20px;padding:20px 22px;background:#fff}
+.badge h4{margin:0 0 8px;font:700 26px/1.1 var(--display)}
+.badge p{margin:0;font:400 19px/1.35 var(--body);color:var(--muted)}
+
+/* slide 4 */
+.twin{position:absolute;top:190px;width:440px;height:420px;border-radius:24px;border:2.5px solid var(--rule);padding:28px 32px;background:#fff}
+.twin h4{margin:0;font:800 40px/1 var(--display)}
+.twin .big{font:800 30px/1 var(--display);margin-top:8px}
+.twin dl{margin:34px 0 0;display:grid;grid-template-columns:1fr auto;row-gap:22px}
+.twin dt{font:400 24px/1 var(--body);color:var(--muted)}
+.twin dd{margin:0;font:700 26px/1 var(--display);text-align:right}
+.twin.r{border-color:var(--blue)}
+.eq{position:absolute;left:776px;width:48px;background:#fff;text-align:center;font:800 30px/1 var(--display);color:var(--muted)}
+.spec{position:absolute;left:1230px;top:120px;width:320px;display:flex;flex-direction:column;gap:22px}
+.spec .row{display:grid;grid-template-columns:40px 1fr;gap:14px;align-items:start}
+.spec .row b{display:block;font:700 22px/1.15 var(--display)}
+.spec .row span{font:400 19px/1.35 var(--body);color:var(--muted)}
+.strip{position:absolute;left:200px;right:80px;top:700px;display:flex;gap:14px;flex-wrap:wrap}
+.strip .chip{font-size:20px}
+.tick{width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:inline-grid;place-items:center;font:800 15px/1 var(--display)}
+
+/* slide 5 */
+.panel{position:absolute;border:2px solid var(--rule);border-radius:22px;padding:22px 26px;background:#fff}
+.panel h4{margin:0 0 6px;font:700 26px/1.1 var(--display)}
+.flip{position:absolute;width:453px;height:300px;perspective:1400px}
+.flip .in{position:absolute;inset:0;transform-style:preserve-3d;transition:transform .7s cubic-bezier(.3,.7,.2,1)}
+.flip.flipped .in{transform:rotateY(180deg)}
+.flip .f,.flip .b{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:22px;padding:26px 28px;display:flex;flex-direction:column;gap:10px}
+.flip .f{border:2.5px solid var(--ink);background:#fff}
+.flip .b{border:2.5px solid var(--blue);background:var(--blue-soft);transform:rotateY(180deg)}
+.flip h4{margin:0;font:700 30px/1.1 var(--display)}
+.flip .f p{margin:0;font:400 23px/1.4 var(--body);color:var(--muted)}
+.flip .b small{font:700 17px/1 var(--display);color:var(--blue)}
+.flip .b p{margin:0;font:700 30px/1.2 var(--display)}
+.flip .b span{font:400 22px/1.4 var(--body);color:var(--muted)}
+
+/* slide 6 */
+.guide{position:absolute;left:160px;top:118px;width:1280px;display:flex;flex-direction:column;gap:22px}
+.guide .g{display:grid;grid-template-columns:52px 1fr;gap:20px;align-items:start}
+.guide .g .tick{width:44px;height:44px;font:800 22px/1 var(--display);color:#fff}
+.guide b{display:block;font:700 30px/1.15 var(--display)}
+.guide span{font:400 23px/1.4 var(--body);color:var(--muted)}
+@keyframes flow{from{transform:translateX(0)}to{transform:translateX(640px)}}
+.ftok{animation:flow 3.6s linear infinite}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div id="stage">
+
+<!-- ================= SLIDE 1: the broken pipe ================= -->
+<section class="slide" data-key="pipe" data-beats="7">
+  <div class="plabel"><b>1</b>Who is getting left out?</div>
+  <div id="q1" class="abs" style="left:80px;top:84px;width:1440px">
+    <span class="w">Do</span> <span class="w">digital</span> <span class="w">facilitation</span> <span class="w">centres</span> <span class="w">increase</span> <span class="hl b"><span class="w">successful</span> <span class="w">applications</span></span> <span class="w">for</span> <span class="w">government</span> <span class="w">welfare</span> <span class="w">schemes</span> <span class="w">and</span> <span class="w">reduce</span> <span class="hl g"><span class="w">exclusion</span> <span class="w">errors?</span></span>
+  </div>
+  <div id="scene1">
+    <svg viewBox="0 0 1600 560" width="1600" height="560">
+      <!-- government -->
+      <g data-in="1" style="--from:translateX(-30px)">
+        <rect x="80" y="145" width="440" height="270" rx="22" fill="#fff" stroke="var(--ink)" stroke-width="2.5"/>
+        <polygon points="230,237 300,195 370,237" fill="none" stroke="var(--ink)" stroke-width="4" stroke-linejoin="round"/>
+        <rect x="246" y="245" width="14" height="58" fill="var(--ink)"/><rect x="276" y="245" width="14" height="58" fill="var(--ink)"/>
+        <rect x="310" y="245" width="14" height="58" fill="var(--ink)"/><rect x="340" y="245" width="14" height="58" fill="var(--ink)"/>
+        <rect x="232" y="307" width="136" height="10" rx="2" fill="var(--ink)"/>
+        <text x="300" y="370" text-anchor="middle" style="font:700 25px var(--display)">Government of India</text>
+      </g>
+      <!-- pipe -->
+      <g data-in="1" style="--from:scaleX(0);--o:left center;transition-delay:.25s">
+        <rect x="520" y="255" width="290" height="50" fill="var(--blue-soft)"/>
+        <line x1="520" y1="255" x2="810" y2="255" stroke="var(--ink)" stroke-width="2.5"/><line x1="520" y1="305" x2="810" y2="305" stroke="var(--ink)" stroke-width="2.5"/>
+        <g id="mid">
+          <rect x="810" y="255" width="120" height="50" fill="var(--blue-soft)"/>
+          <line x1="810" y1="255" x2="930" y2="255" stroke="var(--ink)" stroke-width="2.5"/><line x1="810" y1="305" x2="930" y2="305" stroke="var(--ink)" stroke-width="2.5"/>
+        </g>
+        <rect x="930" y="255" width="290" height="50" fill="var(--blue-soft)"/>
+        <line x1="930" y1="255" x2="1220" y2="255" stroke="var(--ink)" stroke-width="2.5"/><line x1="930" y1="305" x2="1220" y2="305" stroke="var(--ink)" stroke-width="2.5"/>
+      </g>
+      <!-- crack edges -->
+      <g data-in="3" style="--from:none">
+        <polyline points="810,251 801,264 815,277 803,291 814,309" fill="none" stroke="var(--ink)" stroke-width="2.5" stroke-linejoin="round"/>
+        <polyline points="930,251 939,265 925,279 937,293 927,309" fill="none" stroke="var(--ink)" stroke-width="2.5" stroke-linejoin="round"/>
+      </g>
+      <!-- centre (beat 5) -->
+      <g data-in="5" style="--from:translateY(-240px)">
+        <polygon points="798,214 870,164 942,214" fill="#fff" stroke="var(--blue)" stroke-width="3.5" stroke-linejoin="round"/>
+        <rect x="810" y="214" width="120" height="116" fill="#fff" stroke="var(--blue)" stroke-width="3.5"/>
+        <rect x="810" y="255" width="120" height="50" fill="var(--blue-soft)"/>
+        <rect x="844" y="222" width="52" height="28" rx="4" fill="var(--blue)"/>
+        <text x="870" y="372" text-anchor="middle" style="font:700 24px var(--display);fill:var(--blue)">Digital facilitation centre</text>
+        <text x="870" y="402" text-anchor="middle" style="font:400 20px var(--body);fill:var(--muted)">a person and a computer in your village</text>
+      </g>
+      <text id="qm" x="870" y="140" text-anchor="middle" data-in="5" style="font:800 78px var(--display);fill:var(--blue);transition-delay:.7s;--from:scale(.4)">?</text>
+      <!-- tokens -->
+      <g id="tok"></g>
+      <!-- people -->
+      <g id="people" data-in="1" style="--from:translateX(30px);transition-delay:.15s"></g>
+      <text x="1380" y="434" text-anchor="middle" data-in="1" style="font:700 24px var(--display);transition-delay:.15s">Eligible households</text>
+      <text x="1380" y="470" text-anchor="middle" data-in="4" style="font:400 21px var(--body);fill:var(--muted);transition-delay:.6s">Eligible, but never enrolled</text>
+      <!-- schemes -->
+      <g id="chips"></g>
+      <!-- obstacles -->
+      <g id="obst"></g>
+      <text x="735" y="246" text-anchor="end" data-in="4" data-out="5" style="font:700 22px var(--display);fill:var(--muted)">✗ rejected</text>
+    </svg>
+  </div>
+  <ol class="conds abs" style="left:920px;top:264px;width:620px">
+    <li data-in="7" style="transition-delay:.3s">100 centres will be set up across 10 districts.</li>
+    <li data-in="7" style="transition-delay:.45s">Locations are prioritised by a vulnerability score from 0 to 100.</li>
+    <li data-in="7" style="transition-delay:.6s"><span><span class="em">Only locations above a threshold receive a centre.</span></span></li>
+    <li data-in="7" style="transition-delay:.75s"><span><span class="em">The threshold has not yet been finalised.</span><span class="qmark">?</span></span></li>
+    <li data-in="7" style="transition-delay:.9s">Outcome data are available for the year before and the year after.</li>
+    <li data-in="7" style="transition-delay:1.05s">The score is based on poverty, population and connectivity.</li>
+  </ol>
+</section>
+
+<!-- ================= SLIDE 2: how would we know ================= -->
+<section class="slide" data-key="cf" data-beats="5">
+  <div class="plabel"><b>2</b>How do we know it worked?</div>
+  <div class="abs t22" data-in="2" data-out="5" style="left:80px;top:96px;font:700 26px var(--display)">Counterfactual: <span class="muted" style="font-weight:500">the same GP, in the same year, without a centre</span></div>
+  <div class="cardx" data-in="1" data-out="5" style="left:80px;top:146px;width:400px;height:372px">
+    <div style="display:flex;justify-content:space-between;align-items:center"><span class="h2" style="font-size:30px">Rampur GP</span><span class="chip" style="font-size:17px;padding:6px 12px;border-color:var(--blue);color:var(--blue)"><svg width="14" height="14"><rect width="14" height="14" fill="var(--blue)"/></svg>centre</span></div>
+    <svg width="328" height="270" style="margin-top:6px">
+      <line x1="0" y1="232" x2="328" y2="232" stroke="var(--rule)" stroke-width="2"/>
+      <g data-in="1" style="--from:scaleY(0);--o:bottom;transition-delay:.3s"><rect x="40" y="72" width="96" height="160" rx="6" fill="#c9d6ea"/></g>
+      <text x="88" y="60" text-anchor="middle" data-in="1" style="font:800 26px var(--display);transition-delay:.5s">55%</text>
+      <g data-in="1" style="--from:scaleY(0);--o:bottom;transition-delay:.9s"><rect x="192" y="28" width="96" height="204" rx="6" fill="var(--blue)"/></g>
+      <text x="240" y="16" text-anchor="middle" data-in="1" style="font:800 26px var(--display);fill:var(--blue);transition-delay:1.3s">70%</text>
+      <text x="88" y="260" text-anchor="middle" style="font:400 19px var(--body);fill:var(--muted)">Year before</text>
+      <text x="240" y="260" text-anchor="middle" style="font:400 19px var(--body);fill:var(--muted)">Year after</text>
+    </svg>
+    <div class="t20 muted" style="margin-top:-2px">applications approved</div>
+  </div>
+  <div class="abs" data-in="2" data-out="5" style="left:493px;top:310px;font:700 28px var(--display);color:var(--muted)">vs</div>
+  <div class="cardx ghost" data-in="2" data-out="5" style="left:540px;top:146px;width:400px;height:372px;transition-delay:.15s">
+    <div class="h2" style="font-size:30px">Rampur, <span class="muted">no centre</span></div>
+    <svg width="328" height="246" style="margin-top:4px">
+      <line x1="0" y1="208" x2="328" y2="208" stroke="var(--rule)" stroke-width="2"/>
+      <rect x="40" y="48" width="96" height="160" rx="6" fill="#c9d6ea" opacity=".7"/>
+      <text x="88" y="36" text-anchor="middle" style="font:800 26px var(--display);fill:var(--muted)">55%</text>
+      <rect x="192" y="16" width="96" height="192" rx="6" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-dasharray="8 6"/>
+      <text x="240" y="140" text-anchor="middle" style="font:800 64px var(--display);fill:var(--muted)">?</text>
+      <text x="88" y="236" text-anchor="middle" style="font:400 19px var(--body);fill:var(--muted)">Year before</text>
+      <text x="240" y="236" text-anchor="middle" style="font:400 19px var(--body);fill:var(--muted)">Year after</text>
+    </svg>
+    <div class="t20 muted">we can never observe this</div>
+  </div>
+  <!-- stand-ins -->
+  <div class="cardx" data-in="3" data-out="5" style="left:80px;top:572px;width:700px;height:270px">
+    <div class="h2" style="font-size:30px">Before vs after</div>
+    <div style="display:flex;gap:10px;margin:18px 0 14px;flex-wrap:wrap">
+      <span class="chip" data-in="3" style="transition-delay:.3s">Election</span><span class="chip" data-in="3" style="transition-delay:.45s">Enrolment drive</span><span class="chip" data-in="3" style="transition-delay:.6s">New road</span>
+    </div>
+    <div class="t22 muted">Other things changed that year too. The centre would get credit for all of them.</div>
+    <div class="xmark" data-in="3" style="right:22px;top:20px;--from:scale(1.8);transition-delay:1s">✗</div>
+  </div>
+  <div class="cardx" data-in="3" data-out="5" style="left:820px;top:572px;width:700px;height:270px;transition-delay:.2s">
+    <div class="h2" style="font-size:30px">Centre GPs vs other GPs</div>
+    <svg width="420" height="110" style="margin:6px 0 4px">
+      <polygon points="200,100 222,62 244,100" fill="var(--ink)"/>
+      <g data-in="3" style="--from:rotate(0deg);--o:center;transition:transform 1s ease .8s, opacity .3s"><g style="transform:rotate(-9deg);transform-origin:222px 60px">
+        <line x1="40" y1="60" x2="404" y2="60" stroke="var(--ink)" stroke-width="5" stroke-linecap="round"/>
+        <rect x="52" y="22" width="34" height="34" fill="var(--blue)"/><rect x="92" y="22" width="34" height="34" fill="var(--blue)"/>
+        <circle cx="340" cy="40" r="17" fill="#fff" stroke="var(--amber)" stroke-width="3.5"/><circle cx="380" cy="40" r="17" fill="#fff" stroke="var(--amber)" stroke-width="3.5"/>
+      </g></g>
+    </svg>
+    <div class="t22 muted">Centres went to the poorest GPs on purpose: <b style="color:var(--ink)">selection bias</b>. Poverty is a <b style="color:var(--ink)">confounder</b>.</div>
+    <div class="xmark" data-in="3" style="right:22px;top:20px;--from:scale(1.8);transition-delay:1.2s">✗</div>
+  </div>
+  <!-- RCT -->
+  <div class="cardx" data-in="4" data-out="5" style="left:980px;top:146px;width:540px;height:372px">
+    <div style="display:flex;gap:22px;align-items:center">
+      <div class="coin" data-in="4" style="--from:none">₹</div>
+      <div><div class="h2" style="font-size:28px">RCT: assign centres at random</div><div class="t20 blue" style="font-weight:700;margin-top:6px">the gold standard</div></div>
+    </div>
+    <div data-in="4" style="margin-top:22px;--from:scale(1.6);transition-delay:1.3s"><span class="stamp" style="position:static;display:inline-block">Not possible here</span></div>
+    <div class="t20 muted" data-in="4" style="margin-top:14px;transition-delay:1.6s">Allocation is by need, and a lottery would deny the neediest.</div>
+    <div class="t20" data-in="4" style="margin-top:12px;font-weight:700;color:var(--blue);transition-delay:2.2s">So we use a quasi-experiment: an existing rule that behaves like a coin flip.</div>
+  </div>
+  <!-- funnel -->
+  <div class="tier" data-in="5" style="top:150px;width:1100px;margin-left:-550px"><small>Paradigm</small><span>Positivist</span></div>
+  <div class="tier" data-in="5" style="top:270px;width:920px;margin-left:-460px;transition-delay:.3s"><small>Approach</small><span>Quantitative</span></div>
+  <div class="tier" data-in="5" style="top:390px;width:740px;margin-left:-370px;transition-delay:.6s"><small>Design type</small><span>Causal, quasi-experimental</span></div>
+  <div class="tier hot" data-in="5" style="top:510px;width:620px;margin-left:-310px;transition-delay:.9s"><small>Design</small><span>Regression Discontinuity</span></div>
+  <div class="abs t22 muted" data-in="5" style="left:50%;top:650px;transform:translateX(-50%);transition-delay:1.3s;width:600px;text-align:center">Backup: Difference-in-Differences</div>
+</section>
+
+<!-- ================= SLIDE 3: score + line ================= -->
+<section class="slide" data-key="score" data-beats="4">
+  <div class="plabel"><b>3</b>Where do we draw the line? <span style="font-weight:500">Task 1</span></div>
+  <div class="jar" data-in="1" data-out="3" style="left:80px">
+    <span class="wt">50%</span><h3>Poverty</h3>
+    <ul><li data-in="1" style="transition-delay:.5s">AAY / priority ration cards <i>PDS</i></li><li data-in="1" style="transition-delay:.65s">MGNREGA job cards <i>MGNREGA MIS</i></li><li data-in="1" style="transition-delay:.8s">Kutcha houses <i>Census</i></li></ul>
+  </div>
+  <div class="jar" data-in="1" data-out="3" style="left:580px;transition-delay:.12s">
+    <span class="wt">30%</span><h3>Connectivity</h3>
+    <ul><li data-in="1" style="transition-delay:.95s">Working broadband <i>BharatNet</i></li><li data-in="1" style="transition-delay:1.1s">Km to nearest CSC or bank <i>CSC list</i></li><li data-in="1" style="transition-delay:1.25s">Homes with a mobile phone <i>Census</i></li></ul>
+  </div>
+  <div class="jar" data-in="1" data-out="3" style="left:1080px;transition-delay:.24s">
+    <span class="wt">20%</span><h3>Population</h3>
+    <ul><li data-in="1" style="transition-delay:1.4s">Total population <i>Census</i></li><li data-in="1" style="transition-delay:1.55s">SC / ST share <i>Census</i></li></ul>
+  </div>
+  <div class="abs" data-in="2" data-out="3" style="left:0;right:0;top:512px;text-align:center;font:700 32px var(--display)">Score = 0.5 × Poverty + 0.3 × Connectivity + 0.2 × Population</div>
+  <div class="gp s" data-in="2" data-out="3" style="left:220px;transition-delay:.3s"><div><h4>Sitapur</h4><p>Poverty 70 · Connectivity 66.7<br>Population 45</p></div><div class="sc" id="scS">0</div></div>
+  <div class="gp r" data-in="2" data-out="3" style="left:840px;transition-delay:.45s"><div><h4>Rampur</h4><p>Poverty 72 · Connectivity 70<br>Population 45</p></div><div class="sc" id="scR">0</div></div>
+  <svg class="abs" style="left:0;top:0" width="1600" height="900" viewBox="0 0 1600 900">
+    <g data-in="3" style="--from:none">
+      <line x1="80" y1="800" x2="1520" y2="800" stroke="var(--ink)" stroke-width="2"/>
+      <g id="ticks3"></g>
+      <text x="1520" y="770" text-anchor="end" style="font:400 20px var(--body);fill:var(--muted)">vulnerability score →</text>
+      <text id="ctr" x="80" y="560" style="font:700 30px var(--display)">Centres handed out: 0 of 100</text>
+      <g id="dots"></g>
+      <g id="th">
+        <line id="thline" x1="1016" y1="528" x2="1016" y2="812" stroke="var(--ink)" stroke-width="2.5" stroke-dasharray="9 7"/>
+        <text x="1030" y="562" style="font:800 40px var(--display);fill:var(--blue)">65</text>
+        <text x="1004" y="846" text-anchor="end" style="font:700 21px var(--display);fill:var(--amber)">Sitapur 64</text>
+        <text x="1028" y="846" style="font:700 21px var(--display);fill:var(--blue)">Rampur 66</text>
+      </g>
+    </g>
+  </svg>
+  <div class="badge" data-in="4" style="left:80px"><h4>Budget</h4><p>The 101st GP isn't "not vulnerable". It missed by one place.</p></div>
+  <div class="badge" data-in="4" style="left:445px;transition-delay:.15s"><h4>Transparent</h4><p>One published number, hard to bend for favoured GPs.</p></div>
+  <div class="badge" data-in="4" style="left:810px;transition-delay:.3s"><h4>Targets need</h4><p>The most vulnerable GPs are served first.</p></div>
+  <div class="badge" data-in="4" style="left:1175px;transition-delay:.45s"><h4>Set before gaming</h4><p>Scores are computed before the cutoff is announced.</p></div>
+  <div class="abs t20 muted" data-in="4" style="left:80px;top:270px;transition-delay:.8s">Equal share per district? Then one cutoff per district, same logic.</div>
+</section>
+
+<!-- ================= SLIDE 4: RDD ================= -->
+<section class="slide" data-key="rdd" data-beats="4">
+  <div class="plabel"><b>4</b>Does the line give us a fair test? <span style="font-weight:500">Tasks 2 and 3</span></div>
+  <svg class="abs" style="left:0;top:0" width="1600" height="900" data-in="1" data-out="2"><line x1="800" y1="150" x2="800" y2="700" stroke="var(--ink)" stroke-width="3" stroke-dasharray="9 7"/><text x="800" y="138" text-anchor="middle" style="font:800 34px var(--display);fill:var(--blue)">65</text></svg>
+  <div class="twin s" data-in="1" data-out="2" style="left:300px;--from:translateX(-40px)">
+    <h4>Sitapur</h4><div class="big" style="color:var(--amber)">Score 64</div>
+    <dl><dt>Poverty</dt><dd>70</dd><dt>Connectivity</dt><dd>66.7</dd><dt>Population</dt><dd>45</dd><dt>Centre</dt><dd style="color:var(--amber)">✗ no</dd></dl>
+  </div>
+  <div class="twin r" data-in="1" data-out="2" style="left:860px;--from:translateX(40px)">
+    <h4>Rampur</h4><div class="big blue">Score 66</div>
+    <dl><dt>Poverty</dt><dd>72</dd><dt>Connectivity</dt><dd>70</dd><dt>Population</dt><dd>45</dd><dt>Centre</dt><dd class="blue">✓ yes</dd></dl>
+  </div>
+  <div class="eq" data-in="1" data-out="2" style="top:336px;transition-delay:.6s">≈</div>
+  <div class="eq" data-in="1" data-out="2" style="top:384px;transition-delay:.75s">≈</div>
+  <div class="eq" data-in="1" data-out="2" style="top:432px;transition-delay:.9s">=</div>
+  <div class="abs t26" data-in="1" data-out="2" style="left:0;right:0;top:680px;text-align:center;transition-delay:1.2s">Near the line, which side a GP lands on is close to luck. <b>The cutoff works like a coin flip.</b></div>
+  <svg id="rdd4" class="abs" style="left:0;top:0" width="1600" height="900" viewBox="0 0 1600 900"></svg>
+  <div class="spec">
+    <div class="row" data-in="3"><svg width="40" height="40"><line x1="2" y1="34" x2="38" y2="34" stroke="var(--ink)" stroke-width="3"/><polyline points="32,28 38,34 32,40" fill="none" stroke="var(--ink)" stroke-width="3"/></svg><div><b>Running variable</b><span>Vulnerability score, 0–100</span></div></div>
+    <div class="row" data-in="3" style="transition-delay:.15s"><svg width="40" height="40"><line x1="20" y1="2" x2="20" y2="38" stroke="var(--ink)" stroke-width="3" stroke-dasharray="6 4"/></svg><div><b>Cutoff</b><span>65</span></div></div>
+    <div class="row" data-in="3" style="transition-delay:.3s"><svg width="40" height="40"><rect x="10" y="10" width="20" height="20" fill="var(--blue)"/></svg><div><b>Treatment</b><span>A functioning centre in the GP</span></div></div>
+    <div class="row" data-in="3" style="transition-delay:.45s"><svg width="40" height="40"><line x1="6" y1="2" x2="6" y2="38" stroke="var(--ink)" stroke-width="3"/><polyline points="0,8 6,2 12,8" fill="none" stroke="var(--ink)" stroke-width="3"/></svg><div><b>Outcomes</b><span>1. Approved ÷ submitted<br>2. Eligible not enrolled ÷ all eligible</span></div></div>
+    <div data-in="3" style="transition-delay:.6s;display:flex;flex-direction:column;gap:10px;margin-top:4px"><span class="chip" style="font-size:18px">Unit: GP (cluster-level)</span><span class="chip" style="font-size:18px">Time: year before vs after</span></div>
+  </div>
+  <div class="strip">
+    <span class="chip" data-in="4"><span class="tick">✓</span>Enough GPs near 65</span>
+    <span class="chip" data-in="4" style="transition-delay:.15s"><span class="tick">✓</span>No score manipulation</span>
+    <span class="chip" data-in="4" style="transition-delay:.3s"><span class="tick">✓</span>Nothing else switches on at 65</span>
+    <span class="chip" data-in="4" style="transition-delay:.45s"><span class="tick">✓</span>Rule followed (else fuzzy RDD)</span>
+    <div class="t22 muted" data-in="4" style="transition-delay:.8s;width:100%;margin-top:8px">The estimate is local: it tells us the effect for GPs near 65 (LATE), not for the very poorest.</div>
+  </div>
+</section>
+
+<!-- ================= SLIDE 5: compare + threats ================= -->
+<section class="slide" data-key="cmp" data-beats="5">
+  <div class="plabel"><b>5</b>Who do we compare, and what could fool us? <span style="font-weight:500">Tasks 4 and 5</span></div>
+  <svg id="rdd5" class="abs" style="left:0;top:0" width="1600" height="900" viewBox="0 0 1600 900" data-out="4"></svg>
+  <div class="panel" data-in="3" data-out="4" style="left:200px;top:574px;width:580px;height:270px">
+    <h4>Balance check (year before)</h4>
+    <svg width="528" height="190" id="bal"></svg>
+  </div>
+  <div class="panel" data-in="3" data-out="4" style="left:820px;top:574px;width:580px;height:270px;transition-delay:.2s">
+    <h4>Spillover: drop next-door GPs</h4>
+    <svg width="528" height="190" id="spill"></svg>
+  </div>
+  <!-- slope vs step -->
+  <div class="panel" data-in="4" data-out="5" style="left:160px;top:130px;width:620px;height:460px">
+    <h4>The score's own effect: smooth</h4>
+    <svg width="560" height="360"><line x1="30" y1="320" x2="540" y2="320" stroke="var(--rule)" stroke-width="2"/><line x1="40" y1="90" x2="530" y2="270" stroke="var(--amber)" stroke-width="7" stroke-linecap="round" class="draw" pathLength="1" data-in="4" style="--from:none;transition-delay:.3s"/><text x="40" y="350" style="font:400 19px var(--body);fill:var(--muted)">score →</text></svg>
+  </div>
+  <div class="panel" data-in="4" data-out="5" style="left:820px;top:130px;width:620px;height:460px;transition-delay:.4s">
+    <h4>The centre's effect: a jump</h4>
+    <svg width="560" height="360"><line x1="30" y1="320" x2="540" y2="320" stroke="var(--rule)" stroke-width="2"/>
+      <line x1="285" y1="30" x2="285" y2="330" stroke="var(--ink)" stroke-width="3" stroke-dasharray="9 7"/><text x="295" y="50" style="font:800 26px var(--display);fill:var(--blue)">65</text>
+      <line x1="40" y1="90" x2="285" y2="180" stroke="var(--amber)" stroke-width="7" stroke-linecap="round"/>
+      <line x1="285" y1="90" x2="530" y2="180" stroke="var(--blue)" stroke-width="7" stroke-linecap="round" data-in="4" style="--from:translateY(90px);transition-delay:1.1s"/>
+      <g data-in="4" style="transition-delay:1.6s;--from:none"><line x1="262" y1="92" x2="262" y2="178" stroke="var(--ink)" stroke-width="3"/><text x="252" y="142" text-anchor="end" style="font:700 22px var(--display)">jump</text></g>
+      <text x="40" y="350" style="font:400 19px var(--body);fill:var(--muted)">score →</text></svg>
+  </div>
+  <div class="abs" data-in="4" data-out="5" style="left:0;right:0;top:640px;text-align:center;font:700 36px/1.3 var(--display);transition-delay:2s">The score affecting welfare doesn't break RDD.<br><span class="blue">Only a false jump at 65 would.</span></div>
+  <!-- threat cards -->
+  <div id="flips"></div>
+</section>
+
+<!-- ================= SLIDE 6: DiD + close ================= -->
+<section class="slide" data-key="did" data-beats="5">
+  <div class="plabel"><b>6</b>What if the line fails? <span style="font-weight:500">Task 6</span></div>
+  <svg class="abs" style="left:0;top:0" width="1600" height="900" viewBox="0 0 1600 900" data-out="4" id="didsvg">
+    <g data-in="1" style="--from:none">
+      <rect x="200" y="104" width="20" height="20" fill="var(--blue)"/><text x="232" y="121" style="font:600 21px var(--display)">Centre GPs (65+)</text>
+      <circle cx="450" cy="114" r="10" fill="#fff" stroke="var(--amber)" stroke-width="3.5"/><text x="470" y="121" style="font:600 21px var(--display)">Comparison GPs (55–64.9, same districts)</text>
+      <line x1="140" y1="690" x2="1360" y2="690" stroke="var(--rule)" stroke-width="2"/>
+      <g id="dgrid"></g>
+      <text x="820" y="726" text-anchor="middle" style="font:700 21px var(--display)">Year before</text>
+      <text x="1220" y="726" text-anchor="middle" style="font:700 21px var(--display)">Year after</text>
+    </g>
+    <!-- earlier years (beat 3) -->
+    <g data-in="3" style="--from:none">
+      <text x="220" y="726" text-anchor="middle" style="font:400 19px var(--body);fill:var(--muted)">3 years earlier</text>
+      <text x="420" y="726" text-anchor="middle" style="font:400 19px var(--body);fill:var(--muted)">2 years earlier</text>
+      <text x="620" y="726" text-anchor="middle" style="font:400 19px var(--body);fill:var(--muted)">1 year earlier</text>
+    </g>
+    <polyline class="draw" pathLength="1" data-in="3" style="--from:none" points="220,582 420,558 620,534 820,510" fill="none" stroke="var(--amber)" stroke-width="5"/>
+    <polyline class="draw" pathLength="1" data-in="3" style="--from:none;transition-delay:.3s" points="220,642 420,618 620,594 820,570" fill="none" stroke="var(--blue)" stroke-width="5"/>
+    <g data-in="3" style="--from:scale(0);transition-delay:1s"><circle cx="220" cy="582" r="9" fill="#fff" stroke="var(--amber)" stroke-width="3.5"/><circle cx="420" cy="558" r="9" fill="#fff" stroke="var(--amber)" stroke-width="3.5"/><circle cx="620" cy="534" r="9" fill="#fff" stroke="var(--amber)" stroke-width="3.5"/><rect x="211" y="633" width="18" height="18" fill="var(--blue)"/><rect x="411" y="609" width="18" height="18" fill="var(--blue)"/><rect x="611" y="585" width="18" height="18" fill="var(--blue)"/></g>
+    <!-- before → after -->
+    <line class="draw" pathLength="1" data-in="1" style="--from:none;transition-delay:.3s" x1="820" y1="510" x2="1220" y2="450" stroke="var(--amber)" stroke-width="5"/>
+    <g data-in="1" style="--from:scale(0);transition-delay:.2s"><circle cx="820" cy="510" r="10" fill="#fff" stroke="var(--amber)" stroke-width="4"/></g>
+    <g data-in="1" style="--from:scale(0);transition-delay:1.2s"><circle cx="1220" cy="450" r="10" fill="#fff" stroke="var(--amber)" stroke-width="4"/></g>
+    <text x="820" y="486" text-anchor="middle" data-in="1" style="font:700 22px var(--display);fill:var(--amber);transition-delay:.2s">45%</text>
+    <text x="1250" y="458" data-in="1" style="font:700 22px var(--display);fill:var(--amber);transition-delay:1.2s">50%  +5</text>
+    <line class="draw" pathLength="1" data-in="1" style="--from:none;transition-delay:1.6s" x1="820" y1="570" x2="1220" y2="330" stroke="var(--blue)" stroke-width="5"/>
+    <g data-in="1" style="--from:scale(0);transition-delay:1.5s"><rect x="810" y="560" width="20" height="20" fill="var(--blue)"/></g>
+    <g data-in="1" style="--from:scale(0);transition-delay:2.5s"><rect x="1210" y="320" width="20" height="20" fill="var(--blue)"/></g>
+    <text x="820" y="612" text-anchor="middle" data-in="1" style="font:700 22px var(--display);fill:var(--blue);transition-delay:1.5s">40%</text>
+    <text x="1250" y="338" data-in="1" style="font:700 22px var(--display);fill:var(--blue);transition-delay:2.5s">60%  +20</text>
+    <!-- would have + bracket (beat 2) -->
+    <g data-in="2" style="--from:scaleX(0);--o:left center"><line x1="820" y1="570" x2="1220" y2="510" stroke="var(--blue)" stroke-width="3" stroke-dasharray="10 8"/></g>
+    <g data-in="2" style="--from:scale(0);transition-delay:.6s"><rect x="1211" y="501" width="18" height="18" fill="#fff" stroke="var(--blue)" stroke-width="3" stroke-dasharray="4 3"/></g>
+    <text x="1100" y="572" text-anchor="middle" data-in="2" style="font:italic 400 21px var(--body);fill:var(--blue);transition-delay:.6s">would have, without centres</text>
+    <g data-in="2" style="--from:none;transition-delay:1s"><line x1="1380" y1="334" x2="1380" y2="506" stroke="var(--ink)" stroke-width="3.5"/><line x1="1370" y1="334" x2="1390" y2="334" stroke="var(--ink)" stroke-width="3.5"/><line x1="1370" y1="506" x2="1390" y2="506" stroke="var(--ink)" stroke-width="3.5"/><text x="1402" y="414" style="font:800 40px var(--display);fill:var(--blue)">+15</text><text x="1402" y="444" style="font:400 19px var(--body);fill:var(--muted)">the effect</text></g>
+  </svg>
+  <div class="abs" data-in="2" data-out="4" style="left:820px;top:170px;font:700 38px var(--display);transition-delay:1.4s">(60 − 40) − (50 − 45) = <span class="blue">15</span></div>
+  <div class="abs" data-in="3" data-out="4" style="left:200px;top:168px;width:560px;transition-delay:1.3s">
+    <div style="display:flex;gap:14px;align-items:center;font:700 26px/1.25 var(--display)"><span class="tick" style="width:36px;height:36px;font-size:19px;flex:none">✓</span>Parallel trends: both groups moved together before the centres</div>
+    <div class="t20 muted" style="margin:10px 0 0 50px">Placebo: a fake start date shows no effect</div>
+  </div>
+  <!-- guidelines -->
+  <div class="guide">
+    <div class="g" data-in="4" data-out="5"><span class="tick">✓</span><div><b>Operationalised the question</b><span>Score indicators per GP, two outcomes, year before and after</span></div></div>
+    <div class="g" data-in="4" data-out="5" style="transition-delay:.2s"><span class="tick">✓</span><div><b>Treatment and counterfactual</b><span>GPs at 65–70 vs GPs at 60–64.9</span></div></div>
+    <div class="g" data-in="4" data-out="5" style="transition-delay:.4s"><span class="tick">✓</span><div><b>Identification and estimation</b><span>Regression Discontinuity at 65; household survey of about 640 households per side</span></div></div>
+    <div class="g" data-in="4" data-out="5" style="transition-delay:.6s"><span class="tick">✓</span><div><b>Assumptions and validity checks</b><span>Density test, balance check, year-before test, placebo cutoffs</span></div></div>
+    <div class="g" data-in="4" data-out="5" style="transition-delay:.8s"><span class="tick">✓</span><div><b>Constraints and alternatives</b><span>Spillover, outdated scores, a local estimate; Difference-in-Differences as backup</span></div></div>
+  </div>
+  <!-- close -->
+  <svg class="abs" style="left:280px;top:110px" width="1040" height="420" viewBox="0 0 1040 420" data-in="5" data-out="99">
+    <rect x="0" y="110" width="220" height="200" rx="20" fill="#fff" stroke="var(--ink)" stroke-width="2.5"/>
+    <polygon points="60,180 110,150 160,180" fill="none" stroke="var(--ink)" stroke-width="3.5" stroke-linejoin="round"/>
+    <rect x="72" y="186" width="10" height="44" fill="var(--ink)"/><rect x="94" y="186" width="10" height="44" fill="var(--ink)"/><rect x="116" y="186" width="10" height="44" fill="var(--ink)"/><rect x="138" y="186" width="10" height="44" fill="var(--ink)"/>
+    <text x="110" y="276" text-anchor="middle" style="font:700 22px var(--display)">Government</text>
+    <rect x="220" y="190" width="600" height="40" fill="var(--blue-soft)"/><line x1="220" y1="190" x2="820" y2="190" stroke="var(--ink)" stroke-width="2.5"/><line x1="220" y1="230" x2="820" y2="230" stroke="var(--ink)" stroke-width="2.5"/>
+    <polygon points="465,160 520,124 575,160" fill="#fff" stroke="var(--blue)" stroke-width="3"/><rect x="475" y="160" width="90" height="90" fill="#fff" stroke="var(--blue)" stroke-width="3"/><rect x="475" y="190" width="90" height="40" fill="var(--blue-soft)"/>
+    <g clip-path="url(#pclip)"><g id="ftoks"></g></g>
+    <clipPath id="pclip"><rect x="220" y="185" width="600" height="50"/></clipPath>
+    <line x1="520" y1="40" x2="520" y2="380" stroke="var(--ink)" stroke-width="3" stroke-dasharray="9 7"/>
+    <text x="532" y="62" style="font:800 34px var(--display);fill:var(--blue)">65</text>
+    <g id="cpeople"></g>
+    <text x="930" y="326" text-anchor="middle" style="font:700 22px var(--display)">Households</text>
+  </svg>
+  <div class="abs" data-in="5" style="left:160px;right:160px;top:590px;text-align:center;font:700 46px/1.25 var(--display);transition-delay:.8s;text-wrap:balance">A line drawn for budget reasons gives us a fair test of whether the centres work.</div>
+  <div class="abs t26 muted" data-in="5" style="left:0;right:0;top:760px;text-align:center;transition-delay:1.6s">Thank you</div>
+</section>
+
+<div id="bar"></div>
+<div id="count"></div>
+<div id="hint">Click or press → to advance · ← to go back · F for full screen · N for notes</div>
+<div id="notes"><small id="nlabel"></small><span id="ntext"></span></div>
+</div>
+
+<script>
+(function(){
+const NS="http://www.w3.org/2000/svg";
+function E(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e}
+function rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const stage=document.getElementById("stage");
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- title cards ---------- */
+const CARDS=[
+  {q:"Who is getting left out?",tag:"<b>Part 1 of 6</b> · The research question",say:"Let's start with the problem the centres are meant to solve.",kicker:"PLC 9 & 10 · Research Methodology"},
+  {q:"How do we know it worked?",tag:"<b>Part 2 of 6</b> · Choosing a causal design",say:"Opening centres is easy. Proving they made the difference is the hard part."},
+  {q:"Where do we draw the line?",tag:"<b>Part 3 of 6</b> · Task 1: propose and justify a threshold",say:"First, we need a score, and a cutoff on it."},
+  {q:"Does the line give us a fair test?",tag:"<b>Part 4 of 6</b> · Tasks 2 and 3: the causal design and its parts",say:"Now the interesting part: why this line is useful for research, not just for the budget."},
+  {q:"Who do we compare, and what could fool us?",tag:"<b>Part 5 of 6</b> · Tasks 4 and 5: comparison and threats",say:"A fair test depends on comparing the right villages, and on ruling out false results."},
+  {q:"What if the line fails?",tag:"<b>Part 6 of 6</b> · Task 6: an alternative design",say:"Every good design needs a plan B."}
+];
+const content=[...document.querySelectorAll(".slide")];
+content.forEach((s,i)=>{
+  const c=CARDS[i], sec=document.createElement("section");
+  sec.className="slide card";sec.dataset.key="card";sec.dataset.beats="1";sec.dataset.say=c.say;
+  sec.innerHTML=`<svg class="abs" style="left:0;top:0" width="1600" height="900"><g data-in="1" style="--from:scaleY(0);--o:top center"><line x1="1380" y1="0" x2="1380" y2="900" stroke="var(--ink)" stroke-width="3" stroke-dasharray="10 8"/></g><text x="1394" y="88" data-in="1" style="font:800 40px var(--display);fill:var(--blue);transition-delay:.5s">65</text></svg>
+  <div class="cq">${c.kicker?`<div class="kicker" data-in="1">${c.kicker}</div>`:""}<h1 data-in="1" style="--from:translateY(34px);transition-delay:.15s">${c.q}</h1><div class="ctag" data-in="1" style="transition-delay:.35s">${c.tag}</div></div>`;
+  s.parentNode.insertBefore(sec,s);
+});
+const slides=[...document.querySelectorAll(".slide")];
+
+/* ---------- speaker notes ---------- */
+const NOTES={
+ pipe:["On one side, the government. On the other, families who qualify for its help.",
+  "The government runs schemes like these (point at each): cheap rations, old-age pensions, money for farmers, help building a house.",
+  "But to get any of this, someone has to apply. Forms online, uploading documents, linking Aadhaar, an office that might be far away.",
+  "Two things go wrong: applications get rejected, and some families who deserve help never get onto the list. That second group is an exclusion error.",
+  "The proposed fix: a facilitation centre in the village, with someone who helps you apply. Does it actually work?",
+  "Read it: Do digital facilitation centres increase successful applications for government welfare schemes and reduce exclusion errors?",
+  "Here's what we're given. Stress: only locations above a threshold, and the threshold is not yet finalised. That line is where the whole design comes from."],
+ cf:["Say Rampur gets a centre, and approvals go from 55 to 70 percent. Did the centre do that?",
+  "We'd need the same village, same year, without a centre: the counterfactual. We can never observe it, so every causal design looks for the best stand-in.",
+  "Two obvious answers fail. Before vs after credits the centre for everything else that happened. Centre vs non-centre is unfair: centres went to the poorest. Poverty is a confounder.",
+  "The ideal is a coin flip, an RCT. But allocation is by need, and a lottery would deny the neediest. So we look for a rule that behaves like a coin flip: a quasi-experiment.",
+  "We want a measurable answer: positivist, quantitative, quasi-experimental. The rule we use is the threshold itself: Regression Discontinuity."],
+ score:["Poverty, connectivity and population are constructs. We operationalise each with indicators the government already records, for every gram panchayat.",
+  "Each indicator is rescaled 0 to 100 and weighted; the weights are our stated assumption. Rampur scores 66, Sitapur 64. Almost identical.",
+  "About 1,000 GPs, money for 100 centres. Line them up by need, hand out centres until the money runs out: the 100th GP scores about 65. That's our threshold.",
+  "Operationally 65 is defensible: it's what the budget buys, it's transparent, it targets need, and it's fixed after scores are computed, so nobody can game it."],
+ rdd:["Sitapur and Rampur are practically twins; the only real difference is the centre. Near the line, the cutoff works like a coin flip. Like a pension at 60.",
+  "So yes, the threshold supports a causal design: RDD. The gentle slope is vulnerability itself. A sudden jump right at 65 can only be the centre.",
+  "Task 3: running variable is the score, cutoff is 65, treatment is a working centre, and two outcomes: approval rate and exclusion error rate.",
+  "This holds only if there are enough GPs near the line, no manipulation, nothing else at 65, and the rule is followed. And it's a local estimate, for GPs near 65."],
+ cmp:["Task 4: we compare only GPs close to the line, 60 to 64.9 against 65 to 70. A GP at 90 and one at 20 differ in poverty, not just centres.",
+  "Narrower means closer twins but fewer GPs; wider means more GPs but less alike. We use ±5 and check ±3 and ±8.",
+  "We check both sides looked the same last year, and drop comparison GPs right next to a centre, since their families could walk over.",
+  "Task 5: poverty and connectivity do affect welfare, but smoothly. RDD absorbs that slope. Only something else jumping at 65 would compromise the design.",
+  "Here's what could fake a jump, and how we'd catch each. Slow down on manipulation and the year-before test."],
+ did:["If RDD fails, our backup is Difference-in-Differences. Centre GPs went 40 to 60, up 20. Similar GPs without centres went 45 to 50, up 5.",
+  "That +5 is what the year did to everyone. Subtract it: the centre's effect is 15 points. We compare improvements, not levels.",
+  "Key assumption: parallel trends. We check it with earlier years of PDS and pension records, and a placebo start date.",
+  "Against the five guidelines, here's how each is covered.",
+  "The government drew that line to ration its budget. We're using the same line to find out, fairly, whether the centres work. Thank you."]
+};
+
+/* ---------- engine ---------- */
+let si=0, beat=0, timers=[];
+function later(fn,ms){timers.push(setTimeout(fn,reduce?0:ms))}
+function clearTimers(){timers.forEach(clearTimeout);timers=[]}
+function applyBeat(s,b){
+  s.querySelectorAll("[data-in],[data-out]").forEach(el=>{
+    const i=+(el.dataset.in||0), o=+(el.dataset.out||999);
+    el.classList.toggle("on",b>=i&&b<o);
+    el.classList.toggle("gone",b>=o);
+  });
+}
+const HOOK={};
+function show(nsi,nb,animate){
+  clearTimers();
+  const prevS=slides[si], prevKey=prevS.dataset.key, prevB=beat;
+  const s=slides[nsi];
+  if(nsi!==si){
+    prevS.classList.remove("cur");
+    if(animate){ s.classList.add("snap"); applyBeat(s,0); HOOK[s.dataset.key]?.(s,0,false); s.offsetWidth; s.classList.remove("snap"); }
+    s.classList.add("cur");
+  }
+  si=nsi; beat=nb;
+  if(!animate){ s.classList.add("snap"); }
+  const run=()=>{ applyBeat(s,beat); HOOK[s.dataset.key]?.(s,beat,animate && (nsi!==slides.indexOf(prevS)||beat===prevB+1)); };
+  if(animate && nsi!==slides.indexOf(prevS)){ requestAnimationFrame(()=>requestAnimationFrame(run)); } else run();
+  if(!animate){ s.offsetWidth; requestAnimationFrame(()=>s.classList.remove("snap")); }
+  ui();
+}
+function next(){ const s=slides[si]; if(beat<+s.dataset.beats) show(si,beat+1,true); else if(si<slides.length-1) show(si+1,1,true); hint(); }
+function prev(){ if(beat>1) show(si,beat-1,false); else if(si>0){ const p=slides[si-1]; show(si-1,+p.dataset.beats,false); } }
+const TOTAL=slides.reduce((a,s)=>a+ +s.dataset.beats,0);
+function ui(){
+  let done=0; for(let i=0;i<si;i++) done+=+slides[i].dataset.beats; done+=beat;
+  document.getElementById("bar").style.width=(done/TOTAL*100)+"%";
+  const s=slides[si], part=Math.floor(si/2)+1;
+  document.getElementById("count").textContent = s.dataset.key==="card" ? `Part ${part}` : `Part ${part}  ·  ${beat} / ${s.dataset.beats}`;
+  document.getElementById("nlabel").textContent = s.dataset.key==="card" ? `Part ${part} title card` : `Part ${part}, beat ${beat}`;
+  document.getElementById("ntext").textContent = s.dataset.key==="card" ? s.dataset.say : (NOTES[s.dataset.key]||[])[beat-1]||"";
+}
+let hinted=false; function hint(){ if(!hinted){hinted=true;document.getElementById("hint").style.opacity=0} }
+function fit(){ const sc=Math.min(innerWidth/1600,innerHeight/900); stage.style.transform=`translate(${(innerWidth-1600*sc)/2}px,${(innerHeight-900*sc)/2}px) scale(${sc})`; }
+addEventListener("resize",fit); fit();
+addEventListener("keydown",e=>{
+  if(["ArrowRight"," ","PageDown","Enter"].includes(e.key)){e.preventDefault();next()}
+  else if(["ArrowLeft","PageUp","Backspace"].includes(e.key)){e.preventDefault();prev()}
+  else if(e.key==="n"||e.key==="N"){document.getElementById("notes").classList.toggle("show")}
+  else if(e.key==="f"||e.key==="F"){ try{ if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else document.exitFullscreen(); }catch(_){}}
+  else if(e.key==="Home"){show(0,1,true)}
+});
+stage.addEventListener("click",next);
+stage.addEventListener("contextmenu",e=>{e.preventDefault();prev()});
+
+/* ================= slide 1: pipe ================= */
+const people=document.getElementById("people"), figs=[];
+const PX=[1263,1341,1419,1497], PY=[222,346];
+function fig(parent,x,y,s){const g=E("g",{class:"fig"},parent);E("circle",{cx:x,cy:y-26*s,r:15*s},g);E("path",{d:`M${x-23*s} ${y+34*s} Q${x-23*s} ${y-6*s} ${x} ${y-6*s} Q${x+23*s} ${y-6*s} ${x+23*s} ${y+34*s} Z`},g);return g}
+PY.forEach(y=>PX.forEach(x=>figs.push(fig(people,x,y,1))));
+const GREY=[1,6,7];
+function shape(type,parent,fill,stroke){
+  if(type===0) return E("circle",{r:8,fill,stroke},parent);
+  if(type===1) return E("rect",{x:-7.5,y:-7.5,width:15,height:15,fill,stroke},parent);
+  if(type===2) return E("polygon",{points:"0,-9 9,7 -9,7",fill,stroke},parent);
+  return E("polygon",{points:"0,-10 10,0 0,10 -10,0",fill,stroke},parent);
+}
+const chips=document.getElementById("chips");
+[["PDS rations",0],["Old-age pension",1],["PM-KISAN",2],["PMAY-G housing",3]].forEach(([t,ty],i)=>{
+  const x=i%2?308:80, y=i<2?440:498;
+  const g=E("g",{"data-in":"2",style:`transition-delay:${i*.15}s`},chips);
+  E("rect",{x,y,width:212,height:46,rx:23,fill:"#fff",stroke:"var(--rule)","stroke-width":2},g);
+  const sg=E("g",{transform:`translate(${x+26},${y+23})`},g); shape(ty,sg,"var(--blue)","none");
+  const tx=E("text",{x:x+46,y:y+30,style:"font:600 20px var(--display)"},g); tx.textContent=t;
+});
+const obst=document.getElementById("obst");
+["Online forms","Document uploads","Aadhaar linking","Office 15 km away"].forEach((t,i)=>{
+  const g=E("g",{"data-in":"3","data-out":"5",style:`--from:translateY(-320px);--to:translateY(240px);transition-delay:${.35+i*.18}s`},obst);
+  const y=168+i*58;
+  E("rect",{x:750,y,width:240,height:50,rx:10,fill:"#fff",stroke:"var(--ink)","stroke-width":2.5},g);
+  const tx=E("text",{x:870,y:y+33,"text-anchor":"middle",style:"font:700 21px var(--display)"},g); tx.textContent=t;
+});
+const tokG=document.getElementById("tok"), mid=document.getElementById("mid");
+let toks=[], pile=0, spawnT=0, n=0, pipeBeat=0, last=performance.now();
+const CRACK=798, END=1222;
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000); last=now;
+  const active=slides[si].dataset.key==="pipe";
+  if(active && pipeBeat>=2){
+    spawnT-=dt;
+    if(spawnT<=0){spawnT=.42; const g=E("g",{},tokG); shape(n%4,g,"var(--blue)","none"); toks.push({x:526,y:280,st:"move",g,o:1,k:n}); n++;}
+  }
+  const broken=pipeBeat>=3&&pipeBeat<5, reject=pipeBeat===4;
+  toks.forEach(t=>{
+    if(t.st==="pile" && !broken){t.st="move";}
+    if(t.st==="move"){
+      t.x+=300*dt;
+      if(broken && t.x>=CRACK-pile*20){
+        if(reject && t.k%2===0){t.st="rej"; t.g.querySelector("*").setAttribute("fill","var(--grey)"); const x=E("text",{x:6,y:-12,style:"font:800 18px var(--display);fill:var(--muted)"},t.g); x.textContent="✗";}
+        else if(pile<6){t.st="pile"; t.x=CRACK-pile*20; pile++;}
+        else t.st="fade";
+      }
+      if(!broken && t.x>=END){t.st="fade"; const ok=figs.filter((f,i)=>!(pipeBeat>=4&&GREY.includes(i))); const f=ok[t.k%ok.length]; f.classList.remove("got"); void f.getBBox(); f.classList.add("got");}
+    } else if(t.st==="rej"){t.x-=120*dt; t.y-=50*dt; t.o-=1.1*dt;}
+    else if(t.st==="fade"){t.o-=3*dt;}
+    t.g.setAttribute("transform",`translate(${t.x.toFixed(1)},${t.y.toFixed(1)})`); t.g.setAttribute("opacity",Math.max(0,t.o));
+  });
+  if(!broken) pile=0;
+  toks=toks.filter(t=>{if(t.o<=0){t.g.remove();return false}return true});
+  if(!active && toks.length){toks.forEach(t=>t.g.remove());toks=[];pile=0}
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+const words=[...document.querySelectorAll("#q1 .w")], hls=[...document.querySelectorAll("#q1 .hl")];
+HOOK.pipe=(s,b,anim)=>{
+  pipeBeat=b; if(b<3){pile=0}
+  mid.classList.toggle("fell",b>=3);
+  figs.forEach((f,i)=>f.classList.toggle("grey",b>=4&&GREY.includes(i)));
+  document.getElementById("scene1").classList.toggle("small",b>=7);
+  if(b<6){words.forEach(w=>w.classList.remove("v"));hls.forEach(h=>h.classList.remove("lit"))}
+  else if(b===6&&anim){words.forEach((w,i)=>later(()=>w.classList.add("v"),120+i*85)); later(()=>hls.forEach(h=>h.classList.add("lit")),120+words.length*85+250)}
+  else {words.forEach(w=>w.classList.add("v"));hls.forEach(h=>h.classList.add("lit"))}
+};
+
+/* ================= slide 3: score + dots ================= */
+function tween(from,to,ms,fn){ if(reduce||ms===0){fn(to);return} const t0=performance.now(); (function f(){const p=Math.min(1,(performance.now()-t0)/ms); const e=1-Math.pow(1-p,3); fn(from+(to-from)*e); if(p<1)timers.push(requestAnimationFrame(f))})(); }
+const scS=document.getElementById("scS"), scR=document.getElementById("scR");
+const r3=rng(7), g3=()=>{let u=r3()||1e-9,v=r3();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)};
+let sc=[]; for(let i=0;i<1000;i++) sc.push(45+g3()*13);
+sc.sort((a,b)=>b-a); const shift=65.3-sc[99]; sc=sc.map(v=>Math.max(1,Math.min(99.5,v+shift)));
+const X3=v=>80+v*14.4;
+const ticks3=document.getElementById("ticks3");
+[0,20,40,80,100].forEach(v=>{E("line",{x1:X3(v),x2:X3(v),y1:800,y2:810,stroke:"var(--ink)","stroke-width":2},ticks3);const t=E("text",{x:X3(v),y:836,"text-anchor":"middle",style:"font:400 20px var(--body);fill:var(--muted)"},ticks3);t.textContent=v});
+const dotsG=document.getElementById("dots"), bins={}, dots=[];
+sc.forEach((v,i)=>{ const b=Math.floor(v), k=(bins[b]=(bins[b]||0)+1)-1; const x=X3(b)+4+(k%2)*6.4, y=796-3.6-Math.floor(k/2)*7.6;
+  const c=E("circle",{class:"dot",r:2.8,cx:0,cy:0},dotsG); c.style.transitionDelay=((i*37)%400)+"ms";
+  dots.push({c,x,y,sx:80+r3()*1440,sy:600+r3()*180}); });
+function placeDots(ranked){dots.forEach(d=>{d.c.style.transform=`translate(${ranked?d.x:d.sx}px,${ranked?d.y:d.sy}px)`})}
+placeDots(false);
+const th=document.getElementById("th"), ctr=document.getElementById("ctr");
+function setTreated(k){dots.forEach((d,i)=>d.c.classList.toggle("t",i<k)); ctr.textContent=`Centres handed out: ${k} of 100`}
+HOOK.score=(s,b,anim)=>{
+  if(b>=2){ if(anim&&b===2){ later(()=>{tween(0,64,1100,v=>scS.textContent=Math.round(v));tween(0,66,1100,v=>scR.textContent=Math.round(v))},500) } else {scS.textContent=64;scR.textContent=66} }
+  else {scS.textContent=0;scR.textContent=0}
+  if(b<3){placeDots(false);setTreated(0);th.classList.remove("show");return}
+  if(anim&&b===3){
+    placeDots(false);setTreated(0);th.classList.remove("show");
+    later(()=>placeDots(true),700);
+    for(let k=1;k<=100;k++) later(()=>setTreated(k),2100+k*24);
+    later(()=>th.classList.add("show"),2100+100*24+300);
+  } else {placeDots(true);setTreated(100);th.classList.add("show")}
+};
+
+/* ================= RDD data + plots ================= */
+const r4=rng(65), g4=()=>{let u=r4()||1e-9,v=r4();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)};
+const PTS=[];for(let i=0;i<130;i++){const x=40+r4()*50;PTS.push({x,y:70-.45*(x-40)+(x>=65?12:0)+g4()*3.4})}
+PTS.sort((a,b)=>a.x-b.x);
+function fitL(a){const n=a.length;if(n<2)return{a:0,b:0};let mx=0,my=0;a.forEach(p=>{mx+=p.x;my+=p.y});mx/=n;my/=n;let sxy=0,sxx=0;a.forEach(p=>{sxy+=(p.x-mx)*(p.y-my);sxx+=(p.x-mx)**2});const b=sxx?sxy/sxx:0;return{a:my-b*mx,b}}
+function plot(svg,X0,X1,Y0,Y1,opt){
+  const xs=v=>X0+(v-40)/50*(X1-X0), ys=v=>Y1-(v-20)/60*(Y1-Y0);
+  const o={xs,ys,X0,X1,Y0,Y1};
+  o.band=E("rect",{x:xs(65),y:Y0,width:0,height:Y1-Y0,fill:"var(--blue-soft)"},svg);
+  const ax=E("g",opt.anim?{"data-in":"2",style:"--from:none"}:{},svg);
+  E("line",{x1:X0,x2:X1,y1:Y1,y2:Y1,stroke:"var(--ink)","stroke-width":2},ax);
+  E("line",{x1:X0,x2:X0,y1:Y0,y2:Y1,stroke:"var(--ink)","stroke-width":2},ax);
+  for(let v=40;v<=90;v+=10){const t=E("text",{x:xs(v),y:Y1+32,"text-anchor":"middle",style:"font:400 20px var(--body);fill:var(--muted)"},ax);t.textContent=v}
+  o.yt=[];[20,40,60,80].forEach(v=>{E("line",{x1:X0,x2:X1,y1:ys(v),y2:ys(v),stroke:"var(--rule)","stroke-width":1},ax);const t=E("text",{x:X0-12,y:ys(v)+7,"text-anchor":"end",style:"font:400 20px var(--body);fill:var(--muted)"},ax);t.textContent=v+"%";o.yt.push([t,v])});
+  E("line",{x1:xs(65),x2:xs(65),y1:Y0-14,y2:Y1+6,stroke:"var(--ink)","stroke-width":3,"stroke-dasharray":"9 7"},ax);
+  const l65=E("text",{x:xs(65)+10,y:Y0+10,style:"font:800 30px var(--display);fill:var(--blue)"},ax);l65.textContent="65";
+  o.pg=E("g",{},svg);
+  o.marks=PTS.map((p,i)=>{
+    const g=E("g",opt.anim?{"data-in":"2",style:`--from:scale(0);transition-delay:${(i*6)}ms`}:{},o.pg);
+    if(p.x>=65) E("rect",{x:xs(p.x)-6,y:ys(p.y)-6,width:12,height:12,fill:"var(--blue)"},g);
+    else E("circle",{cx:xs(p.x),cy:ys(p.y),r:6.5,fill:"#fff",stroke:"var(--amber)","stroke-width":2.5},g);
+    return g;
+  });
+  o.lw=E("g",opt.anim?{"data-in":"2",style:"--from:scaleX(0);--o:left center;transition-delay:1s"}:{},o.pg);
+  o.rw=E("g",opt.anim?{"data-in":"2",style:"--from:scaleX(0);--o:left center;transition-delay:1.2s"}:{},o.pg);
+  o.L=E("line",{stroke:"var(--amber)","stroke-width":5,"stroke-linecap":"round"},o.lw);
+  o.R=E("line",{stroke:"var(--blue)","stroke-width":5,"stroke-linecap":"round"},o.rw);
+  o.bw=E("g",opt.anim?{"data-in":"2",style:"--from:none;transition-delay:1.7s"}:{},o.pg);
+  o.B=E("line",{stroke:"var(--ink)","stroke-width":3.5},o.bw);
+  o.setFit=function(h){
+    const L=PTS.filter(p=>p.x<65&&p.x>=65-h), Rr=PTS.filter(p=>p.x>=65&&p.x<=65+h);
+    const fl=fitL(L), fr=fitL(Rr), lo=Math.max(40,65-h), hi=Math.min(90,65+h);
+    const yl=fl.a+fl.b*65, yr=fr.a+fr.b*65;
+    o.L.setAttribute("x1",xs(lo));o.L.setAttribute("y1",ys(fl.a+fl.b*lo));o.L.setAttribute("x2",xs(65));o.L.setAttribute("y2",ys(yl));
+    o.R.setAttribute("x1",xs(65));o.R.setAttribute("y1",ys(yr));o.R.setAttribute("x2",xs(hi));o.R.setAttribute("y2",ys(fr.a+fr.b*hi));
+    o.B.setAttribute("x1",xs(65)-14);o.B.setAttribute("x2",xs(65)-14);o.B.setAttribute("y1",ys(yl));o.B.setAttribute("y2",ys(yr));
+    o.yl=yl;o.yr=yr;return yr-yl;
+  };
+  return o;
+}
+/* slide 4 */
+const P4=plot(document.getElementById("rdd4"),200,1160,140,580,{anim:true});
+P4.setFit(25);
+P4.pg.style.transformBox="view-box"; P4.pg.style.transformOrigin=`0px ${(140+580)/2}px`; P4.pg.style.transition="transform 1s cubic-bezier(.6,0,.2,1)";
+const svg4=document.getElementById("rdd4");
+const lbW=E("g",{"data-in":"2",style:"--from:none;transition-delay:1.9s"},svg4);
+const lead=E("line",{x1:P4.xs(65)-14,x2:P4.xs(65)-14,y1:P4.ys(P4.yl),y2:P4.ys(44),stroke:"var(--ink)","stroke-width":1.5,"stroke-dasharray":"3 4"},P4.bw);
+const lb=E("text",{x:P4.xs(65)-26,y:0,"text-anchor":"end",style:"font:700 24px var(--display);transition:transform 1s cubic-bezier(.6,0,.2,1)"},lbW);
+lb.innerHTML='<tspan>jump =</tspan><tspan x="'+(P4.xs(65)-26)+'" dy="28">the effect</tspan>';
+const midY=P4.ys(42);
+function posLb(m){const y=m?(140+580)-midY-30:midY; lb.style.transform=`translateY(${y}px)`}
+posLb(false);
+const xT1=E("text",{x:680,y:660,"text-anchor":"middle","data-in":"2","data-out":"3",style:"font:400 21px var(--body);fill:var(--muted)"},svg4);xT1.textContent="vulnerability score";
+const xT2=E("text",{x:680,y:660,"text-anchor":"middle","data-in":"3",style:"font:700 22px var(--display)"},svg4);xT2.textContent="Running variable: vulnerability score (0–100)";
+const yT=E("text",{x:0,y:0,"text-anchor":"middle",transform:"translate(110 360) rotate(-90)",style:"font:400 21px var(--body);fill:var(--muted)"},svg4);yT.textContent="applications approved";
+const yWrap=E("g",{"data-in":"2",style:"--from:none"},svg4); yWrap.appendChild(yT);
+HOOK.rdd=(s,b,anim)=>{
+  const mir=m=>{P4.pg.style.transform=m?"scaleY(-1)":"none";posLb(m);
+    yT.textContent=m?"Outcome 2: exclusion error rate":(b>=3?"Outcome 1: approved ÷ submitted":"applications approved");
+    yT.style.font=b>=3?"700 22px var(--display)":"400 21px var(--body)"; yT.style.fill=b>=3?"var(--ink)":"var(--muted)";
+    lb.querySelector("tspan").textContent=m?"drop =":"jump =";};
+  mir(false);
+  if(b>=3){ if(anim&&b===3) later(()=>mir(true),2600); else mir(true); }
+};
+/* slide 5 */
+const svg5=document.getElementById("rdd5");
+const P5=plot(svg5,200,1400,120,480,{anim:false});
+const readout=E("text",{x:1400,y:84,"text-anchor":"end",style:"font:700 24px var(--display)"},svg5);
+const bandL=E("text",{y:462,"text-anchor":"end",style:"font:700 20px var(--display);fill:var(--amber)"},svg5);bandL.textContent="Comparison: 60–64.9";
+const bandR=E("text",{y:462,style:"font:700 20px var(--display);fill:var(--blue)"},svg5);bandR.textContent="Treatment: 65–70";
+const xl5=E("text",{x:800,y:540,"text-anchor":"middle",style:"font:400 20px var(--body);fill:var(--muted)"},svg5);xl5.textContent="vulnerability score";
+let H5=0;
+function setBand(h){H5=h; const x0=P5.xs(Math.max(40,65-h)), x1=P5.xs(Math.min(90,65+h));
+  P5.band.setAttribute("x",x0);P5.band.setAttribute("width",x1-x0);
+  P5.marks.forEach((g,i)=>g.setAttribute("opacity",h<.5||Math.abs(PTS[i].x-65)<=h?1:.16));
+  bandL.setAttribute("x",P5.xs(65)-12);bandR.setAttribute("x",P5.xs(65)+12);
+  const lo=Math.round(65-h), hi=Math.round(65+h); bandL.textContent=`Comparison: ${lo}–64.9`; bandR.textContent=`Treatment: 65–${hi}`;
+  bandL.setAttribute("opacity",h>1?1:0);bandR.setAttribute("opacity",h>1?1:0);
+  const j=P5.setFit(h<1?25:h); readout.textContent=h>1?`Jump at 65: +${j.toFixed(1)} points  (window ±${Math.round(h)})`:"";
+}
+setBand(0); P5.setFit(25);
+/* balance + spillover */
+(function(){
+  const bal=document.getElementById("bal");
+  [["Approval rate",57,58,"%"],["Population (hundreds)",49,50,""],["Km to bank",12.1,11.8," km"]].forEach(([lab,a,c,u],i)=>{
+    const y=24+i*58;
+    const t=E("text",{x:0,y:y+20,style:"font:400 19px var(--body);fill:var(--muted)"},bal);t.textContent=lab;
+    const mx=Math.max(a,c)*1.15;
+    E("rect",{x:200,y:y,width:a/mx*190,height:14,rx:3,fill:"#fff",stroke:"var(--amber)","stroke-width":2.5},bal);
+    E("rect",{x:200,y:y+20,width:c/mx*190,height:14,rx:3,fill:"var(--blue)"},bal);
+    const v=E("text",{x:404,y:y+22,style:"font:700 17px var(--display)"},bal);v.textContent=`${a}${u} vs ${c}${u}`;
+  });
+  const sp=document.getElementById("spill");
+  const C=[[2,1],[5,1]];
+  for(let r=0;r<3;r++)for(let c=0;c<8;c++){
+    const x=24+c*62, y=22+r*56, isC=C.some(([cc,rr])=>cc===c&&rr===r);
+    const adj=!isC&&C.some(([cc,rr])=>Math.abs(cc-c)+Math.abs(rr-r)===1);
+    E("rect",{x:x-26,y:y-22,width:52,height:44,rx:8,fill:isC?"var(--blue-soft)":"var(--wash)",stroke:"var(--rule)"},sp);
+    if(isC) E("rect",{x:x-10,y:y-10,width:20,height:20,fill:"var(--blue)"},sp);
+    else { E("circle",{cx:x,cy:y,r:9,fill:"#fff",stroke:"var(--amber)","stroke-width":2.5,opacity:adj?.35:1},sp);
+      if(adj){E("line",{x1:x-13,y1:y-13,x2:x+13,y2:y+13,stroke:"var(--ink)","stroke-width":2.5},sp);E("line",{x1:x+13,y1:y-13,x2:x-13,y2:y+13,stroke:"var(--ink)","stroke-width":2.5},sp)} }
+  }
+})();
+/* threat cards */
+const FL=[
+ ["Score manipulation","Officials push favoured GPs from 63 to 66.","Density test","Count GPs in narrow score bins: a pile-up just above 65 is a red flag."],
+ ["Another scheme at 65","A second programme uses the same cutoff.","List every scheme using the score","Exclude or control for any that share the line."],
+ ["Gap before centres","The 65+ side was already ahead.","RDD on the year before","There should be no jump before centres opened."],
+ ["Chance","Noise happens to look like a jump.","Placebo cutoffs at 55 and 75","No jump should appear there; results stable at ±3 and ±8."],
+ ["Spillover","Comparison families use a nearby centre.","Exclude neighbouring GPs","Record distance to the nearest centre."],
+ ["Rule not followed","Some 65+ GPs lack centres; outdated scores blur the line.","Fuzzy RDD","Report the effect of eligibility and of actually having a centre."]
+];
+const flipsEl=document.getElementById("flips"), flips=[];
+FL.forEach(([t,d,ck,ex],i)=>{
+  const el=document.createElement("div"); el.className="flip"; el.dataset.in="5";
+  el.style.cssText=`left:${80+(i%3)*493}px;top:${130+Math.floor(i/3)*330}px;--from:translateY(40px);transition-delay:${i*.1}s`;
+  el.innerHTML=`<div class="in"><div class="f"><h4>${t}</h4><p>${d}</p></div><div class="b"><small>How we'd catch it</small><p>${ck}</p><span>${ex}</span></div></div>`;
+  flipsEl.appendChild(el); flips.push(el);
+});
+HOOK.cmp=(s,b,anim)=>{
+  if(b>=1){
+    if(anim&&b===1){setBand(0);later(()=>tween(0,5,900,setBand),300)}
+    else if(anim&&b===2){[[3,0],[8,1500],[5,3000]].forEach(([h,t])=>later(()=>tween(H5,h,800,setBand),t))}
+    else setBand(5);
+  }
+  flips.forEach(f=>f.classList.remove("flipped"));
+  if(b>=5){ if(anim&&b===5) flips.forEach((f,i)=>later(()=>f.classList.add("flipped"),1200+i*650)); else flips.forEach(f=>f.classList.add("flipped")); }
+};
+/* slide 6 */
+(function(){
+  const g=document.getElementById("dgrid");
+  [30,40,50,60].forEach(v=>{const y=690-(v-30)*12; E("line",{x1:140,x2:1300,y1:y,y2:y,stroke:"var(--rule)","stroke-width":1},g); const t=E("text",{x:130,y:y+7,"text-anchor":"end",style:"font:400 19px var(--body);fill:var(--muted)"},g);t.textContent=v+"%"});
+  const ft=document.getElementById("ftoks");
+  for(let i=0;i<8;i++){const w=E("g",{class:"ftok",style:`animation-delay:${-i*.45}s`},ft); const p=E("g",{transform:"translate(200,210)"},w); shape(i%4,p,"var(--blue)","none")}
+  const cp=document.getElementById("cpeople");
+  [[860,150],[930,150],[1000,150],[860,250],[930,250],[1000,250]].forEach(([x,y])=>fig(cp,x,y,.8));
+})();
+HOOK.did=()=>{};
+
+/* start */
+slides[0].classList.add("cur"); show(0,1,true);
+})();
+</script>
+
+</html>
