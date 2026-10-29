@@ -142,6 +142,18 @@ svg [data-in],svg [data-out]{transform-box:fill-box;transform-origin:var(--o,cen
 .strip .chip{font-size:20px}
 .tick{width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:inline-grid;place-items:center;font:800 15px/1 var(--display)}
 
+.pt{transition:transform .9s cubic-bezier(.3,.7,.2,1)}
+.pt circle{transition:opacity .4s}
+.pt rect{opacity:0;transition:opacity .4s}
+.pt.t circle{opacity:0} .pt.t rect{opacity:1}
+#pg4{transition:opacity .6s} #pg4.dim{opacity:.25}
+.halo{paint-order:stroke;stroke:#fff;stroke-width:7px;stroke-linejoin:round}
+.vs{border-collapse:collapse;width:100%;margin-top:26px}
+.vs th,.vs td{text-align:left;vertical-align:top;padding:14px 18px;border-bottom:1.5px solid var(--rule)}
+.vs th{font:700 26px/1.15 var(--display)} .vs th span{display:block;font:400 18px/1.3 var(--body);color:var(--muted);margin-top:4px}
+.vs td{font:400 23px/1.35 var(--body)}
+.vs td:first-child{font:700 20px/1.35 var(--display);color:var(--muted);width:220px}
+.vs th:nth-child(2),.vs td:nth-child(2){background:var(--blue-soft)}
 /* slide 5 */
 .panel{position:absolute;border:2px solid var(--rule);border-radius:22px;padding:22px 26px;background:#fff}
 .panel h4{margin:0 0 6px;font:700 26px/1.1 var(--display)}
@@ -354,14 +366,14 @@ svg [data-in],svg [data-out]{transform-box:fill-box;transform-origin:var(--o,cen
 </section>
 
 <!-- ================= SLIDE 4: RDD ================= -->
-<section class="slide" data-key="rdd" data-beats="4">
+<section class="slide" data-key="rdd" data-beats="8">
   <div class="plabel"><b>4</b>Does the line give us a fair test? <span style="font-weight:500">Tasks 2 and 3</span></div>
   <svg class="abs" style="left:0;top:0" width="1600" height="900" data-in="1" data-out="2"><line x1="800" y1="150" x2="800" y2="700" stroke="var(--ink)" stroke-width="3" stroke-dasharray="9 7"/><text x="800" y="138" text-anchor="middle" style="font:800 34px var(--display);fill:var(--blue)">65</text></svg>
-  <div class="twin s" data-in="1" data-out="2" style="left:300px;--from:translateX(-40px)">
+  <div class="twin s" data-in="1" data-out="2" style="left:300px;--from:translateX(-40px);--to:scale(.3)">
     <h4>Sitapur</h4><div class="big" style="color:var(--amber)">Score 64</div>
     <dl><dt>Poverty</dt><dd>70</dd><dt>Connectivity</dt><dd>66.7</dd><dt>Population</dt><dd>45</dd><dt>Centre</dt><dd style="color:var(--amber)">✗ no</dd></dl>
   </div>
-  <div class="twin r" data-in="1" data-out="2" style="left:860px;--from:translateX(40px)">
+  <div class="twin r" data-in="1" data-out="2" style="left:860px;--from:translateX(40px);--to:scale(.3)">
     <h4>Rampur</h4><div class="big blue">Score 66</div>
     <dl><dt>Poverty</dt><dd>72</dd><dt>Connectivity</dt><dd>70</dd><dt>Population</dt><dd>45</dd><dt>Centre</dt><dd class="blue">✓ yes</dd></dl>
   </div>
@@ -370,19 +382,25 @@ svg [data-in],svg [data-out]{transform-box:fill-box;transform-origin:var(--o,cen
   <div class="eq" data-in="1" data-out="2" style="top:432px;transition-delay:.9s">=</div>
   <div class="abs t26" data-in="1" data-out="2" style="left:0;right:0;top:680px;text-align:center;transition-delay:1.2s">Near the line, which side a GP lands on is close to luck. <b>The cutoff works like a coin flip.</b></div>
   <svg id="rdd4" class="abs" style="left:0;top:0" width="1600" height="900" viewBox="0 0 1600 900"></svg>
+  <div class="abs" data-in="6" data-out="7" style="left:1220px;top:150px;width:330px;transition-delay:1.4s">
+    <div style="font:800 44px/1.05 var(--display)"><span class="blue">Regression</span><br>Discontinuity</div>
+    <div class="t22" style="margin-top:24px"><b>Regression:</b> the smart-average lines through the dots.</div>
+    <div class="t22" style="margin-top:14px"><b>Discontinuity:</b> the break where the two lines don't meet, at 65.</div>
+    <div class="t22 muted" style="margin-top:14px">The size of the break is the centre's effect. No break, no effect.</div>
+  </div>
   <div class="spec">
-    <div class="row" data-in="3"><svg width="40" height="40"><line x1="2" y1="34" x2="38" y2="34" stroke="var(--ink)" stroke-width="3"/><polyline points="32,28 38,34 32,40" fill="none" stroke="var(--ink)" stroke-width="3"/></svg><div><b>Running variable</b><span>Vulnerability score, 0–100</span></div></div>
-    <div class="row" data-in="3" style="transition-delay:.15s"><svg width="40" height="40"><line x1="20" y1="2" x2="20" y2="38" stroke="var(--ink)" stroke-width="3" stroke-dasharray="6 4"/></svg><div><b>Cutoff</b><span>65</span></div></div>
-    <div class="row" data-in="3" style="transition-delay:.3s"><svg width="40" height="40"><rect x="10" y="10" width="20" height="20" fill="var(--blue)"/></svg><div><b>Treatment</b><span>A functioning centre in the GP</span></div></div>
-    <div class="row" data-in="3" style="transition-delay:.45s"><svg width="40" height="40"><line x1="6" y1="2" x2="6" y2="38" stroke="var(--ink)" stroke-width="3"/><polyline points="0,8 6,2 12,8" fill="none" stroke="var(--ink)" stroke-width="3"/></svg><div><b>Outcomes</b><span>1. Approved ÷ submitted<br>2. Eligible not enrolled ÷ all eligible</span></div></div>
-    <div data-in="3" style="transition-delay:.6s;display:flex;flex-direction:column;gap:10px;margin-top:4px"><span class="chip" style="font-size:18px">Unit: GP (cluster-level)</span><span class="chip" style="font-size:18px">Time: year before vs after</span></div>
+    <div class="row" data-in="7"><svg width="40" height="40"><line x1="2" y1="34" x2="38" y2="34" stroke="var(--ink)" stroke-width="3"/><polyline points="32,28 38,34 32,40" fill="none" stroke="var(--ink)" stroke-width="3"/></svg><div><b>Running variable</b><span>Vulnerability score, 0–100</span></div></div>
+    <div class="row" data-in="7" style="transition-delay:.15s"><svg width="40" height="40"><line x1="20" y1="2" x2="20" y2="38" stroke="var(--ink)" stroke-width="3" stroke-dasharray="6 4"/></svg><div><b>Cutoff</b><span>65</span></div></div>
+    <div class="row" data-in="7" style="transition-delay:.3s"><svg width="40" height="40"><rect x="10" y="10" width="20" height="20" fill="var(--blue)"/></svg><div><b>Treatment</b><span>A functioning centre in the GP</span></div></div>
+    <div class="row" data-in="7" style="transition-delay:.45s"><svg width="40" height="40"><line x1="6" y1="2" x2="6" y2="38" stroke="var(--ink)" stroke-width="3"/><polyline points="0,8 6,2 12,8" fill="none" stroke="var(--ink)" stroke-width="3"/></svg><div><b>Outcomes</b><span>1. Eligible not enrolled ÷ all eligible (shown)<br>2. Approved ÷ submitted</span></div></div>
+    <div data-in="7" style="transition-delay:.6s;display:flex;flex-direction:column;gap:10px;margin-top:4px"><span class="chip" style="font-size:18px">Unit: GP (cluster-level)</span><span class="chip" style="font-size:18px">Time: year before vs after</span></div>
   </div>
   <div class="strip">
-    <span class="chip" data-in="4"><span class="tick">✓</span>Enough GPs near 65</span>
-    <span class="chip" data-in="4" style="transition-delay:.15s"><span class="tick">✓</span>No score manipulation</span>
-    <span class="chip" data-in="4" style="transition-delay:.3s"><span class="tick">✓</span>Nothing else switches on at 65</span>
-    <span class="chip" data-in="4" style="transition-delay:.45s"><span class="tick">✓</span>Rule followed (else fuzzy RDD)</span>
-    <div class="t22 muted" data-in="4" style="transition-delay:.8s;width:100%;margin-top:8px">The estimate is local: it tells us the effect for GPs near 65 (LATE), not for the very poorest.</div>
+    <span class="chip" data-in="8"><span class="tick">✓</span>Enough GPs near 65</span>
+    <span class="chip" data-in="8" style="transition-delay:.15s"><span class="tick">✓</span>No score manipulation</span>
+    <span class="chip" data-in="8" style="transition-delay:.3s"><span class="tick">✓</span>Nothing else switches on at 65</span>
+    <span class="chip" data-in="8" style="transition-delay:.45s"><span class="tick">✓</span>Rule followed (else fuzzy RDD)</span>
+    <div class="t22 muted" data-in="8" style="transition-delay:.8s;width:100%;margin-top:8px">The estimate is local: it tells us the effect for GPs near 65 (LATE), not for the very poorest.</div>
   </div>
 </section>
 
@@ -398,7 +416,7 @@ svg [data-in],svg [data-out]{transform-box:fill-box;transform-origin:var(--o,cen
     <h4>Balance check: alike last year?</h4>
     <table class="bal">
       <tr><th></th><th style="color:var(--amber)">60–64.9<br><span>no centre</span></th><th style="color:var(--blue)">65–70<br><span>centre</span></th></tr>
-      <tr><td>Approval rate</td><td>57%</td><td>58%</td></tr>
+      <tr><td>Families left out</td><td>31%</td><td>32%</td></tr>
       <tr><td>Population</td><td>4,900</td><td>5,000</td></tr>
       <tr><td>Km to bank</td><td>12.1</td><td>11.8</td></tr>
     </table>
@@ -422,24 +440,24 @@ svg [data-in],svg [data-out]{transform-box:fill-box;transform-origin:var(--o,cen
   <!-- slope vs step -->
   <div class="panel" data-in="4" data-out="5" style="left:160px;top:130px;width:620px;height:460px">
     <h4>The score's own effect: smooth</h4>
-    <svg width="560" height="360"><line x1="30" y1="320" x2="540" y2="320" stroke="var(--rule)" stroke-width="2"/><line x1="40" y1="90" x2="530" y2="270" stroke="var(--amber)" stroke-width="7" stroke-linecap="round" class="draw" pathLength="1" data-in="4" style="--from:none;transition-delay:.3s"/><text x="40" y="350" style="font:400 19px var(--body);fill:var(--muted)">score →</text></svg>
+    <svg width="560" height="360"><line x1="30" y1="320" x2="540" y2="320" stroke="var(--rule)" stroke-width="2"/><line x1="40" y1="270" x2="530" y2="90" stroke="var(--amber)" stroke-width="7" stroke-linecap="round" class="draw" pathLength="1" data-in="4" style="--from:none;transition-delay:.3s"/><text x="40" y="350" style="font:400 19px var(--body);fill:var(--muted)">score →</text></svg>
   </div>
   <div class="panel" data-in="4" data-out="5" style="left:820px;top:130px;width:620px;height:460px;transition-delay:.4s">
-    <h4>The centre's effect: a jump</h4>
+    <h4>The centre's effect: a break</h4>
     <svg width="560" height="360"><line x1="30" y1="320" x2="540" y2="320" stroke="var(--rule)" stroke-width="2"/>
       <line x1="285" y1="30" x2="285" y2="330" stroke="var(--ink)" stroke-width="3" stroke-dasharray="9 7"/><text x="295" y="50" style="font:800 26px var(--display);fill:var(--blue)">65</text>
-      <line x1="40" y1="90" x2="285" y2="180" stroke="var(--amber)" stroke-width="7" stroke-linecap="round"/>
-      <line x1="285" y1="90" x2="530" y2="180" stroke="var(--blue)" stroke-width="7" stroke-linecap="round" data-in="4" style="--from:translateY(90px);transition-delay:1.1s"/>
-      <g data-in="4" style="transition-delay:1.6s;--from:none"><line x1="262" y1="92" x2="262" y2="178" stroke="var(--ink)" stroke-width="3"/><text x="252" y="142" text-anchor="end" style="font:700 22px var(--display)">jump</text></g>
+      <line x1="40" y1="270" x2="285" y2="180" stroke="var(--amber)" stroke-width="7" stroke-linecap="round"/>
+      <line x1="285" y1="270" x2="530" y2="180" stroke="var(--blue)" stroke-width="7" stroke-linecap="round" data-in="4" style="--from:translateY(-90px);transition-delay:1.1s"/>
+      <g data-in="4" style="transition-delay:1.6s;--from:none"><line x1="262" y1="182" x2="262" y2="268" stroke="var(--ink)" stroke-width="3"/><text x="252" y="232" text-anchor="end" style="font:700 22px var(--display)">drop</text></g>
       <text x="40" y="350" style="font:400 19px var(--body);fill:var(--muted)">score →</text></svg>
   </div>
-  <div class="abs" data-in="4" data-out="5" style="left:0;right:0;top:640px;text-align:center;font:700 36px/1.3 var(--display);transition-delay:2s">The score affecting welfare doesn't break RDD.<br><span class="blue">Only a false jump at 65 would.</span></div>
+  <div class="abs" data-in="4" data-out="5" style="left:0;right:0;top:640px;text-align:center;font:700 36px/1.3 var(--display);transition-delay:2s">The score affecting welfare doesn't break RDD.<br><span class="blue">Only a false break at 65 would.</span></div>
   <!-- threat cards -->
   <div id="flips"></div>
 </section>
 
 <!-- ================= SLIDE 6: DiD + close ================= -->
-<section class="slide" data-key="did" data-beats="5">
+<section class="slide" data-key="did" data-beats="6">
   <div class="plabel"><b>6</b>What if the line fails? <span style="font-weight:500">Task 6</span></div>
   <svg class="abs" style="left:0;top:0" width="1600" height="900" viewBox="0 0 1600 900" data-out="4" id="didsvg">
     <g data-in="1" style="--from:none">
@@ -481,16 +499,28 @@ svg [data-in],svg [data-out]{transform-box:fill-box;transform-origin:var(--o,cen
     <div style="display:flex;gap:14px;align-items:center;font:700 26px/1.25 var(--display)"><span class="tick" style="width:36px;height:36px;font-size:19px;flex:none">✓</span>Parallel trends: both groups moved together before the centres</div>
     <div class="t20 muted" style="margin:10px 0 0 50px">Placebo: a fake start date shows no effect</div>
   </div>
+  <!-- why DiD over RDD -->
+  <div class="abs" data-in="4" data-out="5" style="left:80px;top:100px;width:1440px">
+    <div style="font:700 40px/1.15 var(--display)">Why would we ever choose DiD over RDD?</div>
+    <table class="vs">
+      <tr><th></th><th>Regression Discontinuity<span>our main design</span></th><th>Difference-in-Differences<span>our backup</span></th></tr>
+      <tr data-in="4" style="--from:none;transition-delay:.3s"><td>What it compares</td><td>GPs just either side of 65, in the same year</td><td>How much centre GPs improved vs how much similar GPs improved</td></tr>
+      <tr data-in="4" style="--from:none;transition-delay:.6s"><td>Why it's fair</td><td>Near-twins by design: the line does the work</td><td>Rests on an assumption: both groups were moving in parallel</td></tr>
+      <tr data-in="4" style="--from:none;transition-delay:.9s"><td>What it tells us</td><td>The effect for GPs near 65 only</td><td>The effect across all 100 centre GPs</td></tr>
+      <tr data-in="4" style="--from:none;transition-delay:1.2s"><td>When it breaks</td><td>Scores fudged, rule ignored, too few GPs near 65</td><td>Groups were already on different paths</td></tr>
+    </table>
+    <div class="t26" data-in="4" style="margin-top:24px;transition-delay:1.6s"><b>So:</b> we lead with RDD because its fairness comes from the design itself. We switch to DiD if the line can't be trusted, or if we need the effect for every centre, not just those near 65.</div>
+  </div>
   <!-- guidelines -->
   <div class="guide">
-    <div class="g" data-in="4" data-out="5"><span class="tick">✓</span><div><b>Operationalised the question</b><span>Score indicators per GP, two outcomes, year before and after</span></div></div>
-    <div class="g" data-in="4" data-out="5" style="transition-delay:.2s"><span class="tick">✓</span><div><b>Treatment and counterfactual</b><span>GPs at 65–70 vs GPs at 60–64.9</span></div></div>
-    <div class="g" data-in="4" data-out="5" style="transition-delay:.4s"><span class="tick">✓</span><div><b>Identification and estimation</b><span>Regression Discontinuity at 65; household survey of about 640 households per side</span></div></div>
-    <div class="g" data-in="4" data-out="5" style="transition-delay:.6s"><span class="tick">✓</span><div><b>Assumptions and validity checks</b><span>Density test, balance check, year-before test, placebo cutoffs</span></div></div>
-    <div class="g" data-in="4" data-out="5" style="transition-delay:.8s"><span class="tick">✓</span><div><b>Constraints and alternatives</b><span>Spillover, outdated scores, a local estimate; Difference-in-Differences as backup</span></div></div>
+    <div class="g" data-in="5" data-out="6"><span class="tick">✓</span><div><b>Operationalised the question</b><span>Score indicators per GP, two outcomes, year before and after</span></div></div>
+    <div class="g" data-in="5" data-out="6" style="transition-delay:.2s"><span class="tick">✓</span><div><b>Treatment and counterfactual</b><span>GPs at 65–70 vs GPs at 60–64.9</span></div></div>
+    <div class="g" data-in="5" data-out="6" style="transition-delay:.4s"><span class="tick">✓</span><div><b>Identification and estimation</b><span>Regression Discontinuity at 65; household survey of about 640 households per side</span></div></div>
+    <div class="g" data-in="5" data-out="6" style="transition-delay:.6s"><span class="tick">✓</span><div><b>Assumptions and validity checks</b><span>Density test, balance check, year-before test, placebo cutoffs</span></div></div>
+    <div class="g" data-in="5" data-out="6" style="transition-delay:.8s"><span class="tick">✓</span><div><b>Constraints and alternatives</b><span>Spillover, outdated scores, a local estimate; Difference-in-Differences as backup</span></div></div>
   </div>
   <!-- close -->
-  <svg class="abs" style="left:280px;top:110px" width="1040" height="420" viewBox="0 0 1040 420" data-in="5" data-out="99">
+  <svg class="abs" style="left:280px;top:110px" width="1040" height="420" viewBox="0 0 1040 420" data-in="6" data-out="99">
     <rect x="0" y="110" width="220" height="200" rx="20" fill="#fff" stroke="var(--ink)" stroke-width="2.5"/>
     <polygon points="60,180 110,150 160,180" fill="none" stroke="var(--ink)" stroke-width="3.5" stroke-linejoin="round"/>
     <rect x="72" y="186" width="10" height="44" fill="var(--ink)"/><rect x="94" y="186" width="10" height="44" fill="var(--ink)"/><rect x="116" y="186" width="10" height="44" fill="var(--ink)"/><rect x="138" y="186" width="10" height="44" fill="var(--ink)"/>
@@ -504,8 +534,8 @@ svg [data-in],svg [data-out]{transform-box:fill-box;transform-origin:var(--o,cen
     <g id="cpeople"></g>
     <text x="930" y="326" text-anchor="middle" style="font:700 22px var(--display)">Households</text>
   </svg>
-  <div class="abs" data-in="5" style="left:160px;right:160px;top:590px;text-align:center;font:700 46px/1.25 var(--display);transition-delay:.8s;text-wrap:balance">A line drawn for budget reasons gives us a fair test of whether the centres work.</div>
-  <div class="abs t26 muted" data-in="5" style="left:0;right:0;top:760px;text-align:center;transition-delay:1.6s">Thank you</div>
+  <div class="abs" data-in="6" style="left:160px;right:160px;top:590px;text-align:center;font:700 46px/1.25 var(--display);transition-delay:.8s;text-wrap:balance">A line drawn for budget reasons gives us a fair test of whether the centres work.</div>
+  <div class="abs t26 muted" data-in="6" style="left:0;right:0;top:760px;text-align:center;transition-delay:1.6s">Thank you</div>
 </section>
 
 <div id="bar"></div>
@@ -559,26 +589,31 @@ const NOTES={
   "Each indicator is rescaled 0 to 100 and weighted; the weights are our stated assumption. Rampur scores 66, Sitapur 64. Almost identical.",
   "About 1,000 GPs, money for 100 centres. Line them up by need, hand out centres until the money runs out: the 100th GP scores about 65. That's our threshold.",
   "Operationally 65 is defensible: it's what the budget buys, it's transparent, it targets need, and it's fixed after scores are computed, so nobody can game it."],
- rdd:["Sitapur and Rampur are practically twins; the only real difference is the centre. Near the line, the cutoff works like a coin flip. Like a pension at 60.",
-  "So yes, the threshold supports a causal design: RDD. The gentle slope is vulnerability itself. A sudden jump right at 65 can only be the centre.",
-  "Task 3: running variable is the score, cutoff is 65, treatment is a working centre, and two outcomes: approval rate and exclusion error rate.",
-  "This holds only if there are enough GPs near the line, no manipulation, nothing else at 65, and the rule is followed. And it's a local estimate, for GPs near 65."],
- cmp:["Task 4: we compare only GPs close to the line, 60 to 64.9 against 65 to 70. A GP at 90 and one at 20 differ in poverty, not just centres.",
+ rdd:["Look at what the line at 65 accidentally gives us. Sitapur scores 64 and gets no centre; Rampur scores 66 and gets one. Their poverty, connectivity and population are almost identical; the only real difference is the centre. Near the line, which side a village lands on is close to luck, so the cutoff works like a coin flip. Like a pension at 60: someone who just turned 60 and someone about to are basically the same person.",
+  "Now imagine doing this for every village, not just two. Here's what the data might look like a year after the centres open; each dot is a GP. Even without any centres, there's a pattern: the more vulnerable a GP, the more eligible families get left out. That upward slope is poverty doing its thing.",
+  "Here's our line at 65. Every GP above it got a centre, so those dots turn into blue squares. If our hypothesis is right, they should leave out fewer families, and they drop. You can sort of see a change, but the dots are scattered everywhere. It's hard to say exactly where it changes, or by how much.",
+  "So we use a regression, which is basically a smart average. It lets me say: a typical GP scoring 50 leaves out about this share of eligible families. One clear number instead of a cloud of dots.",
+  "Do that smart average all the way along, separately on each side of 65, and the points line up into two lines. That's the regression: one line for GPs without centres, one for GPs with them.",
+  "And look: the trend is smooth everywhere, except right at 65, where it suddenly drops. That break is the discontinuity, and its size is the centre's effect. Because GPs at 64 and 66 are near-twins, like Sitapur and Rampur, nothing else can explain it. If there were no break, the centres didn't work. So, Task 2: yes, the threshold supports a causal design, Regression Discontinuity.",
+  "Task 3, naming the parts on this graph. The running variable is the vulnerability score along the bottom. The cutoff is 65. The treatment is a working centre in the GP: the blue squares. The outcomes go on the vertical axis: exclusion errors, shown here, and the approval rate. Centres go to whole GPs, so assignment is cluster-level, and we measure the year before and the year after.",
+  "This only holds under four conditions: enough GPs near 65, nobody fiddling their score, no other scheme starting at 65, and the rule actually being followed. If the rule leaks, we use a fuzzy RDD. And it's a local estimate: it tells us the effect for GPs near 65, not for the very poorest."],
+ cmp:["Task 4. We don't compare every centre village with every other village: a GP at 90 and one at 20 differ in poverty, not just in centres. So we compare only GPs close to the line, 60 to 64.9 without centres against 65 to 70 with them. Everything outside the band is faded out.",
   "Before looking at results, we check both sides looked the same last year. They did, so it's a fair comparison.",
   "We also leave out comparison GPs right next to a centre, because their families could just walk over.",
-  "Task 5: poverty and connectivity do affect welfare, but smoothly. RDD absorbs that slope. Only something else jumping at 65 would compromise the design.",
-  "So what could fake a jump? Six possibilities. Let's take them one at a time.",
+  "Task 5 asks: what if the score itself affects welfare access? It does: poverty and connectivity leave families out on their own. But that effect is smooth, a ramp. It doesn't change suddenly between 64 and 66, and the regression lines absorb it. The design is only compromised if something else causes a break right at 65.",
+  "So what could fake a break at 65? Six possibilities. Let's take them one at a time.",
   "Manipulation: officials push favoured GPs over 65. We count GPs at each score; a pile-up just above 65 is a red flag.",
   "Another scheme uses the same cutoff. We list every scheme using the score and exclude or control for any at 65.",
   "The 65+ side was already ahead. We run the same test on the year before: there should be no jump.",
   "Chance. We try fake cutoffs at 55 and 75: no jump should appear there.",
   "Spillover: comparison families use a nearby centre. We drop neighbouring GPs.",
   "Rule not followed or outdated scores. We use a fuzzy RDD and report the effect of eligibility and of actually having a centre."],
- did:["If RDD fails, our backup is Difference-in-Differences. Centre GPs went 40 to 60, up 20. Similar GPs without centres went 45 to 50, up 5.",
-  "That +5 is what the year did to everyone. Subtract it: the centre's effect is 15 points. We compare improvements, not levels.",
-  "Key assumption: parallel trends. We check it with earlier years of PDS and pension records, and a placebo start date.",
-  "Against the five guidelines, here's how each is covered.",
-  "The government drew that line to ration its budget. We're using the same line to find out, fairly, whether the centres work. Thank you."]
+ did:["Task 6. If the line can't be trusted, our backup is Difference-in-Differences, using the before and after data we're given, here for approvals. Centre GPs went from 40 to 60 percent, up 20. Similar GPs without centres, scoring 55 to 64.9 in the same districts, went from 45 to 50, up 5.",
+  "That +5 is what the year did to everyone: enrolment drives, elections, new rules. Subtract it, and the centre's own effect is 15 points. We compare improvements, not levels, so it doesn't matter that the two groups started in different places.",
+  "The key assumption is parallel trends: without centres, both groups would have moved by the same amount. We check it by going back two or three years in the PDS and pension records; if they moved together before, it's believable they'd have kept doing so. And a placebo: pretend the centres opened a year earlier, and there should be no effect.",
+  "So why would we ever choose DiD over RDD? RDD compares near-twins at one moment, and its fairness comes from the design itself. DiD compares how much groups improved, and its fairness rests on an assumption. But DiD covers all 100 centre GPs, while RDD only tells us about GPs near 65. So we lead with RDD, and switch to DiD if the line breaks: scores fudged, the rule ignored, too few GPs near 65. Or if we need the effect for every centre.",
+  "Against the five guidelines: we operationalised the question, built a treatment and counterfactual, chose an identification strategy, checked our assumptions, and named our constraints and a backup.",
+  "The government drew that line to ration its budget. We're using the same line to find out, fairly, whether the centres actually get people their welfare. Thank you."]
 };
 
 /* ---------- engine ---------- */
@@ -733,18 +768,19 @@ HOOK.score=(s,b,anim)=>{
 
 /* ================= RDD data + plots ================= */
 const r4=rng(65), g4=()=>{let u=r4()||1e-9,v=r4();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)};
-const PTS=[];for(let i=0;i<130;i++){const x=40+r4()*50;PTS.push({x,y:70-.45*(x-40)+(x>=65?12:0)+g4()*3.4})}
+const EFF=11;const PTS=[];for(let i=0;i<130;i++){const x=40+r4()*50;const y0=22+.4*(x-40)+g4()*3.2;PTS.push({x,y0,y:y0-(x>=65?EFF:0)})}
 PTS.sort((a,b)=>a.x-b.x);
 function fitL(a){const n=a.length;if(n<2)return{a:0,b:0};let mx=0,my=0;a.forEach(p=>{mx+=p.x;my+=p.y});mx/=n;my/=n;let sxy=0,sxx=0;a.forEach(p=>{sxy+=(p.x-mx)*(p.y-my);sxx+=(p.x-mx)**2});const b=sxx?sxy/sxx:0;return{a:my-b*mx,b}}
 function plot(svg,X0,X1,Y0,Y1,opt){
-  const xs=v=>X0+(v-40)/50*(X1-X0), ys=v=>Y1-(v-20)/60*(Y1-Y0);
+  const YL=opt.ylo??20, YH=opt.yhi??80, TK=opt.ticks||[20,40,60,80];
+  const xs=v=>X0+(v-40)/50*(X1-X0), ys=v=>Y1-(v-YL)/(YH-YL)*(Y1-Y0);
   const o={xs,ys,X0,X1,Y0,Y1};
   o.band=E("rect",{x:xs(65),y:Y0,width:0,height:Y1-Y0,fill:"var(--blue-soft)"},svg);
   const ax=E("g",opt.anim?{"data-in":"2",style:"--from:none"}:{},svg);
   E("line",{x1:X0,x2:X1,y1:Y1,y2:Y1,stroke:"var(--ink)","stroke-width":2},ax);
   E("line",{x1:X0,x2:X0,y1:Y0,y2:Y1,stroke:"var(--ink)","stroke-width":2},ax);
   for(let v=40;v<=90;v+=10){const t=E("text",{x:xs(v),y:Y1+32,"text-anchor":"middle",style:"font:400 20px var(--body);fill:var(--muted)"},ax);t.textContent=v}
-  o.yt=[];[20,40,60,80].forEach(v=>{E("line",{x1:X0,x2:X1,y1:ys(v),y2:ys(v),stroke:"var(--rule)","stroke-width":1},ax);const t=E("text",{x:X0-12,y:ys(v)+7,"text-anchor":"end",style:"font:400 20px var(--body);fill:var(--muted)"},ax);t.textContent=v+"%";o.yt.push([t,v])});
+  o.yt=[];TK.forEach(v=>{E("line",{x1:X0,x2:X1,y1:ys(v),y2:ys(v),stroke:"var(--rule)","stroke-width":1},ax);const t=E("text",{x:X0-12,y:ys(v)+7,"text-anchor":"end",style:"font:400 20px var(--body);fill:var(--muted)"},ax);t.textContent=v+"%";o.yt.push([t,v])});
   E("line",{x1:xs(65),x2:xs(65),y1:Y0-44,y2:Y1+6,stroke:"var(--ink)","stroke-width":3,"stroke-dasharray":"9 7"},ax);
   const l65=E("text",{x:xs(65)+10,y:Y0-18,style:"font:800 30px var(--display);fill:var(--blue)"},ax);l65.textContent="65";
   o.pg=E("g",{},svg);
@@ -772,34 +808,64 @@ function plot(svg,X0,X1,Y0,Y1,opt){
   return o;
 }
 /* slide 4 */
-const P4=plot(document.getElementById("rdd4"),200,1160,140,580,{anim:true});
-P4.setFit(25);
-P4.pg.style.transformBox="view-box"; P4.pg.style.transformOrigin=`0px ${(140+580)/2}px`; P4.pg.style.transition="transform 1s cubic-bezier(.6,0,.2,1)";
 const svg4=document.getElementById("rdd4");
-const lbW=E("g",{"data-in":"2",style:"--from:none;transition-delay:1.9s"},svg4);
-const lead=E("line",{x1:P4.xs(65)-14,x2:P4.xs(65)-14,y1:P4.ys(P4.yl),y2:P4.ys(44),stroke:"var(--ink)","stroke-width":1.5,"stroke-dasharray":"3 4"},P4.bw);
-const lb=E("text",{x:P4.xs(65)-26,y:0,"text-anchor":"end",style:"font:700 24px var(--display);transition:transform 1s cubic-bezier(.6,0,.2,1)"},lbW);
-lb.innerHTML='<tspan>jump =</tspan><tspan x="'+(P4.xs(65)-26)+'" dy="28">the effect</tspan>';
-const midY=P4.ys(42);
-function posLb(m){const y=m?(140+580)-midY-30:midY; lb.style.transform=`translateY(${y}px)`}
-posLb(false);
-const xT1=E("text",{x:680,y:660,"text-anchor":"middle","data-in":"2","data-out":"3",style:"font:400 21px var(--body);fill:var(--muted)"},svg4);xT1.textContent="vulnerability score";
-const xT2=E("text",{x:680,y:660,"text-anchor":"middle","data-in":"3",style:"font:700 22px var(--display)"},svg4);xT2.textContent="Running variable: vulnerability score (0–100)";
-const yT=E("text",{x:0,y:0,"text-anchor":"middle",transform:"translate(110 360) rotate(-90)",style:"font:400 21px var(--body);fill:var(--muted)"},svg4);yT.textContent="applications approved";
-const yWrap=E("g",{"data-in":"2",style:"--from:none"},svg4); yWrap.appendChild(yT);
+const X0=200,X1=1160,Y0=140,Y1=580, xs4=v=>X0+(v-40)/50*(X1-X0), ys4=v=>Y1-(v-10)/40*(Y1-Y0);
+const ax4=E("g",{"data-in":"2",style:"--from:none"},svg4);
+E("line",{x1:X0,x2:X1,y1:Y1,y2:Y1,stroke:"var(--ink)","stroke-width":2},ax4);
+E("line",{x1:X0,x2:X0,y1:Y0,y2:Y1,stroke:"var(--ink)","stroke-width":2},ax4);
+for(let v=40;v<=90;v+=10){const t=E("text",{x:xs4(v),y:Y1+32,"text-anchor":"middle",style:"font:400 20px var(--body);fill:var(--muted)"},ax4);t.textContent=v}
+[10,20,30,40,50].forEach(v=>{E("line",{x1:X0,x2:X1,y1:ys4(v),y2:ys4(v),stroke:"var(--rule)","stroke-width":1},ax4);const t=E("text",{x:X0-12,y:ys4(v)+7,"text-anchor":"end",style:"font:400 20px var(--body);fill:var(--muted)"},ax4);t.textContent=v+"%"});
+const xT1=E("text",{x:680,y:660,"text-anchor":"middle","data-in":"2","data-out":"7",style:"font:400 21px var(--body);fill:var(--muted)"},svg4);xT1.textContent="vulnerability score →";
+const xT2=E("text",{x:680,y:660,"text-anchor":"middle","data-in":"7",style:"font:700 22px var(--display)"},svg4);xT2.textContent="Running variable: vulnerability score (0–100)";
+const yG1=E("g",{"data-in":"2","data-out":"7",style:"--from:none"},svg4);const yT1=E("text",{"text-anchor":"middle",transform:"translate(110 360) rotate(-90)",style:"font:400 21px var(--body);fill:var(--muted)"},yG1);yT1.textContent="eligible families left out (%)";
+const yG2=E("g",{"data-in":"7",style:"--from:none"},svg4);const yT2=E("text",{"text-anchor":"middle",transform:"translate(110 360) rotate(-90)",style:"font:700 22px var(--display)"},yG2);yT2.textContent="Outcome: eligible families left out (%)";
+const cut4=E("g",{"data-in":"3",style:"--from:scaleY(0);--o:bottom center"},svg4);
+E("line",{x1:xs4(65),x2:xs4(65),y1:Y0-44,y2:Y1+6,stroke:"var(--ink)","stroke-width":3,"stroke-dasharray":"9 7"},cut4);
+const c65=E("text",{x:xs4(65)+10,y:Y0-18,style:"font:800 30px var(--display);fill:var(--blue)"},cut4);c65.textContent="65";
+const pg4=E("g",{id:"pg4"},svg4), pts4=[];
+function addPt(x,y0,y,big,i){
+  const outer=E("g",{"data-in":"2",style:`--from:scale(0);transition-delay:${big?900:i*5}ms`},pg4);
+  const inner=E("g",{class:"pt"},outer);
+  E("circle",{cx:xs4(x),cy:ys4(y0),r:big?11:6.5,fill:"#fff",stroke:"var(--amber)","stroke-width":big?4:2.5},inner);
+  const w=big?22:12; E("rect",{x:xs4(x)-w/2,y:ys4(y0)-w/2,width:w,height:w,fill:"var(--blue)"},inner);
+  pts4.push({inner,x,treat:x>=65,dy:ys4(y)-ys4(y0)}); return inner;
+}
+PTS.forEach((p,i)=>addPt(p.x,p.y0,p.y,false,i));
+const SIT=addPt(64,31.6,31.6,true), RAM=addPt(66,32.2,32.2-EFF,true);
+const tS=E("text",{x:xs4(64)-18,y:ys4(31.6)-22,"text-anchor":"end",class:"halo",style:"font:700 22px var(--display);fill:var(--amber)"},SIT);tS.textContent="Sitapur 64";
+const tR=E("text",{x:xs4(66)+18,y:ys4(32.2)-22,class:"halo",style:"font:700 22px var(--display);fill:var(--blue)"},RAM);tR.textContent="Rampur 66";
+const LP=PTS.filter(p=>p.x<65), RP=PTS.filter(p=>p.x>=65), fl4=fitL(LP.map(p=>({x:p.x,y:p.y}))), fr4=fitL(RP.map(p=>({x:p.x,y:p.y})));
+const avgAt=(s,side)=>{const a=side.filter(p=>Math.abs(p.x-s)<=3);return a.reduce((t,p)=>t+p.y,0)/a.length};
+const v50=avgAt(50,LP);
+E("rect",{x:xs4(47),y:Y0,width:xs4(53)-xs4(47),height:Y1-Y0,fill:"var(--blue-soft)","data-in":"4","data-out":"5",style:"--from:none"},svg4).parentNode.insertBefore(svg4.lastChild,svg4.firstChild);
+const sm=E("g",{"data-in":"4",style:"--from:scale(0);transition-delay:.4s"},svg4);
+E("circle",{cx:xs4(50),cy:ys4(v50),r:12,fill:"var(--ink)"},sm);
+const cl=E("g",{"data-in":"4","data-out":"5",style:"--from:none;transition-delay:.8s"},svg4);
+E("line",{x1:xs4(50),y1:ys4(v50)-16,x2:xs4(50),y2:Y0+70,stroke:"var(--ink)","stroke-width":2},cl);
+const ct=E("text",{x:xs4(50)-150,y:Y0+30,class:"halo",style:"font:700 24px var(--display)"},cl);ct.textContent=`A typical GP scoring 50 leaves out ~${Math.round(v50)}%`;
+const ct2=E("text",{x:xs4(50)-150,y:Y0+58,class:"halo",style:"font:400 20px var(--body);fill:var(--muted)"},cl);ct2.textContent="the smart average of the dots around it";
+const smG=E("g",{},svg4);
+for(let s=41;s<=89;s++){ if(s===65||s===50) continue; const side=s<65?LP:RP; const v=avgAt(s,side); if(!isFinite(v)) continue;
+  E("circle",{cx:xs4(s),cy:ys4(v),r:6,fill:"var(--ink)","data-in":"5","data-out":"6",style:`--from:scale(0);transition-delay:${(s-41)*35}ms`},smG); }
+const yl4=fl4.a+fl4.b*65, yr4=fr4.a+fr4.b*65;
+E("line",{x1:xs4(40),y1:ys4(fl4.a+fl4.b*40),x2:xs4(65),y2:ys4(yl4),stroke:"var(--amber)","stroke-width":6,"stroke-linecap":"round",class:"draw",pathLength:1,"data-in":"5",style:"--from:none;transition-delay:1.9s"},svg4);
+E("line",{x1:xs4(65),y1:ys4(yr4),x2:xs4(90),y2:ys4(fr4.a+fr4.b*90),stroke:"var(--blue)","stroke-width":6,"stroke-linecap":"round",class:"draw",pathLength:1,"data-in":"5",style:"--from:none;transition-delay:2.3s"},svg4);
+const br=E("g",{"data-in":"6",style:"--from:none;transition-delay:.3s"},svg4);
+const bx=xs4(65)-16; E("line",{x1:bx,x2:bx,y1:ys4(yl4),y2:ys4(yr4),stroke:"var(--ink)","stroke-width":4},br);
+E("line",{x1:bx-8,x2:bx+8,y1:ys4(yl4),y2:ys4(yl4),stroke:"var(--ink)","stroke-width":4},br);E("line",{x1:bx-8,x2:bx+8,y1:ys4(yr4),y2:ys4(yr4),stroke:"var(--ink)","stroke-width":4},br);
+const bt=E("text",{x:bx-16,y:(ys4(yl4)+ys4(yr4))/2-4,"text-anchor":"end",class:"halo",style:"font:800 26px var(--display)"},br);bt.textContent="drop =";
+const bt2=E("text",{x:bx-16,y:(ys4(yl4)+ys4(yr4))/2+26,"text-anchor":"end",class:"halo",style:"font:700 22px var(--display);fill:var(--blue)"},br);bt2.textContent="the centre's effect";
 HOOK.rdd=(s,b,anim)=>{
-  const mir=m=>{P4.pg.style.transform=m?"scaleY(-1)":"none";posLb(m);
-    yT.textContent=m?"Outcome 2: exclusion error rate":(b>=3?"Outcome 1: approved ÷ submitted":"applications approved");
-    yT.style.font=b>=3?"700 22px var(--display)":"400 21px var(--body)"; yT.style.fill=b>=3?"var(--ink)":"var(--muted)";
-    lb.querySelector("tspan").textContent=m?"drop =":"jump =";};
-  mir(false);
-  if(b>=3){ if(anim&&b===3) later(()=>mir(true),2600); else mir(true); }
+  pts4.forEach(q=>{ const on=b>=3&&q.treat; q.inner.style.transitionDelay=(anim&&b===3&&on)?(700+(q.x-65)*28)+"ms":"0ms";
+    q.inner.classList.toggle("t",on); q.inner.style.transform=on?`translateY(${q.dy}px)`:"none"; });
+  pg4.classList.toggle("dim",b>=5);
 };
 /* slide 5 */
 const svg5=document.getElementById("rdd5");
-const P5=plot(svg5,200,1400,120,480,{anim:false});
-const bandL=E("text",{y:462,"text-anchor":"end",style:"font:700 22px var(--display);fill:var(--amber)"},svg5);bandL.textContent="No centre: 60–64.9";
-const bandR=E("text",{y:462,style:"font:700 22px var(--display);fill:var(--blue)"},svg5);bandR.textContent="Centre: 65–70";
+const P5=plot(svg5,200,1400,120,480,{anim:false,ylo:10,yhi:50,ticks:[10,20,30,40,50]});
+{const t=E("text",{"text-anchor":"middle",transform:"translate(120 300) rotate(-90)",style:"font:400 19px var(--body);fill:var(--muted)"},svg5);t.textContent="families left out (%)";}
+const bandL=E("text",{y:146,"text-anchor":"end",style:"font:700 22px var(--display);fill:var(--amber)"},svg5);bandL.textContent="No centre: 60–64.9";
+const bandR=E("text",{y:146,style:"font:700 22px var(--display);fill:var(--blue)"},svg5);bandR.textContent="Centre: 65–70";
 const xl5=E("text",{x:800,y:540,"text-anchor":"middle",style:"font:400 20px var(--body);fill:var(--muted)"},svg5);xl5.textContent="vulnerability score";
 [P5.lw,P5.rw,P5.bw].forEach(g=>g.style.display="none");
 function setBand(h){ const x0=P5.xs(Math.max(40,65-h)), x1=P5.xs(Math.min(90,65+h));
@@ -833,6 +899,7 @@ HOOK.cmp=(s,b,anim)=>{
 (function(){
   const g=document.getElementById("dgrid");
   [30,40,50,60].forEach(v=>{const y=690-(v-30)*12; E("line",{x1:140,x2:1300,y1:y,y2:y,stroke:"var(--rule)","stroke-width":1},g); const t=E("text",{x:130,y:y+7,"text-anchor":"end",style:"font:400 19px var(--body);fill:var(--muted)"},g);t.textContent=v+"%"});
+  {const t=E("text",{"text-anchor":"middle",transform:"translate(70 510) rotate(-90)",style:"font:400 19px var(--body);fill:var(--muted)"},g);t.textContent="applications approved";}
   const ft=document.getElementById("ftoks");
   for(let i=0;i<8;i++){const w=E("g",{class:"ftok",style:`animation-delay:${-i*.45}s`},ft); const p=E("g",{transform:"translate(200,210)"},w); shape(i%4,p,"var(--blue)","none")}
   const cp=document.getElementById("cpeople");
