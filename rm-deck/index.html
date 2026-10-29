@@ -28,7 +28,7 @@ svg text{font-family:var(--body);fill:var(--ink)}
 /* beat engine */
 [data-in],[data-out]{opacity:0;transform:var(--from,translateY(18px));transition:opacity .5s ease,transform .75s cubic-bezier(.2,.8,.2,1)}
 [data-in].on,[data-out].on{opacity:1;transform:none}
-[data-in].gone,[data-out].gone{opacity:0;transform:var(--to,translateY(-12px));pointer-events:none}
+[data-in].gone,[data-out].gone{opacity:0;transform:var(--to,translateY(-12px));pointer-events:none;transition-delay:0s!important;transition-duration:.3s!important}
 svg [data-in],svg [data-out]{transform-box:fill-box;transform-origin:var(--o,center)}
 .draw{stroke-dasharray:1 1;stroke-dashoffset:1;transition:stroke-dashoffset 1s ease,opacity .3s!important}
 .draw.on{stroke-dashoffset:0}
@@ -145,6 +145,12 @@ svg [data-in],svg [data-out]{transform-box:fill-box;transform-origin:var(--o,cen
 /* slide 5 */
 .panel{position:absolute;border:2px solid var(--rule);border-radius:22px;padding:22px 26px;background:#fff}
 .panel h4{margin:0 0 6px;font:700 26px/1.1 var(--display)}
+.bal{border-collapse:collapse;width:100%;margin-top:10px}
+.bal th,.bal td{padding:7px 8px;border-bottom:1.5px solid var(--rule);text-align:right;font:400 22px/1.2 var(--body)}
+.bal th{font:700 20px/1.15 var(--display)} .bal th span{font:400 16px var(--body);color:var(--muted)}
+.bal td:first-child,.bal th:first-child{text-align:left;color:var(--muted)}
+.bal td{font-variant-numeric:tabular-nums;font-weight:700}
+.bal tr:last-child td{border-bottom:none}
 .flip{position:absolute;width:453px;height:300px;perspective:1400px}
 .flip .in{position:absolute;inset:0;transform-style:preserve-3d;transition:transform .7s cubic-bezier(.3,.7,.2,1)}
 .flip.flipped .in{transform:rotateY(180deg)}
@@ -381,16 +387,37 @@ svg [data-in],svg [data-out]{transform-box:fill-box;transform-origin:var(--o,cen
 </section>
 
 <!-- ================= SLIDE 5: compare + threats ================= -->
-<section class="slide" data-key="cmp" data-beats="5">
+<section class="slide" data-key="cmp" data-beats="11">
   <div class="plabel"><b>5</b>Who do we compare, and what could fool us? <span style="font-weight:500">Tasks 4 and 5</span></div>
   <svg id="rdd5" class="abs" style="left:0;top:0" width="1600" height="900" viewBox="0 0 1600 900" data-out="4"></svg>
-  <div class="panel" data-in="3" data-out="4" style="left:200px;top:574px;width:580px;height:270px">
-    <h4>Balance check (year before)</h4>
-    <svg width="528" height="190" id="bal"></svg>
+  <div class="abs" data-in="1" data-out="2" style="left:200px;top:590px;width:1200px;transition-delay:1.2s">
+    <div style="font:700 34px/1.25 var(--display)">We only compare GPs just either side of 65.</div>
+    <div class="t26 muted" style="margin-top:12px">Far from the line, villages differ in poverty, not just in whether they got a centre.</div>
   </div>
-  <div class="panel" data-in="3" data-out="4" style="left:820px;top:574px;width:580px;height:270px;transition-delay:.2s">
-    <h4>Spillover: drop next-door GPs</h4>
-    <svg width="528" height="190" id="spill"></svg>
+  <div class="panel" data-in="2" data-out="4" style="left:200px;top:574px;width:580px;height:280px">
+    <h4>Balance check: alike last year?</h4>
+    <table class="bal">
+      <tr><th></th><th style="color:var(--amber)">60–64.9<br><span>no centre</span></th><th style="color:var(--blue)">65–70<br><span>centre</span></th></tr>
+      <tr><td>Approval rate</td><td>57%</td><td>58%</td></tr>
+      <tr><td>Population</td><td>4,900</td><td>5,000</td></tr>
+      <tr><td>Km to bank</td><td>12.1</td><td>11.8</td></tr>
+    </table>
+  </div>
+  <div class="panel" data-in="3" data-out="4" style="left:820px;top:574px;width:580px;height:280px">
+    <h4>Spillover: leave out next-door GPs</h4>
+    <svg width="528" height="150" viewBox="0 0 528 150">
+      <rect x="20" y="30" width="64" height="64" rx="10" fill="var(--blue)"/>
+      <text x="52" y="124" text-anchor="middle" style="font:700 19px var(--display)">Centre GP</text>
+      <circle cx="232" cy="62" r="32" fill="#fff" stroke="var(--amber)" stroke-width="4"/>
+      <path d="M196 62 L100 62" stroke="var(--ink)" stroke-width="3" stroke-dasharray="7 6" fill="none"/>
+      <polyline points="112,52 100,62 112,72" fill="none" stroke="var(--ink)" stroke-width="3"/>
+      <line x1="206" y1="36" x2="258" y2="88" stroke="var(--ink)" stroke-width="5"/><line x1="258" y1="36" x2="206" y2="88" stroke="var(--ink)" stroke-width="5"/>
+      <text x="232" y="124" text-anchor="middle" style="font:700 19px var(--display)">Next door: drop</text>
+      <circle cx="440" cy="62" r="32" fill="#fff" stroke="var(--amber)" stroke-width="4"/>
+      <text x="440" y="72" text-anchor="middle" style="font:800 28px var(--display);fill:var(--blue)">✓</text>
+      <text x="440" y="124" text-anchor="middle" style="font:700 19px var(--display)">Far away: keep</text>
+    </svg>
+    <div class="t20 muted" style="margin-top:2px">Families next door could walk to the centre, so they aren't a clean comparison.</div>
   </div>
   <!-- slope vs step -->
   <div class="panel" data-in="4" data-out="5" style="left:160px;top:130px;width:620px;height:460px">
@@ -537,10 +564,16 @@ const NOTES={
   "Task 3: running variable is the score, cutoff is 65, treatment is a working centre, and two outcomes: approval rate and exclusion error rate.",
   "This holds only if there are enough GPs near the line, no manipulation, nothing else at 65, and the rule is followed. And it's a local estimate, for GPs near 65."],
  cmp:["Task 4: we compare only GPs close to the line, 60 to 64.9 against 65 to 70. A GP at 90 and one at 20 differ in poverty, not just centres.",
-  "Narrower means closer twins but fewer GPs; wider means more GPs but less alike. We use ±5 and check ±3 and ±8.",
-  "We check both sides looked the same last year, and drop comparison GPs right next to a centre, since their families could walk over.",
+  "Before looking at results, we check both sides looked the same last year. They did, so it's a fair comparison.",
+  "We also leave out comparison GPs right next to a centre, because their families could just walk over.",
   "Task 5: poverty and connectivity do affect welfare, but smoothly. RDD absorbs that slope. Only something else jumping at 65 would compromise the design.",
-  "Here's what could fake a jump, and how we'd catch each. Slow down on manipulation and the year-before test."],
+  "So what could fake a jump? Six possibilities. Let's take them one at a time.",
+  "Manipulation: officials push favoured GPs over 65. We count GPs at each score; a pile-up just above 65 is a red flag.",
+  "Another scheme uses the same cutoff. We list every scheme using the score and exclude or control for any at 65.",
+  "The 65+ side was already ahead. We run the same test on the year before: there should be no jump.",
+  "Chance. We try fake cutoffs at 55 and 75: no jump should appear there.",
+  "Spillover: comparison families use a nearby centre. We drop neighbouring GPs.",
+  "Rule not followed or outdated scores. We use a fuzzy RDD and report the effect of eligibility and of actually having a centre."],
  did:["If RDD fails, our backup is Difference-in-Differences. Centre GPs went 40 to 60, up 20. Similar GPs without centres went 45 to 50, up 5.",
   "That +5 is what the year did to everyone. Subtract it: the centre's effect is 15 points. We compare improvements, not levels.",
   "Key assumption: parallel trends. We check it with earlier years of PDS and pension records, and a placebo start date.",
@@ -712,8 +745,8 @@ function plot(svg,X0,X1,Y0,Y1,opt){
   E("line",{x1:X0,x2:X0,y1:Y0,y2:Y1,stroke:"var(--ink)","stroke-width":2},ax);
   for(let v=40;v<=90;v+=10){const t=E("text",{x:xs(v),y:Y1+32,"text-anchor":"middle",style:"font:400 20px var(--body);fill:var(--muted)"},ax);t.textContent=v}
   o.yt=[];[20,40,60,80].forEach(v=>{E("line",{x1:X0,x2:X1,y1:ys(v),y2:ys(v),stroke:"var(--rule)","stroke-width":1},ax);const t=E("text",{x:X0-12,y:ys(v)+7,"text-anchor":"end",style:"font:400 20px var(--body);fill:var(--muted)"},ax);t.textContent=v+"%";o.yt.push([t,v])});
-  E("line",{x1:xs(65),x2:xs(65),y1:Y0-14,y2:Y1+6,stroke:"var(--ink)","stroke-width":3,"stroke-dasharray":"9 7"},ax);
-  const l65=E("text",{x:xs(65)+10,y:Y0+10,style:"font:800 30px var(--display);fill:var(--blue)"},ax);l65.textContent="65";
+  E("line",{x1:xs(65),x2:xs(65),y1:Y0-44,y2:Y1+6,stroke:"var(--ink)","stroke-width":3,"stroke-dasharray":"9 7"},ax);
+  const l65=E("text",{x:xs(65)+10,y:Y0-18,style:"font:800 30px var(--display);fill:var(--blue)"},ax);l65.textContent="65";
   o.pg=E("g",{},svg);
   o.marks=PTS.map((p,i)=>{
     const g=E("g",opt.anim?{"data-in":"2",style:`--from:scale(0);transition-delay:${(i*6)}ms`}:{},o.pg);
@@ -765,42 +798,17 @@ HOOK.rdd=(s,b,anim)=>{
 /* slide 5 */
 const svg5=document.getElementById("rdd5");
 const P5=plot(svg5,200,1400,120,480,{anim:false});
-const readout=E("text",{x:1400,y:84,"text-anchor":"end",style:"font:700 24px var(--display)"},svg5);
-const bandL=E("text",{y:462,"text-anchor":"end",style:"font:700 20px var(--display);fill:var(--amber)"},svg5);bandL.textContent="Comparison: 60–64.9";
-const bandR=E("text",{y:462,style:"font:700 20px var(--display);fill:var(--blue)"},svg5);bandR.textContent="Treatment: 65–70";
+const bandL=E("text",{y:462,"text-anchor":"end",style:"font:700 22px var(--display);fill:var(--amber)"},svg5);bandL.textContent="No centre: 60–64.9";
+const bandR=E("text",{y:462,style:"font:700 22px var(--display);fill:var(--blue)"},svg5);bandR.textContent="Centre: 65–70";
 const xl5=E("text",{x:800,y:540,"text-anchor":"middle",style:"font:400 20px var(--body);fill:var(--muted)"},svg5);xl5.textContent="vulnerability score";
-let H5=0;
-function setBand(h){H5=h; const x0=P5.xs(Math.max(40,65-h)), x1=P5.xs(Math.min(90,65+h));
+[P5.lw,P5.rw,P5.bw].forEach(g=>g.style.display="none");
+function setBand(h){ const x0=P5.xs(Math.max(40,65-h)), x1=P5.xs(Math.min(90,65+h));
   P5.band.setAttribute("x",x0);P5.band.setAttribute("width",x1-x0);
-  P5.marks.forEach((g,i)=>g.setAttribute("opacity",h<.5||Math.abs(PTS[i].x-65)<=h?1:.16));
+  P5.marks.forEach((g,i)=>g.setAttribute("opacity",h<.5||Math.abs(PTS[i].x-65)<=h?1:.15));
   bandL.setAttribute("x",P5.xs(65)-12);bandR.setAttribute("x",P5.xs(65)+12);
-  const lo=Math.round(65-h), hi=Math.round(65+h); bandL.textContent=`Comparison: ${lo}–64.9`; bandR.textContent=`Treatment: 65–${hi}`;
-  bandL.setAttribute("opacity",h>1?1:0);bandR.setAttribute("opacity",h>1?1:0);
-  const j=P5.setFit(h<1?25:h); readout.textContent=h>1?`Jump at 65: +${j.toFixed(1)} points  (window ±${Math.round(h)})`:"";
+  bandL.setAttribute("opacity",h>4?1:0);bandR.setAttribute("opacity",h>4?1:0);
 }
-setBand(0); P5.setFit(25);
-/* balance + spillover */
-(function(){
-  const bal=document.getElementById("bal");
-  [["Approval rate",57,58,"%"],["Population (hundreds)",49,50,""],["Km to bank",12.1,11.8," km"]].forEach(([lab,a,c,u],i)=>{
-    const y=24+i*58;
-    const t=E("text",{x:0,y:y+20,style:"font:400 19px var(--body);fill:var(--muted)"},bal);t.textContent=lab;
-    const mx=Math.max(a,c)*1.15;
-    E("rect",{x:200,y:y,width:a/mx*190,height:14,rx:3,fill:"#fff",stroke:"var(--amber)","stroke-width":2.5},bal);
-    E("rect",{x:200,y:y+20,width:c/mx*190,height:14,rx:3,fill:"var(--blue)"},bal);
-    const v=E("text",{x:404,y:y+22,style:"font:700 17px var(--display)"},bal);v.textContent=`${a}${u} vs ${c}${u}`;
-  });
-  const sp=document.getElementById("spill");
-  const C=[[2,1],[5,1]];
-  for(let r=0;r<3;r++)for(let c=0;c<8;c++){
-    const x=24+c*62, y=22+r*56, isC=C.some(([cc,rr])=>cc===c&&rr===r);
-    const adj=!isC&&C.some(([cc,rr])=>Math.abs(cc-c)+Math.abs(rr-r)===1);
-    E("rect",{x:x-26,y:y-22,width:52,height:44,rx:8,fill:isC?"var(--blue-soft)":"var(--wash)",stroke:"var(--rule)"},sp);
-    if(isC) E("rect",{x:x-10,y:y-10,width:20,height:20,fill:"var(--blue)"},sp);
-    else { E("circle",{cx:x,cy:y,r:9,fill:"#fff",stroke:"var(--amber)","stroke-width":2.5,opacity:adj?.35:1},sp);
-      if(adj){E("line",{x1:x-13,y1:y-13,x2:x+13,y2:y+13,stroke:"var(--ink)","stroke-width":2.5},sp);E("line",{x1:x+13,y1:y-13,x2:x-13,y2:y+13,stroke:"var(--ink)","stroke-width":2.5},sp)} }
-  }
-})();
+setBand(0);
 /* threat cards */
 const FL=[
  ["Score manipulation","Officials push favoured GPs from 63 to 66.","Density test","Count GPs in narrow score bins: a pile-up just above 65 is a red flag."],
@@ -818,13 +826,8 @@ FL.forEach(([t,d,ck,ex],i)=>{
   flipsEl.appendChild(el); flips.push(el);
 });
 HOOK.cmp=(s,b,anim)=>{
-  if(b>=1){
-    if(anim&&b===1){setBand(0);later(()=>tween(0,5,900,setBand),300)}
-    else if(anim&&b===2){[[3,0],[8,1500],[5,3000]].forEach(([h,t])=>later(()=>tween(H5,h,800,setBand),t))}
-    else setBand(5);
-  }
-  flips.forEach(f=>f.classList.remove("flipped"));
-  if(b>=5){ if(anim&&b===5) flips.forEach((f,i)=>later(()=>f.classList.add("flipped"),1200+i*650)); else flips.forEach(f=>f.classList.add("flipped")); }
+  if(b>=1){ if(anim&&b===1){setBand(0);later(()=>tween(0,5,1000,setBand),400)} else setBand(5); }
+  flips.forEach((f,i)=>f.classList.toggle("flipped",b>=6+i));
 };
 /* slide 6 */
 (function(){
